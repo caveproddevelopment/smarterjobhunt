@@ -12,10 +12,27 @@ def init_pool(app):
     _pool = SimpleConnectionPool(1, 10, dsn=app.config["DATABASE_URL"])
 
 
+def _is_connection_alive(conn):
+    """Run a cheap query to check the connection hasn't been dropped."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+
 def get_db():
     """Return a pooled connection for this request, creating one if needed."""
     if "db_conn" not in g:
-        g.db_conn = _pool.getconn()
+        conn = _pool.getconn()
+
+        if not _is_connection_alive(conn):
+            # Connection is stale/dead — discard it and get a fresh one
+            _pool.putconn(conn, close=True)
+            conn = _pool.getconn()
+
+        g.db_conn = conn
     return g.db_conn
 
 

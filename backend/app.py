@@ -2,7 +2,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 from config import Config
-from db.connection import init_pool, register_teardown
+from db.connection import init_pool, register_teardown, get_cursor
 from routes import auth, job_status, jobs, saved_searches
 
 
@@ -22,7 +22,13 @@ def create_app():
 
     @app.get("/api/health")
     def health():
-        return jsonify({"status": "ok"})
+        try:
+            cur = get_cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+            return jsonify({"status": "ok", "database": "connected"})
+        except Exception as e:
+            return jsonify({"status": "error", "database": "disconnected", "detail": str(e)}), 500
 
     return app
 
