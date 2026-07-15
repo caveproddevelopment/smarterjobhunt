@@ -1,0 +1,51 @@
+# ==== Environment / Secrets ====
+.env
+.env.*
+!.env.example
+*.env
+
+# ==== Python (backend, agent) ====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+instance/
+*.db
+*.sqlite3
+
+# ==== Node / React / Vite (frontend) ====
+node_modules/
+dist/
+dist-ssr/
+build/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==== Logs ====
+*.log
+logs/
+
+# ==== OS files ====
+.DS_Store
+Thumbs.db
+
+# ==== Editor ====
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# ==== Misc ====
+*.tmp
+*.bak

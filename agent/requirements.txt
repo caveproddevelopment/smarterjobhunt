@@ -1,0 +1,6 @@
+requests
+playwright
+gradio
+pandas
+psycopg2-binary
+python-dotenv

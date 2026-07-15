@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand palette, pulled from the logo's cool-arc / flame-arc marks */
+  --color-ember: #E24B34;
+  --color-flame: #F2872E;
+  --color-spark: #FBC63B;
+  --color-sky: #6FB3E0;
+  --color-moss: #2E9E63;
+  --color-ink: #1B1D22;
+  --color-ink-soft: #565A63;
+  --color-paper: #FCFBF9;
+  --color-mist: #F1EFEA;
+  --color-line: #E4E1DA;
+
+  --font-display: "Bricolage Grotesque", "Segoe UI", sans-serif;
+  --font-body: "Inter", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+
+/* Flame-gradient utility, reused across CTAs and the signature ring */
+.flame-gradient {
+  background: linear-gradient(135deg, var(--color-ember) 0%, var(--color-flame) 55%, var(--color-spark) 100%);
+}
+
+.flame-text-gradient {
+  background: linear-gradient(135deg, var(--color-ember) 0%, var(--color-flame) 60%, var(--color-spark) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

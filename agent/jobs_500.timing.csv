@@ -1,0 +1,501 @@
+company_name,path,elapsed_seconds,jobs_found
+Parallel,ats_api,1.8,10
+Reactor,unknown,1.91,0
+Antares,ats_api,0.79,0
+Astrocade,ats_api,2.71,0
+CodeRabbit,ats_api,2.92,0
+Scout Space,ats_api,2.95,0
+Axoft,unknown,3.14,0
+Coram AI,ats_api,0.55,0
+Poetic,ats_api,0.43,0
+Terra AI,ats_api,1.18,0
+Posh,ats_api,1.16,0
+Gray Swan,ats_api,4.37,0
+Lassie,ats_api,0.77,0
+Allocate,career_scrape,4.86,20
+Knox,ats_api,0.62,0
+Zocks,ats_api,1.22,16
+Monaco,unknown,0.71,0
+Venus Aerospace,ats_api,1.17,13
+Nectar Social,ats_api,0.54,0
+Novig,ats_api,0.79,0
+DG Matrix,career_scrape,4.6,2
+RemotePass,career_scrape,6.69,0
+equipifi,career_scrape,6.78,3
+GridCARE,ats_api,0.54,0
+Phoenix Tailings,ats_api,2.21,52
+Star Catcher,ats_api,0.42,9
+WorkWhile,unknown,0.53,0
+PointFive,ats_api,1.13,0
+Scout AI,career_scrape,5.08,2
+FINNY,career_scrape,5.5,1
+Inspiren,ats_api,0.5,16
+StackAI,ats_api,2.29,0
+Resolve.ai,ats_api,1.15,0
+depthfirst,career_scrape,4.82,10
+Eisen,ats_api,0.54,0
+City Therapeutics,ats_api,0.67,6
+Mosh,unknown,1.17,0
+Countable Labs,unknown,0.62,0
+Picogrid,career_scrape,3.62,0
+Triomics,ats_api,0.94,0
+Higgsfield,ats_api,5.11,0
+EDGE Markets,unknown,0.88,0
+GovWell,ats_api,1.59,0
+Novellia,career_scrape,4.04,0
+Lunar Outpost,career_scrape,4.78,1
+Ivo,ats_api,0.61,0
+InstaLILY AI,ats_api,1.09,24
+Firestorm,career_scrape,5.79,0
+Nominal,ats_api,0.57,0
+Sekai,ats_api,1.48,0
+Contraline,career_scrape,3.27,1
+Blacksmith,unknown,1.51,0
+Giga,ats_api,1.66,0
+Judgment Labs,ats_api,1.16,0
+Condor Software,ats_api,0.8,0
+Featherless.ai,unknown,1.0,0
+Pace,unknown,0.88,0
+Stand,career_scrape,3.61,1
+Wealth.com,ats_api,10.43,0
+Bluefish,ats_api,0.77,28
+BranchLab,ats_api,1.36,0
+Canals,ats_api,0.77,0
+Outmarket AI,career_scrape,3.97,22
+Lastwall,career_scrape,3.9,12
+Benefitbay,unknown,1.07,0
+Enzo Health,career_scrape,3.5,1
+Orkes,ats_api,0.86,17
+ChipAgents,ats_api,1.27,0
+Board,unknown,1.87,0
+Greenboard,ats_api,0.95,0
+Uncountable,career_scrape,5.31,2
+OpenFX,ats_api,0.5,32
+Overland AI,career_scrape,3.12,1
+9amHealth,ats_api,0.9,0
+Harper,ats_api,0.62,0
+Fun,career_scrape,3.37,10
+Jump,career_scrape,5.92,1
+CREW Carbon,career_scrape,4.36,8
+Chptr,unknown,1.29,0
+Observable Space,ats_api,0.83,0
+Wirestock,unknown,1.3,0
+Belo,unknown,1.36,0
+Catena Labs,ats_api,1.89,0
+OpenObserve,ats_api,1.05,0
+Coverbase,ats_api,2.23,0
+Augment,ats_api,1.39,0
+Counsel Health,ats_api,0.63,0
+CircuitHub,ats_api,1.06,0
+Latus Bio,unknown,0.59,0
+Actively AI,ats_api,1.25,0
+Roadrunner,ats_api,0.45,6
+Forage,career_scrape,4.54,2
+GovDash,ats_api,1.64,0
+AirOps,ats_api,0.59,0
+Forerunner,ats_api,0.94,0
+Garage,ats_api,1.29,0
+Billables AI,career_scrape,3.52,6
+Emergent,unknown,18.39,0
+DeepIP,unknown,0.59,0
+Datacurve,career_scrape,3.39,3
+HOPPR,ats_api,2.64,0
+Reco,career_scrape,3.69,13
+Jump,ats_api,0.88,0
+Opus,ats_api,1.06,0
+Superstate,ats_api,0.76,4
+Outtake,ats_api,0.94,0
+Talos,career_scrape,5.08,20
+Expo,career_scrape,3.42,1
+Advanced NanoTherapies,unknown,1.21,0
+Northwood Space,ats_api,5.14,0
+Vibe,ats_api,0.87,0
+Aalyria,unknown,0.58,0
+ditto,career_scrape,4.27,2
+Linx Security,career_scrape,6.65,4
+Flok Health,career_scrape,5.6,20
+Railway,career_scrape,3.84,17
+1mind,ats_api,0.85,0
+Kula Bio,career_scrape,4.24,3
+Collate,ats_api,1.02,19
+SkyFi®,career_scrape,4.39,1
+Aaru,career_scrape,3.75,13
+Charta Health,career_scrape,5.07,2
+Aumet,career_scrape,15.74,1
+Flex,ats_api,0.47,53
+Texture,ats_api,1.34,0
+Delve,ats_api,1.39,0
+Fulcrum,career_scrape,4.24,11
+Photon,career_scrape,4.09,1
+Darwin AI,career_scrape,4.96,1
+BlossomHill Therapeutics,career_scrape,4.36,4
+Tavo Biotherapeutics,unknown,0.91,0
+Mammogen,unknown,0.83,0
+LTZ Therapeutics,career_scrape,7.81,1
+Dandelion Health AI,ats_api,1.11,0
+Tessera Labs,unknown,1.88,0
+Anello Photonics,ats_api,1.36,7
+Alitheon,unknown,1.68,0
+Listen Labs,career_scrape,8.12,7
+Fathom Therapeutics,unknown,1.08,0
+FurtherAI,unknown,1.2,0
+Sift,ats_api,2.02,0
+Paradigm,ats_api,0.46,1
+SignalRank,career_scrape,3.8,1
+Oorja Bio,unknown,0.99,0
+Doctronic,ats_api,2.07,0
+Antaris,career_scrape,4.38,1
+Daytona,career_scrape,4.82,1
+Transient.AI,unknown,0.53,0
+Portal Space Systems,career_scrape,4.27,3
+701x,career_scrape,3.49,5
+Solstice Health,ats_api,1.51,0
+Mariana Minerals,ats_api,0.69,0
+Weave,ats_api,0.45,8
+Laminar,career_scrape,3.47,8
+OpenLight,career_scrape,6.08,1
+Eyebot,ats_api,0.72,0
+Viktor,ats_api,0.64,0
+Nova Intelligence,ats_api,1.61,0
+Venice,career_scrape,3.88,9
+Ostium,ats_api,0.55,0
+Rep AI,career_scrape,3.36,11
+Kanvas Biosciences,career_scrape,5.89,3
+Cinder Technologies,ats_api,1.04,0
+Darkhive,unknown,0.76,0
+InsightFinder AI,career_scrape,4.75,0
+Basata,unknown,0.57,0
+SWARM,career_scrape,4.11,5
+Courier Health,ats_api,0.79,24
+Project Eleven,career_scrape,4.01,0
+Halcyon,ats_api,0.42,9
+Alcatraz AI,career_scrape,3.33,1
+Arzeda,career_scrape,3.61,1
+Dodai,unknown,1.82,0
+Amperos,ats_api,1.69,0
+Rune Technologies,ats_api,0.84,0
+Lettuce Financial,unknown,2.45,0
+Manifest OS,ats_api,1.2,0
+Stipple Bio,unknown,1.59,0
+Ownwell,ats_api,0.43,12
+Fortem Technologies,unknown,1.3,0
+Cedar,career_scrape,6.07,7
+RAPIDFORT,career_scrape,3.29,8
+Altesa,unknown,6.84,0
+Stars + Honey,unknown,1.59,0
+Cogent Security,ats_api,1.37,0
+Jazz,career_scrape,4.39,9
+Nudge Security,career_scrape,6.42,0
+Echo,career_scrape,3.58,13
+Crossover Markets Group,unknown,5.44,0
+Ethermed,career_scrape,3.49,2
+Vori,ats_api,0.88,0
+Kobalt Labs,unknown,0.96,0
+Cambium,career_scrape,5.12,5
+Selector,career_scrape,6.39,1
+definity,unknown,1.26,0
+Aqtual,unknown,0.82,0
+Tavus,ats_api,1.21,0
+Matia,unknown,0.93,0
+TransFi,career_scrape,7.41,14
+Articul8,unknown,1.32,0
+Polsia,unknown,0.94,0
+ZaiNar,career_scrape,3.51,0
+BetHog,unknown,2.46,0
+Zip Security,career_scrape,4.36,1
+Keycard,ats_api,0.54,0
+Vêtir,ats_api,0.82,8
+Native,career_scrape,5.2,12
+Braintrust,ats_api,1.86,0
+Osmo,ats_api,2.06,0
+Artie,ats_api,1.4,0
+Statusphere,career_scrape,4.73,1
+AfterQuery,ats_api,1.11,0
+Patlytics,ats_api,1.96,0
+Gridline,ats_api,1.4,4
+Protege,ats_api,6.42,0
+PointOne,ats_api,2.09,0
+Marble,career_scrape,5.38,2
+Arcjet,unknown,1.87,0
+Truemed,career_scrape,8.41,3
+Zenskar,career_scrape,6.58,0
+Pharos,unknown,1.21,0
+Bobyard,unknown,6.97,0
+Corridor,career_scrape,5.39,8
+Sundayapp,unknown,3.59,0
+BoldVoice,career_scrape,22.04,0
+Simile,ats_api,0.77,0
+Arintra,career_scrape,10.75,3
+AmplifyMD,career_scrape,4.68,1
+Trayd,career_scrape,4.82,4
+Veda,ats_api,1.11,3
+Sparrow,ats_api,1.68,0
+CopilotKit,ats_api,0.79,2
+Collate,ats_api,1.11,19
+Shepherd,ats_api,0.49,0
+Exowatt,ats_api,1.1,17
+Blue Water Autonomy,unknown,1.1,0
+Glimpse,ats_api,0.65,0
+Ever,ats_api,0.53,31
+Develo,unknown,0.99,0
+Sundial,unknown,1.49,0
+Terra CO2 Technologies,unknown,2.0,0
+Swarm Aero,ats_api,0.97,0
+Fleet Device Management,career_scrape,5.21,0
+Novella,unknown,0.84,0
+BriefCatch,unknown,1.54,0
+Vinci,ats_api,2.79,0
+Comfy,ats_api,1.84,0
+PlayerZero,ats_api,1.8,0
+Perelel,unknown,1.22,0
+Clarasight,unknown,1.02,0
+Standard Intelligence,career_scrape,3.9,0
+Crossbow Therapeutics,ats_api,0.67,0
+BreezeBio,ats_api,3.29,4
+Talino Fintech Foundry,unknown,1.55,0
+Mem0,ats_api,1.41,0
+Ilant Health,unknown,18.78,0
+Mastra,ats_api,2.44,0
+Yuzu Health,career_scrape,5.74,14
+Circular Genomics,career_scrape,5.31,1
+Dispatch,ats_api,0.48,0
+april,ats_api,5.58,0
+Handle,career_scrape,5.82,1
+Beacon Biosignals,career_scrape,6.1,15
+Pursuit,ats_api,0.53,7
+Reveal Technology,ats_api,1.35,4
+Cognichip,career_scrape,7.22,35
+Airis Labs,unknown,1.08,0
+Fesarius Therapeutics,unknown,0.95,0
+Hoverfly,career_scrape,13.18,1
+SimpliFed,ats_api,0.51,18
+Axion,ats_api,1.64,0
+Glyphic Biotechnologies,ats_api,15.69,6
+Consensus,unknown,0.98,0
+Monarch Quantum,career_scrape,5.11,1
+Onyx Security,career_scrape,4.24,8
+Juvena Therapeutics,career_scrape,5.85,1
+Acelab,career_scrape,8.87,5
+LighthouseAI,career_scrape,5.83,1
+Osteoboost,unknown,2.43,0
+TULU,career_scrape,10.87,1
+NetBox Labs,career_scrape,10.09,9
+Ocean,career_scrape,10.14,1
+Alaffia Health,career_scrape,11.51,16
+Vyriad,career_scrape,9.02,1
+Sixfold AI,ats_api,3.24,3
+Keebler Health,unknown,2.45,0
+Humanly.io,career_scrape,14.4,3
+Courtyard,ats_api,5.13,12
+Latent,ats_api,0.98,0
+Accrual,career_scrape,44.74,0
+BrightAI,ats_api,0.88,15
+Letter AI,unknown,2.09,0
+BrainCheck,career_scrape,7.59,0
+Hyphen,unknown,1.8,0
+Kalogon,ats_api,1.19,4
+Wheel the World,unknown,1.17,0
+Curve Biosciences,unknown,1.07,0
+Sage Geosystems,career_scrape,6.4,0
+Nixtla,unknown,1.26,0
+Nervonik,unknown,3.22,0
+Checkbox,ats_api,1.47,0
+Tamarind Bio,career_scrape,15.84,8
+Synthpop,unknown,1.11,0
+Mezcla,unknown,1.31,0
+Tracebit,career_scrape,3.96,6
+Serval,career_scrape,15.45,2
+Excellergy,unknown,3.51,0
+Joy,unknown,0.74,0
+Clairity,career_scrape,7.19,1
+Radial,unknown,0.43,0
+Ernesta,ats_api,0.44,29
+PeakMetrics,career_scrape,4.61,3
+Mediar Therapeutics,career_scrape,5.19,2
+Forecastr,career_scrape,4.52,0
+AWOL Vision,unknown,1.79,0
+Wispr Flow,ats_api,1.13,0
+Tutor Intelligence,ats_api,3.4,37
+Scalvy,career_scrape,4.4,8
+Curi Bio,career_scrape,6.25,6
+Deeptune,ats_api,0.72,0
+Neros Technologies,ats_api,0.71,62
+Golden Child,unknown,1.48,0
+Rivet Industries,ats_api,1.97,0
+Auctor,ats_api,1.78,0
+Mine,career_scrape,4.94,0
+Xscape Photonics,career_scrape,3.63,1
+Nectir,career_scrape,4.48,7
+Luminai,ats_api,0.92,0
+Gridware,ats_api,1.68,27
+RIIG,career_scrape,3.59,2
+Handl Health,career_scrape,3.55,1
+Artemis,career_scrape,3.85,1
+Rainforest,ats_api,1.15,0
+"Ares Interactive, Inc.",career_scrape,7.65,5
+Deccan AI,career_scrape,5.0,5
+Amigo AI,ats_api,2.05,0
+ProphetX,unknown,0.69,0
+Seasats,unknown,1.3,0
+Fleetzero,ats_api,0.9,8
+Variance,ats_api,1.16,0
+Lemurian Labs,ats_api,0.92,0
+Newo.ai,unknown,1.68,0
+Monk,ats_api,1.44,0
+Arbor Energy,unknown,1.12,0
+Wisdom,ats_api,0.72,0
+When Insurance,unknown,1.0,0
+Ultralytics,ats_api,1.31,0
+Collov Labs,unknown,1.05,0
+Normal Computing,ats_api,0.87,0
+Veracity,unknown,2.11,0
+OpenHands,ats_api,2.14,0
+BIG WATT DIGITAL LLC,unknown,0.9,0
+Basic Capital,ats_api,1.89,0
+Nominal,ats_api,0.61,0
+Fluency,ats_api,0.44,5
+Medra AI,ats_api,1.28,0
+Carecubes,career_scrape,5.15,2
+Dataro,career_scrape,4.07,3
+Azra AI,career_scrape,4.15,1
+Cambio,ats_api,1.43,0
+Console,ats_api,1.77,0
+Warp,ats_api,0.41,3
+Arpio,career_scrape,3.92,1
+Quartermaster AI,ats_api,0.89,0
+Dots,ats_api,0.44,1
+Alex AI,ats_api,1.31,0
+Neomorph,career_scrape,8.05,1
+Freeform,career_scrape,4.71,4
+Fuse,unknown,0.82,0
+Lucid Bots,ats_api,4.71,1
+Critical Loop,ats_api,1.11,0
+Hilbert's AI,ats_api,1.33,0
+JuliaHub,unknown,0.94,0
+MEND,unknown,1.2,0
+Treeline,career_scrape,3.71,6
+Gradial,ats_api,0.48,25
+Cosmos,career_scrape,3.84,3
+NuCicer,unknown,0.98,0
+Attention,career_scrape,3.93,1
+NODA AI,career_scrape,4.2,2
+Strala Group,ats_api,1.6,0
+Gimlet Labs,unknown,1.19,0
+Highlight,ats_api,1.22,0
+Unnatural Products,career_scrape,5.1,2
+PactFi,ats_api,4.3,0
+Parasail,ats_api,0.46,0
+Rowspace,career_scrape,5.55,20
+Aureka Biotechnologies,unknown,5.24,0
+Gyde,ats_api,0.45,3
+iCOUNTER,career_scrape,5.1,11
+Lio,ats_api,1.33,0
+Joyful Health,ats_api,1.29,0
+Agency AI,unknown,1.53,0
+Trillium Renewable Chemicals,unknown,1.55,0
+Jesse & Ben’s,unknown,0.88,0
+Efficient Computer,unknown,1.72,0
+Axiamatic,unknown,2.19,0
+Coral Care,ats_api,1.21,0
+Opaque Systems,ats_api,1.01,5
+Archil,ats_api,0.77,0
+Third Way Health,unknown,2.3,0
+Tombot,unknown,1.55,0
+Parallel Learning,ats_api,1.09,0
+Didero,career_scrape,4.04,1
+Hanover Park,ats_api,1.31,0
+vijil,career_scrape,5.19,0
+Sandbar,ats_api,1.92,0
+Precede Biosciences,ats_api,1.03,2
+Natilus,career_scrape,5.54,1
+Assiduus Global,career_scrape,10.1,1
+Heven AeroTech,career_scrape,19.93,2
+Neok Bio,career_scrape,8.8,0
+Cybord,career_scrape,24.82,0
+TitanX,career_scrape,9.08,0
+DataBahn,career_scrape,6.71,2
+daydream Labs,career_scrape,5.15,2
+Vector,unknown,2.04,0
+Gambit Security,unknown,0.97,0
+BackOps AI,career_scrape,5.65,9
+Turnstile,ats_api,0.74,0
+NanoTech Materials,career_scrape,4.81,0
+Lighthouse Pharma,unknown,0.88,0
+Northslope,ats_api,1.2,0
+WeatherPromise,unknown,2.74,0
+Flying Tulip,unknown,0.68,0
+Plantd,career_scrape,5.92,4
+GoTu,career_scrape,5.23,1
+status,unknown,0.71,0
+E2B,ats_api,2.13,0
+Gruve,ats_api,0.44,30
+Nimble Way,career_scrape,5.6,16
+Anterior,ats_api,0.58,0
+PineTree Therapeutics,unknown,2.16,0
+Certify,ats_api,2.57,0
+YSE Beauty,career_scrape,5.76,1
+Sigma360,career_scrape,3.54,1
+Blossom Health,ats_api,1.71,0
+Spiral Therapeutics,unknown,9.03,0
+FLORA,ats_api,1.93,0
+Brandlight,career_scrape,5.84,3
+Reclaim Security,career_scrape,7.04,1
+AnySignal,career_scrape,4.3,20
+BlueFlag Security,unknown,0.95,0
+Chowbus,ats_api,0.44,69
+Flair,career_scrape,7.03,5
+Avantos,ats_api,0.68,0
+The San Francisco Compute Company,ats_api,1.18,0
+AvoMD,unknown,0.9,0
+Mosaic,ats_api,4.68,0
+Array Labs,ats_api,0.84,0
+WithCoverage,ats_api,0.44,20
+NetFoundry,career_scrape,10.58,1
+Zero Homes,ats_api,2.07,13
+BusRight,unknown,1.32,0
+Heaviside Industries,career_scrape,3.88,10
+XFX,unknown,1.07,0
+Linq,career_scrape,3.72,0
+RenoFi,ats_api,1.35,3
+Astelia,career_scrape,3.43,6
+Avisi Technologies,unknown,10.5,0
+Ognomy Sleep,unknown,1.57,0
+FirmPilot,unknown,0.6,0
+Legion Security,unknown,1.13,0
+Modus,ats_api,0.95,0
+Visitt.io,career_scrape,4.51,1
+Clockwork Systems,ats_api,3.33,9
+Create Wellness,unknown,2.39,0
+Affect,ats_api,2.48,29
+Rebar,ats_api,1.52,0
+Biobeat,career_scrape,7.83,4
+Ease Health,career_scrape,3.75,7
+Flip CX,ats_api,9.54,15
+Splash Sports,unknown,1.7,0
+Arpeggio Bio,career_scrape,3.58,1
+Haast,ats_api,1.99,0
+Warp,ats_api,0.41,3
+Relay,ats_api,0.74,3
+Koah Labs,career_scrape,3.59,8
+Kore,career_scrape,13.84,2
+Lambent,unknown,4.95,0
+Dualitas Therapeutics,unknown,0.75,0
+UnityAI,career_scrape,3.5,3
+Omeza,unknown,1.6,0
+Apella Technology,ats_api,1.42,0
+AWA Studios,unknown,1.93,0
+Humand,unknown,2.67,0
+Third Arc Bio,unknown,1.08,0
+Fellow Health,career_scrape,4.21,2
+Edra,ats_api,1.68,0
+GTE,unknown,1.47,0
+Seifert Dynamics,career_scrape,4.34,1
+Syntis Bio,career_scrape,6.3,1
+Strella,ats_api,1.19,0
+Union.ai,ats_api,1.8,0
+ORAN Development Company,unknown,1.52,0
+Corsera Health,career_scrape,4.15,0
+Fig Security,career_scrape,10.07,3
+Inito,career_scrape,4.88,0
+Qurrent,career_scrape,4.16,1
+MTR,career_scrape,4.27,1
