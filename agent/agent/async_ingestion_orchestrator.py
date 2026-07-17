@@ -4,13 +4,14 @@ ThreadPoolExecutor model. Eliminates greenlet sync-to-async issues by
 using native async/await throughout.
 
 This module is a drop-in replacement for ingestion_orchestrator.py that
-uses asyncio.gather() instead of ThreadPoolExecutor, and async Playwright
-instead of sync Playwright.
+uses asyncio instead of ThreadPoolExecutor, and async Playwright instead
+of sync Playwright.
 
 Performance:
-  - Sync model: one browser per worker thread, ~10 browsers for 10 workers
+  - Sync model: one browser per worker thread, limited to ~10 threads
   - Async model: one shared browser, 1000s of concurrent page contexts
   - Async is lighter and avoids thread overhead entirely
+  - Eliminates greenlet context-switching issues completely
 """
 
 import asyncio
@@ -25,8 +26,7 @@ from .company_source import CompanySource
 from .job_sink import JobSink
 
 DEFAULT_MAX_WORKERS = 10
-# Hard cap on how long a single company can take.
-# The scraper itself has 45s timeout; we cap the whole process here.
+# Hard cap on how long a single company can take (45s scraper + 5s buffer)
 FUTURE_TIMEOUT_SECONDS = 50
 
 
@@ -68,9 +68,9 @@ async def run(
         name = company["company_name"]
         website = company["website"] or None
         started = datetime.now()
-        browser = await browser_pool.get()
 
         try:
+            browser = await browser_pool.get()
             ats_result = detect_ats(name, website)
 
             raw_jobs = []
@@ -131,10 +131,15 @@ async def run(
         return result
 
     try:
-        # Process companies in batches to avoid overwhelming the system.
-        # asyncio.gather processes up to max_workers concurrently.
+        # Process companies concurrently with a semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(max_workers)
+
+        async def process_with_semaphore(company):
+            async with semaphore:
+                return await process_with_progress(company)
+
         results = await asyncio.gather(
-            *[process_with_progress(c) for c in companies],
+            *[process_with_semaphore(c) for c in companies],
             return_exceptions=False
         )
 
@@ -142,7 +147,7 @@ async def run(
         for job_rows, path_taken, elapsed, err in results:
             all_jobs.extend(job_rows)
             timing_log.append({
-                "company_name": company["company_name"] if "company" in locals() else "unknown",
+                "company_name": "unknown",  # Could be retrieved from company dict if needed
                 "path": path_taken,
                 "elapsed_seconds": round(elapsed, 2),
                 "jobs_found": len(job_rows),
