@@ -20,8 +20,19 @@ behavior so this module still works standalone.
 """
 
 import re
+import threading
 from typing import Optional
 from urllib.parse import urljoin
+
+# Hard wall-clock cap on top of Playwright's own per-call timeouts. Belt and
+# suspenders: page.goto() already has a 20s timeout, but that alone doesn't
+# bound the whole function — a page that loads fine and then hangs on
+# something else (an unhandled JS dialog, a stuck client-side redirect, a
+# context.close() that blocks on a pending download) has nothing forcing it
+# to give up. This watchdog force-closes the browser context once the cap is
+# hit, which raises inside whatever Playwright call is in-flight and
+# unblocks it — guaranteeing _scrape_with_browser always returns.
+HARD_TIMEOUT_SECONDS = 45
 
 LISTING_SELECTORS = [
     "a[href*='/job']",
@@ -84,7 +95,16 @@ def _scrape_with_browser(browser, careers_url: str, base_domain: str) -> list[di
             "Chrome/120.0.0.0 Safari/537.36"
         )
     )
+
+    # Watchdog: if this company isn't done within HARD_TIMEOUT_SECONDS,
+    # force-close the context so whatever's blocking (goto, an element call,
+    # ctx.close() itself) gets interrupted instead of hanging indefinitely.
+    watchdog = threading.Timer(HARD_TIMEOUT_SECONDS, lambda: _force_close(ctx))
+    watchdog.daemon = True
+    watchdog.start()
+
     page = ctx.new_page()
+    page.set_default_timeout(15_000)  # catches any action call not given an explicit timeout below
 
     try:
         page.goto(careers_url, timeout=20_000, wait_until="domcontentloaded")
@@ -137,11 +157,19 @@ def _scrape_with_browser(browser, careers_url: str, base_domain: str) -> list[di
     except PWTimeout:
         print(f"[career_scraper] Timeout loading {careers_url}")
     except Exception as e:
-        print(f"[career_scraper] Error: {e}")
+        print(f"[career_scraper] Error scraping {careers_url}: {e}")
     finally:
-        ctx.close()  # closes the context/page; browser itself stays alive for reuse
+        watchdog.cancel()
+        _force_close(ctx)  # no-op if the watchdog already closed it
 
     return jobs
+
+
+def _force_close(ctx) -> None:
+    try:
+        ctx.close()
+    except Exception:
+        pass  # already closed (by us or by the watchdog) — fine either way
 
 
 def find_careers_url_via_playwright(base_url: str, browser=None) -> Optional[str]:
