@@ -41,7 +41,13 @@ async def run(
 
     Returns the same summary dict as the sync orchestrator.
     """
-    completed_count = [0]
+    # Use mutable containers to avoid nonlocal issues
+    state = {
+        "completed_count": 0,
+        "ats_hit_count": 0,
+        "scraped_count": 0,
+        "failed_count": 0,
+    }
 
     def progress(pct: float, msg: str):
         if progress_callback:
@@ -56,9 +62,6 @@ async def run(
     all_jobs: list[dict] = []
     errors: list[str] = []
     timing_log: list[dict] = []
-    ats_hit_count = 0
-    scraped_count = 0
-    failed_count = 0
 
     browser_pool = AsyncBrowserPool()
     run_ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -124,9 +127,9 @@ async def run(
             result = [], "error", 0.0, f"{name}: {e}"
 
         # Update progress
-        completed_count[0] += 1
-        pct = 0.05 + 0.90 * (completed_count[0] / max(total, 1))
-        progress(pct, f"[{completed_count[0]}/{total}] Scraped {name}")
+        state["completed_count"] += 1
+        pct = 0.05 + 0.90 * (state["completed_count"] / max(total, 1))
+        progress(pct, f"[{state['completed_count']}/{total}] Scraped {name}")
 
         return result
 
@@ -143,22 +146,21 @@ async def run(
             return_exceptions=False
         )
 
-        nonlocal ats_hit_count, scraped_count, failed_count
         for job_rows, path_taken, elapsed, err in results:
             all_jobs.extend(job_rows)
             timing_log.append({
-                "company_name": "unknown",  # Could be retrieved from company dict if needed
+                "company_name": "unknown",
                 "path": path_taken,
                 "elapsed_seconds": round(elapsed, 2),
                 "jobs_found": len(job_rows),
             })
 
             if path_taken == "ats_api":
-                ats_hit_count += 1
+                state["ats_hit_count"] += 1
             elif path_taken == "career_scrape":
-                scraped_count += 1
+                state["scraped_count"] += 1
             else:
-                failed_count += 1
+                state["failed_count"] += 1
 
             if err:
                 errors.append(err)
@@ -172,9 +174,9 @@ async def run(
 
     return {
         "companies_total":    total,
-        "companies_ats_hit":  ats_hit_count,
-        "companies_scraped":  scraped_count,
-        "companies_failed":   failed_count,
+        "companies_ats_hit":  state["ats_hit_count"],
+        "companies_scraped":  state["scraped_count"],
+        "companies_failed":   state["failed_count"],
         "jobs_found":         len(all_jobs),
         "errors":             errors,
         "per_company_timing": timing_log,
