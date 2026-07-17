@@ -79,13 +79,77 @@ async def _scrape_with_browser(browser, careers_url: str, base_domain: str) -> l
     )
 
     try:
-        # Wrap in asyncio.timeout for hard cap
-        async with asyncio.timeout(HARD_TIMEOUT_SECONDS):
+        # Wrap in asyncio.wait_for for hard cap (works on Python 3.11+)
+        try:
+            async with asyncio.timeout(HARD_TIMEOUT_SECONDS):
+                page = await ctx.new_page()
+                page.set_default_timeout(15_000)
+
+                try:
+                    await page.goto(careers_url, timeout=20_000, wait_until="domcontentloaded")
+                    await page.wait_for_timeout(2000)
+
+                    links = []
+                    for sel in LISTING_SELECTORS:
+                        try:
+                            els = await page.query_selector_all(sel)
+                            if els:
+                                links = els
+                                break
+                        except Exception:
+                            continue
+
+                    if not links:
+                        links = await page.query_selector_all("a[href]")
+
+                    seen_hrefs = set()
+                    for el in links:
+                        try:
+                            href = await el.get_attribute("href") or ""
+                            text = (await el.inner_text() or "").strip()
+
+                            if not text or not href:
+                                continue
+
+                            if href.startswith("/"):
+                                href = base_domain.rstrip("/") + href
+                            elif not href.startswith("http"):
+                                href = urljoin(careers_url, href)
+
+                            if not _looks_like_job_link(href, text):
+                                continue
+
+                            if href in seen_hrefs:
+                                continue
+                            seen_hrefs.add(href)
+
+                            jobs.append({
+                                "title":      _clean_title(text),
+                                "department": "",
+                                "location":   "",
+                                "apply_url":  href,
+                                "posted_at":  "",
+                            })
+                        except Exception:
+                            continue
+
+                except PWTimeout:
+                    print(f"[async_career_scraper] Timeout loading {careers_url}")
+                except Exception as e:
+                    print(f"[async_career_scraper] Error scraping {careers_url}: {e}")
+                finally:
+                    await page.close()
+
+        except AttributeError:
+            # Python < 3.11: use asyncio.wait_for instead of asyncio.timeout
             page = await ctx.new_page()
             page.set_default_timeout(15_000)
 
             try:
-                await page.goto(careers_url, timeout=20_000, wait_until="domcontentloaded")
+                await asyncio.wait_for(
+                    page.goto(careers_url, timeout=20_000, wait_until="domcontentloaded"),
+                    timeout=HARD_TIMEOUT_SECONDS
+                )
                 await page.wait_for_timeout(2000)
 
                 links = []
@@ -131,16 +195,11 @@ async def _scrape_with_browser(browser, careers_url: str, base_domain: str) -> l
                         })
                     except Exception:
                         continue
-
-            except PWTimeout:
-                print(f"[async_career_scraper] Timeout loading {careers_url}")
-            except Exception as e:
-                print(f"[async_career_scraper] Error scraping {careers_url}: {e}")
+            except asyncio.TimeoutError:
+                print(f"[async_career_scraper] Hard timeout (>{HARD_TIMEOUT_SECONDS}s) on {careers_url}")
             finally:
                 await page.close()
 
-    except asyncio.TimeoutError:
-        print(f"[async_career_scraper] Hard timeout (>{HARD_TIMEOUT_SECONDS}s) on {careers_url}")
     except Exception as e:
         print(f"[async_career_scraper] Context error on {careers_url}: {e}")
     finally:
@@ -157,7 +216,7 @@ async def find_careers_url_via_playwright(base_url: str, browser=None) -> Option
             from playwright.async_api import async_playwright
         except ImportError:
             return None
-        pw = await async_playwright().__aenter__()
+        pw = async_playwright().__aenter__()
         browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
     else:
         pw = None
@@ -184,7 +243,6 @@ async def find_careers_url_via_playwright(base_url: str, browser=None) -> Option
         await ctx.close()
         if owns_browser:
             await browser.close()
-            await pw.__aexit__(None, None, None)
 
     return href_found
 
