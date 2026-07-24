@@ -20,9 +20,15 @@ Same concurrency model as MyJobHunt's job_orchestrator.py: companies
 processed in a thread pool, one persistent Playwright browser per
 worker thread (via BrowserPool) instead of one browser launch per
 company.
+
+TIMEOUT FIX (2026-07-17):
+Added fut.result(timeout=...) at the orchestrator level to prevent
+stuck threads from blocking the entire batch when a future hangs
+(e.g., due to Playwright greenlet issues). Companies that time out
+are skipped and logged as errors, but the batch continues.
 """
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from datetime import datetime, timezone
 from typing import Optional, Callable
 import threading
@@ -35,6 +41,10 @@ from .company_source import CompanySource
 from .job_sink import JobSink
 
 DEFAULT_MAX_WORKERS = 10
+# Timeout per company at the thread pool level. Should be >= the max time
+# a single company can take (ATS API call + Playwright scrape + processing).
+# The scraper itself has a 45s hard timeout; we add 30s buffer here.
+FUTURE_TIMEOUT_SECONDS = 120
 
 
 def run(
@@ -142,7 +152,12 @@ def run(
                     progress(pct, f"[{completed_count[0]}/{total}] Scraped {name}")
 
                 try:
-                    job_rows, path_taken, elapsed, err = fut.result()
+                    # TIMEOUT FIX: prevent hung threads from blocking the batch.
+                    # If a future doesn't complete within FUTURE_TIMEOUT_SECONDS,
+                    # TimeoutError is raised and we skip it.
+                    job_rows, path_taken, elapsed, err = fut.result(timeout=FUTURE_TIMEOUT_SECONDS)
+                except TimeoutError:
+                    job_rows, path_taken, elapsed, err = [], "timeout", 0.0, f"{name}: did not complete within {FUTURE_TIMEOUT_SECONDS}s (possible Playwright hang)"
                 except Exception as e:
                     job_rows, path_taken, elapsed, err = [], "error", 0.0, f"{name}: {e}"
 
@@ -185,3 +200,4 @@ def _extract_domain(url: str) -> str:
     from urllib.parse import urlparse
     p = urlparse(url)
     return f"{p.scheme}://{p.netloc}"
+
