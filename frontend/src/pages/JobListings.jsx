@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
@@ -11,6 +11,7 @@ export default function JobListings() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const sidebarRef = useRef(null)
   const [filters, setFilters] = useState({
     title: searchParams.get('title') || '',
     variants: 10,
@@ -102,25 +103,34 @@ export default function JobListings() {
       .catch((err) => setError(err.message))
   }
 
+  function scrollToFilters() {
+    sidebarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
-    <div className="min-h-screen flame-gradient">
-      <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
-        <Navbar />
+    <div className="min-h-screen bg-paper">
+      <Navbar />
 
-        <main className="px-6 pb-16">
-          <div className="mx-auto max-w-6xl">
-            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line pb-6">
-              <h1 className="font-display text-2xl font-semibold text-ink">
-                Your job listings
-              </h1>
-              <p className="text-sm text-ink-soft">
-                {loading
-                  ? 'Loading…'
-                  : `${totalCount} match${totalCount === 1 ? '' : 'es'} for your current filters`}
+      <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
+        <div className="border border-line">
+          <div className="border-b border-line py-4 text-center">
+            <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>
+            <button
+              type="button"
+              onClick={scrollToFilters}
+              className="mt-1 text-sm text-ember underline decoration-line underline-offset-2 hover:text-flame md:hidden"
+            >
+              Search Criteria
+            </button>
+            {!loading && (
+              <p className="mt-1 text-xs text-ink-soft">
+                {totalCount} match{totalCount === 1 ? '' : 'es'} for your current filters
               </p>
-            </div>
+            )}
+          </div>
 
-            <div className="mt-8 flex flex-col gap-8 md:flex-row">
+          <div className="flex flex-col gap-6 p-6 md:flex-row">
+            <div ref={sidebarRef}>
               <FilterSidebar
                 filters={filters}
                 onFilterChange={setFilters}
@@ -130,35 +140,38 @@ export default function JobListings() {
                 onDeleteSearch={handleDeleteSearch}
                 loggedIn={Boolean(user)}
               />
+            </div>
 
-              <div className="flex-1 space-y-4">
-                {error ? (
-                  <div className="rounded-2xl border border-dashed border-line p-10 text-center text-sm text-ink-soft">
-                    Couldn't load job listings ({error}). Check that the backend is running and
-                    reachable.
-                  </div>
-                ) : !loading && jobs.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-line p-10 text-center text-sm text-ink-soft">
-                    No roles match those filters yet. Try widening your search or checking
-                    back after the next scrape.
-                  </div>
-                ) : (
-                  jobs.map((job) => (
+            <div className="flex-1">
+              {error ? (
+                <div className="border border-dashed border-line p-10 text-center text-sm text-ink-soft">
+                  Couldn't load job listings ({error}). Check that the backend is running and
+                  reachable.
+                </div>
+              ) : !loading && jobs.length === 0 ? (
+                <div className="border border-dashed border-line p-10 text-center text-sm text-ink-soft">
+                  No roles match those filters yet. Try widening your search or checking
+                  back after the next scrape.
+                </div>
+              ) : (
+                <div className="border border-line divide-y divide-line">
+                  {jobs.map((job, index) => (
                     <JobCard
                       key={job.id}
                       job={job}
                       status={getStatus(job.id)}
                       onStatusChange={(status) => setStatus(job.id, status)}
+                      shaded={index % 2 === 1}
                     />
-                  ))
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        </main>
+        </div>
+      </main>
 
-        <Footer />
-      </div>
+      <Footer />
     </div>
   )
 }

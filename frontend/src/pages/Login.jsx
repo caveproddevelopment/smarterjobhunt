@@ -8,6 +8,7 @@ export default function Login() {
   const [searchParams] = useSearchParams()
   const [mode, setMode] = useState('login') // 'login' | 'register'
   const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [errorCode, setErrorCode] = useState(null)
@@ -32,7 +33,7 @@ export default function Login() {
         await login(email, password)
         navigate('/dashboard')
       } else {
-        await register(email, password)
+        await register(username, email, password)
         setPendingVerificationEmail(email)
       }
     } catch (err) {
@@ -115,6 +116,27 @@ export default function Login() {
           )}
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            {mode === 'register' && (
+              <div>
+                <label htmlFor="username" className="text-sm font-medium text-ink">
+                  Username
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  required
+                  minLength={3}
+                  maxLength={20}
+                  pattern="[a-zA-Z0-9_]+"
+                  title="Letters, numbers, and underscores only"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
+                />
+                <p className="mt-1 text-xs text-ink-soft">3–20 characters. Letters, numbers, and underscores only.</p>
+              </div>
+            )}
+
             <div>
               <label htmlFor="email" className="text-sm font-medium text-ink">
                 Email
