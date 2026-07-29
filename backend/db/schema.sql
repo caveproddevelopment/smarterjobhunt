@@ -52,6 +52,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_dedup
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
     id             SERIAL PRIMARY KEY,
+    username       TEXT NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9_]{3,20}$'),
     email          TEXT NOT NULL UNIQUE,
     password_hash  TEXT NOT NULL,
     is_verified    BOOLEAN NOT NULL DEFAULT false,
@@ -62,6 +63,16 @@ CREATE TABLE IF NOT EXISTS users (
 -- Safe to re-run: adds the column if this schema.sql is being re-applied
 -- against a DB created before email verification existed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false;
+
+-- Safe to re-run: adds the column if this schema.sql is being re-applied
+-- against a DB created before usernames existed. Added nullable — unlike
+-- is_verified, there's no sane default for existing rows. If you already
+-- have users in prod, backfill usernames first, THEN run:
+--   ALTER TABLE users ALTER COLUMN username SET NOT NULL;
+--   ALTER TABLE users ADD CONSTRAINT users_username_key UNIQUE (username);
+--   ALTER TABLE users ADD CONSTRAINT users_username_check
+--       CHECK (username ~ '^[a-z0-9_]{3,20}$');
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
 
 -- ---------------------------------------------------------------------------
 -- job_matches: per-user match % against a job (computed by the AI agent later;

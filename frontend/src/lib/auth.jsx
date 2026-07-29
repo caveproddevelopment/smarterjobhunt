@@ -76,6 +76,26 @@ export function AuthProvider({ children }) {
     return data.message || 'If that email has a pending account, a verification link has been sent.'
   }
 
+  async function forgotPassword(email) {
+    const res = await fetch(`${API_URL}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+    const data = await res.json().catch(() => ({}))
+    return data.message || 'If that email has an account, a password reset link has been sent.'
+  }
+
+  async function resetPassword(token, password) {
+    const res = await fetch(`${API_URL}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password }),
+    })
+    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not reset password'))
+    return res.json() // { message }
+  }
+
   function logout() {
     localStorage.removeItem(TOKEN_KEY)
     setToken(null)
@@ -96,6 +116,8 @@ export function AuthProvider({ children }) {
         login,
         logout,
         resendVerification,
+        forgotPassword,
+        resetPassword,
         sessionMessage,
         clearSessionMessage,
       }}

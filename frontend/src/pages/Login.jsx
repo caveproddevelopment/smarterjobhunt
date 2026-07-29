@@ -6,7 +6,7 @@ import { useAuth } from '../lib/auth'
 
 export default function Login() {
   const [searchParams] = useSearchParams()
-  const [mode, setMode] = useState('login') // 'login' | 'register'
+  const [mode, setMode] = useState('login') // 'login' | 'register' | 'forgot'
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -14,8 +14,10 @@ export default function Login() {
   const [errorCode, setErrorCode] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState(null)
+  const [pendingResetEmail, setPendingResetEmail] = useState(null)
   const [resendStatus, setResendStatus] = useState(null)
-  const { login, register, resendVerification, sessionMessage, clearSessionMessage } = useAuth()
+  const { login, register, resendVerification, forgotPassword, sessionMessage, clearSessionMessage } =
+    useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -32,9 +34,12 @@ export default function Login() {
       if (mode === 'login') {
         await login(email, password)
         navigate('/dashboard')
-      } else {
+      } else if (mode === 'register') {
         await register(username, email, password)
         setPendingVerificationEmail(email)
+      } else {
+        await forgotPassword(email)
+        setPendingResetEmail(email)
       }
     } catch (err) {
       setError(err.message)
@@ -78,6 +83,34 @@ export default function Login() {
     )
   }
 
+  if (pendingResetEmail) {
+    return (
+      <div className="min-h-screen flame-gradient">
+        <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
+          <Navbar />
+          <main className="mx-auto flex max-w-md flex-col px-6 pb-24 pt-8">
+            <h1 className="font-display text-2xl font-semibold text-ink">Check your email</h1>
+            <p className="mt-3 text-sm text-ink-soft">
+              If <strong>{pendingResetEmail}</strong> has an account, we sent a link to reset the
+              password. It expires in 5 minutes, so use it soon.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login')
+                setPendingResetEmail(null)
+              }}
+              className="mt-6 w-full rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.03]"
+            >
+              Back to log in
+            </button>
+          </main>
+          <Footer />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flame-gradient">
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
@@ -85,17 +118,29 @@ export default function Login() {
 
         <main className="mx-auto flex max-w-md flex-col px-6 pb-24 pt-8">
           <h1 className="font-display text-2xl font-semibold text-ink">
-            {mode === 'login' ? 'Log in' : 'Create your account'}
+            {mode === 'login' ? 'Log in' : mode === 'register' ? 'Create your account' : 'Reset your password'}
           </h1>
           <p className="mt-2 text-sm text-ink-soft">
-            {mode === 'login' ? 'New here? ' : 'Already have an account? '}
-            <button
-              type="button"
-              onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-              className="font-medium text-ember hover:text-flame"
-            >
-              {mode === 'login' ? 'Create an account' : 'Log in instead'}
-            </button>
+            {mode === 'forgot' ? (
+              <button
+                type="button"
+                onClick={() => setMode('login')}
+                className="font-medium text-ember hover:text-flame"
+              >
+                Back to log in
+              </button>
+            ) : (
+              <>
+                {mode === 'login' ? 'New here? ' : 'Already have an account? '}
+                <button
+                  type="button"
+                  onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+                  className="font-medium text-ember hover:text-flame"
+                >
+                  {mode === 'login' ? 'Create an account' : 'Log in instead'}
+                </button>
+              </>
+            )}
           </p>
 
           {sessionMessage && (
@@ -151,23 +196,36 @@ export default function Login() {
               />
             </div>
 
-            <div>
-              <label htmlFor="password" className="text-sm font-medium text-ink">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
-              />
-              {mode === 'register' && (
-                <p className="mt-1 text-xs text-ink-soft">At least 8 characters.</p>
-              )}
-            </div>
+            {mode !== 'forgot' && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="password" className="text-sm font-medium text-ink">
+                    Password
+                  </label>
+                  {mode === 'login' && (
+                    <button
+                      type="button"
+                      onClick={() => setMode('forgot')}
+                      className="text-xs font-medium text-ember hover:text-flame"
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+                <input
+                  id="password"
+                  type="password"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
+                />
+                {mode === 'register' && (
+                  <p className="mt-1 text-xs text-ink-soft">At least 8 characters.</p>
+                )}
+              </div>
+            )}
 
             {error && (
               <div className="text-sm text-ember">
@@ -192,7 +250,13 @@ export default function Login() {
               disabled={submitting}
               className="w-full rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.03] disabled:opacity-60"
             >
-              {submitting ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}
+              {submitting
+                ? 'Please wait…'
+                : mode === 'login'
+                  ? 'Log in'
+                  : mode === 'register'
+                    ? 'Create account'
+                    : 'Send reset link'}
             </button>
           </form>
         </main>

@@ -16,10 +16,15 @@ class Config:
 
     # Email verification
     EMAIL_VERIFICATION_MAX_AGE_SECONDS = int(
-        os.environ.get("EMAIL_VERIFICATION_MAX_AGE_SECONDS", 60 * 60 * 24)  # 24h
+        os.environ.get("EMAIL_VERIFICATION_MAX_AGE_SECONDS", 60 * 5)  # 5 min
     )
-    SMTP_HOST = os.environ.get("SMTP_HOST")
-    SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
-    SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
-    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
-    MAIL_FROM = os.environ.get("MAIL_FROM", "SmarterJobHunt <no-reply@smarterjobhunt.com>")
+
+    # Password reset
+    PASSWORD_RESET_MAX_AGE_SECONDS = int(
+        os.environ.get("PASSWORD_RESET_MAX_AGE_SECONDS", 60 * 5)  # 5 min
+    )
+
+    # Google Apps Script web app (Gmail-backed) that sends verification/reset
+    # emails. There's no shared secret — access is controlled purely by
+    # keeping this URL private, so treat it like a credential.
+    APPS_SCRIPT_URL = os.environ.get("APPS_SCRIPT_URL")

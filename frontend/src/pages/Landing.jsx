@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
-import LoopVisual from '../components/LoopVisual'
 
 const reviews = [
   {
@@ -40,22 +39,19 @@ export default function Landing() {
         <Navbar />
 
         <main className="px-6">
-          {/* Hero */}
-          <section className="mx-auto grid max-w-6xl items-center gap-14 py-10 md:grid-cols-2 md:py-16">
+          {/* Hero: explanation + search on the left, video on the right */}
+          <section
+            id="what-is-this"
+            className="mx-auto grid max-w-6xl items-start gap-10 py-10 md:grid-cols-2 md:py-16"
+          >
             <div>
-              <span className="inline-block rounded-full bg-mist px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-soft">
-                Built for the startup job hunt
-              </span>
-              <h1 className="mt-6 font-display text-4xl font-bold leading-[1.1] text-ink md:text-5xl">
-                Stop tab-hopping between fifty career pages.
-              </h1>
-              <p className="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
+              <p className="max-w-md text-base leading-relaxed text-ink-soft">
                 SmarterJobHunt pulls fresh roles from seed-to-Series-B startups into one
                 list, scores each one against your resume, and remembers who you've
-                applied to — so you don't have to.
+                applied to — so you don't have to keep a spreadsheet or fifty open tabs.
               </p>
 
-              <form onSubmit={handleSearch} className="mt-8 max-w-md">
+              <form onSubmit={handleSearch} className="mt-10 max-w-md">
                 <label htmlFor="job-title" className="text-sm font-medium text-ink">
                   Search for a job title
                 </label>
@@ -78,12 +74,7 @@ export default function Landing() {
               </form>
             </div>
 
-            <LoopVisual />
-          </section>
-
-          {/* Video explainer */}
-          <section id="what-is-this" className="mx-auto max-w-6xl py-10">
-            <div className="flex aspect-video items-center justify-center rounded-2xl border border-line bg-mist">
+            <div className="flex aspect-video items-center justify-center rounded-2xl border border-line bg-mist md:aspect-auto md:h-full md:min-h-[360px]">
               <div className="flex flex-col items-center gap-3 text-ink-soft">
                 <span className="flex h-14 w-14 items-center justify-center rounded-full flame-gradient text-white">
                   ▶

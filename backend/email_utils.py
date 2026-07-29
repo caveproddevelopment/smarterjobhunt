@@ -1,17 +1,17 @@
 """
-Email sending — currently just the account-verification email.
+Email sending — verification and password reset emails, sent through a
+Google Apps Script web app (Gmail-backed) instead of SMTP.
 
-Uses plain smtplib against whatever SMTP_HOST/PORT/USERNAME/PASSWORD is
-configured (works with SendGrid, Mailgun, Postmark, AWS SES's SMTP
-interface, Gmail app passwords, etc — anything that speaks SMTP). If
-SMTP_HOST isn't set (e.g. local dev without real credentials), the
-email is logged to the console instead of sent, so registration still
-works end-to-end without crashing.
+There's no shared secret in the request payload; access is controlled
+purely by keeping APPS_SCRIPT_URL private, so treat it like a credential
+(don't commit it, don't log it).
+
+If APPS_SCRIPT_URL isn't set (e.g. local dev without a deployment), the
+email is logged to the console instead of sent, so registration and
+password-reset still work end-to-end without needing Apps Script deployed.
 """
 
-import smtplib
-from email.message import EmailMessage
-
+import requests
 from flask import current_app
 
 
@@ -19,38 +19,49 @@ def _verification_url(token: str) -> str:
     return f"{current_app.config['BACKEND_ORIGIN']}/api/auth/verify/{token}"
 
 
-def send_verification_email(to_email: str, token: str) -> None:
-    verify_url = _verification_url(token)
+def _password_reset_url(token: str) -> str:
+    return f"{current_app.config['FRONTEND_ORIGIN']}/reset-password?token={token}"
 
-    subject = "Verify your SmarterJobHunt account"
-    body = (
-        "Welcome to SmarterJobHunt!\n\n"
-        "Click the link below to verify your email address and activate your account:\n\n"
-        f"{verify_url}\n\n"
-        "This link expires in 24 hours. If you didn't create this account, you can ignore this email."
-    )
 
-    smtp_host = current_app.config.get("SMTP_HOST")
-    if not smtp_host:
-        # No SMTP configured — log instead of sending, so local dev / early
-        # testing doesn't need real email credentials to register a user.
+def _send_via_apps_script(payload: dict, fallback_link: str) -> None:
+    apps_script_url = current_app.config.get("APPS_SCRIPT_URL")
+
+    if not apps_script_url:
         current_app.logger.warning(
-            "SMTP_HOST not set — skipping real send. Verification link for %s: %s",
-            to_email,
-            verify_url,
+            "APPS_SCRIPT_URL not set — skipping real send. %s link for %s: %s",
+            payload["type"],
+            payload["email"],
+            fallback_link,
         )
         return
 
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = current_app.config["MAIL_FROM"]
-    msg["To"] = to_email
-    msg.set_content(body)
+    try:
+        resp = requests.post(apps_script_url, json=payload, timeout=10)
+        resp.raise_for_status()
+        result = resp.json()
+        if not result.get("success"):
+            current_app.logger.error(
+                "Apps Script reported failure sending %s email to %s: %s",
+                payload["type"], payload["email"], result.get("error"),
+            )
+    except requests.RequestException:
+        current_app.logger.exception(
+            "Failed to reach Apps Script while sending %s email to %s",
+            payload["type"], payload["email"],
+        )
 
-    with smtplib.SMTP(smtp_host, current_app.config["SMTP_PORT"]) as server:
-        server.starttls()
-        username = current_app.config.get("SMTP_USERNAME")
-        password = current_app.config.get("SMTP_PASSWORD")
-        if username and password:
-            server.login(username, password)
-        server.send_message(msg)
+
+def send_verification_email(to_email: str, token: str, name: str | None = None) -> None:
+    link = _verification_url(token)
+    _send_via_apps_script(
+        {"type": "verification", "email": to_email, "link": link, "name": name},
+        fallback_link=link,
+    )
+
+
+def send_password_reset_email(to_email: str, token: str, name: str | None = None) -> None:
+    link = _password_reset_url(token)
+    _send_via_apps_script(
+        {"type": "reset", "email": to_email, "link": link, "name": name},
+        fallback_link=link,
+    )

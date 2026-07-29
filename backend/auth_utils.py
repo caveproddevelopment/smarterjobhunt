@@ -12,6 +12,10 @@ def _verification_serializer():
     return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="smarterjobhunt-email-verify")
 
 
+def _password_reset_serializer():
+    return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="smarterjobhunt-password-reset")
+
+
 def issue_token(user_id):
     return _serializer().dumps({"user_id": user_id})
 
@@ -20,12 +24,34 @@ def issue_verification_token(user_id):
     return _verification_serializer().dumps({"user_id": user_id})
 
 
+def issue_password_reset_token(user_id):
+    return _password_reset_serializer().dumps({"user_id": user_id})
+
+
 def verify_verification_token(token):
     """Return the user_id encoded in an email-verification token, or None if
     it's missing/invalid/expired."""
     try:
         data = _verification_serializer().loads(
             token, max_age=current_app.config["EMAIL_VERIFICATION_MAX_AGE_SECONDS"]
+        )
+        return data.get("user_id")
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+def verify_password_reset_token(token):
+    """Return the user_id encoded in a password-reset token, or None if
+    it's missing/invalid/expired.
+
+    Note: like the verification token, this is a stateless signed token —
+    it stays valid for anyone who has it until PASSWORD_RESET_MAX_AGE_SECONDS
+    elapses, even after one use. Fine for a 5-minute window; if that ever
+    matters, add a `used` flag to a small DB table keyed by token.
+    """
+    try:
+        data = _password_reset_serializer().loads(
+            token, max_age=current_app.config["PASSWORD_RESET_MAX_AGE_SECONDS"]
         )
         return data.get("user_id")
     except (BadSignature, SignatureExpired):
