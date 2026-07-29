@@ -96,6 +96,23 @@ export function AuthProvider({ children }) {
     return res.json() // { message }
   }
 
+  async function updateDefaultFilters({ title, variants, postedDays, funding }) {
+    const res = await fetch(`${API_URL}/api/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        job_title: title || null,
+        variants,
+        posted_within_days: postedDays || null,
+        funding_filter: funding,
+      }),
+    })
+    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not save default filters'))
+    const updated = await res.json()
+    setUser((prev) => (prev ? { ...prev, ...updated } : prev))
+    return updated
+  }
+
   function logout() {
     localStorage.removeItem(TOKEN_KEY)
     setToken(null)
@@ -115,6 +132,7 @@ export function AuthProvider({ children }) {
         register,
         login,
         logout,
+        updateDefaultFilters,
         resendVerification,
         forgotPassword,
         resetPassword,

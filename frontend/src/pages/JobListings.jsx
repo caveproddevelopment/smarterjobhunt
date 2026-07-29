@@ -4,14 +4,17 @@ import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import FilterSidebar from '../components/FilterSidebar'
 import JobCard from '../components/JobCard'
+import ActiveFiltersBar from '../components/ActiveFiltersBar'
+import DefaultFiltersModal from '../components/DefaultFiltersModal'
 import { fetchJobs, fetchSavedSearches, createSavedSearch, deleteSavedSearch, setJobStatus } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
 export default function JobListings() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, updateDefaultFilters } = useAuth()
   const sidebarRef = useRef(null)
+  const appliedUserDefaultsRef = useRef(false)
   const [filters, setFilters] = useState({
     title: searchParams.get('title') || '',
     variants: 10,
@@ -25,6 +28,8 @@ export default function JobListings() {
   const [totalCount, setTotalCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [showDefaultsModal, setShowDefaultsModal] = useState(false)
+  const [savingDefaults, setSavingDefaults] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -65,6 +70,49 @@ export default function JobListings() {
       .then(setSavedSearches)
       .catch(() => setSavedSearches([]))
   }, [user])
+
+  useEffect(() => {
+    if (!user || appliedUserDefaultsRef.current) return
+    appliedUserDefaultsRef.current = true
+
+    if (user.has_set_default_filters) {
+      const seeded = {
+        title: user.default_job_title || '',
+        variants: user.default_variants || 10,
+        postedDays: user.default_posted_within_days || '',
+        funding: user.default_funding_filter || 'both',
+      }
+      setFilters(seeded)
+      setAppliedFilters(seeded)
+    } else {
+      setShowDefaultsModal(true)
+    }
+  }, [user])
+
+  function handleSaveDefaults(newFilters) {
+    setSavingDefaults(true)
+    updateDefaultFilters(newFilters)
+      .then(() => {
+        setFilters(newFilters)
+        setAppliedFilters(newFilters)
+        setShowDefaultsModal(false)
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setSavingDefaults(false))
+  }
+
+  function handleSkipDefaults() {
+    setSavingDefaults(true)
+    updateDefaultFilters({ title: '', variants: 10, postedDays: '', funding: 'both' })
+      .then(() => setShowDefaultsModal(false))
+      .catch((err) => setError(err.message))
+      .finally(() => setSavingDefaults(false))
+  }
+
+  function handleActiveFiltersChange(newFilters) {
+    setFilters(newFilters)
+    setAppliedFilters(newFilters)
+  }
 
   function getStatus(jobId) {
     return statusByJob[jobId] || { value: null, reason: '' }
@@ -111,6 +159,14 @@ export default function JobListings() {
     <div className="min-h-screen bg-paper">
       <Navbar />
 
+      {showDefaultsModal && (
+        <DefaultFiltersModal
+          onSave={handleSaveDefaults}
+          onSkip={handleSkipDefaults}
+          saving={savingDefaults}
+        />
+      )}
+
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
         <div className="border border-line">
           <div className="border-b border-line py-4 text-center">
@@ -128,6 +184,8 @@ export default function JobListings() {
               </p>
             )}
           </div>
+
+          <ActiveFiltersBar filters={appliedFilters} onChange={handleActiveFiltersChange} />
 
           <div className="flex flex-col gap-6 p-6 md:flex-row">
             <div ref={sidebarRef}>
