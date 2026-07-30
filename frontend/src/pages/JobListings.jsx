@@ -38,8 +38,26 @@ export default function JobListings() {
     setLoading(true)
     setError(null)
 
-    fetchJobs(appliedFilters)
-      .then(({ jobs: results, totalCount: total }) => {
+    async function run() {
+      let variants = []
+      if (appliedFilters.title) {
+        setTitleVariantsLoading(true)
+        try {
+          variants = await fetchTitleVariants(appliedFilters.title)
+        } catch {
+          variants = []
+        } finally {
+          if (!cancelled) setTitleVariantsLoading(false)
+        }
+      }
+      if (cancelled) return
+      setTitleVariants(variants)
+
+      try {
+        const { jobs: results, totalCount: total } = await fetchJobs({
+          ...appliedFilters,
+          variantTitles: variants.slice(0, appliedFilters.variants),
+        })
         if (cancelled) return
         setJobs(results)
         setTotalCount(total)
@@ -50,13 +68,14 @@ export default function JobListings() {
           }
           return next
         })
-      })
-      .catch((err) => {
+      } catch (err) {
         if (!cancelled) setError(err.message)
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false)
-      })
+      }
+    }
+
+    run()
 
     return () => {
       cancelled = true
@@ -90,30 +109,6 @@ export default function JobListings() {
       setShowDefaultsModal(true)
     }
   }, [user])
-
-  useEffect(() => {
-    if (!appliedFilters.title) {
-      setTitleVariants([])
-      return
-    }
-    let cancelled = false
-    setTitleVariantsLoading(true)
-
-    fetchTitleVariants(appliedFilters.title)
-      .then((variants) => {
-        if (!cancelled) setTitleVariants(variants)
-      })
-      .catch(() => {
-        if (!cancelled) setTitleVariants([])
-      })
-      .finally(() => {
-        if (!cancelled) setTitleVariantsLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [appliedFilters.title])
 
   function handleSaveDefaults(newFilters) {
     setSavingDefaults(true)
@@ -211,7 +206,12 @@ export default function JobListings() {
             )}
           </div>
 
-          <ActiveFiltersBar filters={appliedFilters} onChange={handleActiveFiltersChange} />
+          <ActiveFiltersBar
+            filters={appliedFilters}
+            onChange={handleActiveFiltersChange}
+            titleVariants={titleVariants}
+            titleVariantsLoading={titleVariantsLoading}
+          />
 
           <div className="flex flex-col gap-6 p-6 md:flex-row">
             <div ref={sidebarRef}>
@@ -223,8 +223,6 @@ export default function JobListings() {
                 onSaveSearch={handleSaveSearch}
                 onDeleteSearch={handleDeleteSearch}
                 loggedIn={Boolean(user)}
-                titleVariants={titleVariants}
-                titleVariantsLoading={titleVariantsLoading}
               />
             </div>
 

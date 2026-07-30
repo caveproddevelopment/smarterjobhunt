@@ -38,6 +38,9 @@ export async function fetchJobs(filters) {
   if (filters.title) params.set('title', filters.title)
   if (filters.postedDays) params.set('posted_days', filters.postedDays)
   if (filters.funding) params.set('funding', filters.funding)
+  for (const variantTitle of filters.variantTitles || []) {
+    params.append('variant_title', variantTitle)
+  }
   params.set('limit', 500)
 
   const res = await fetch(`${API_URL}/api/jobs?${params.toString()}`, {

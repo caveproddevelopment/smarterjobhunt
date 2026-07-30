@@ -9,8 +9,6 @@ export default function FilterSidebar({
   onSaveSearch,
   onDeleteSearch,
   loggedIn = true,
-  titleVariants = [],
-  titleVariantsLoading = false,
 }) {
   const [searchName, setSearchName] = useState('')
 
@@ -35,21 +33,6 @@ export default function FilterSidebar({
           onChange={(event) => onFilterChange({ ...filters, title: event.target.value })}
           className="mt-1 block w-full border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
         />
-        {titleVariantsLoading && (
-          <p className="mt-1.5 text-xs text-ink-soft">Finding related titles…</p>
-        )}
-        {!titleVariantsLoading && titleVariants.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {titleVariants.slice(0, filters.variants).map((variant) => (
-              <span
-                key={variant}
-                className="rounded-full border border-line bg-mist px-2 py-0.5 text-xs text-ink-soft"
-              >
-                {variant}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       <div className="mt-4">

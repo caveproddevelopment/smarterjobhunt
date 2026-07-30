@@ -12,19 +12,26 @@ FUNDING_FILTER_MAP = {"a": "series_a", "b": "series_b"}  # 'both' applies no fil
 @optional_auth
 def list_jobs():
     title = request.args.get("title", "").strip()
+    variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
     funding = request.args.get("funding", "both").strip().lower()
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
-    # 'variants' is accepted for forward-compatibility with the scraping agent
-    # (it controls how many close title variants get scraped) but doesn't filter here yet.
 
     where = ["j.is_active = true"]
     params = []
 
-    if title:
-        where.append("j.title ILIKE %s")
-        params.append(f"%{title}%")
+    # Title + its variants are OR'd together as one group (any of them can
+    # match), then AND'd with the other filters below. This is what makes
+    # the Variants count (5/10/15) actually widen or narrow results: more
+    # variant_title values passed in means more titles that can match.
+    if title or variant_titles:
+        title_matches = []
+        for candidate in [title, *variant_titles]:
+            if candidate:
+                title_matches.append("j.title ILIKE %s")
+                params.append(f"%{candidate}%")
+        where.append("(" + " OR ".join(title_matches) + ")")
 
     if posted_days:
         where.append("j.date_posted >= CURRENT_DATE - %s::interval")
