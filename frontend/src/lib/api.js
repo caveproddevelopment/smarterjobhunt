@@ -30,6 +30,10 @@ function mapJob(row) {
     otherJobsAtCompany: row.other_jobs_at_company || 0,
     status: row.status,
     reasonRejected: row.reason_rejected,
+    // Prefer the specific posting URL; fall back to the company's site if
+    // this posting doesn't have one on file (some career-page scrapes miss
+    // a per-job link). Null means we genuinely have nowhere to send them.
+    applyUrl: row.source_url || row.company_website || null,
   }
 }
 

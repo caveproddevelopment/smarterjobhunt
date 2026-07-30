@@ -38,9 +38,25 @@ export default function JobCard({ job, status, onStatusChange, shaded = false })
       </div>
 
       <div className="flex flex-col items-start gap-2 sm:items-end">
-        <button type="button" className="rounded-md bg-moss px-8 py-2 text-sm font-semibold text-white">
-          Apply
-        </button>
+        {job.applyUrl ? (
+          <a
+            href={job.applyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md bg-moss px-8 py-2 text-center text-sm font-semibold text-white hover:opacity-90"
+          >
+            Apply
+          </a>
+        ) : (
+          <button
+            type="button"
+            disabled
+            title="No application link found for this listing yet"
+            className="cursor-not-allowed rounded-md bg-moss/40 px-8 py-2 text-sm font-semibold text-white"
+          >
+            Apply
+          </button>
+        )}
 
         <label className="flex items-center gap-1.5 text-sm text-ink">
           <input

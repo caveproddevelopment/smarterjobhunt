@@ -60,8 +60,10 @@ def list_jobs():
             j.department,
             j.location,
             j.date_posted,
+            j.source_url,
             c.id AS company_id,
             c.name AS company,
+            c.website AS company_website,
             c.funding_stage AS funding,
             (
                 SELECT count(*) FROM jobs j2
