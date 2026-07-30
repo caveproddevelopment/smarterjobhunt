@@ -109,3 +109,13 @@ export async function clearJobStatus(jobId) {
     throw new Error(await parseErrorOr(res, `Failed to clear status (${res.status})`))
   }
 }
+
+export async function fetchTitleVariants(title) {
+  const params = new URLSearchParams({ title })
+  const res = await fetch(`${API_URL}/api/title-variants?${params.toString()}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to load title variants (${res.status})`))
+  const data = await res.json()
+  return data.variants
+}

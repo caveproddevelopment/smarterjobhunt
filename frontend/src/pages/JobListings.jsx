@@ -6,7 +6,7 @@ import FilterSidebar from '../components/FilterSidebar'
 import JobCard from '../components/JobCard'
 import ActiveFiltersBar from '../components/ActiveFiltersBar'
 import DefaultFiltersModal from '../components/DefaultFiltersModal'
-import { fetchJobs, fetchSavedSearches, createSavedSearch, deleteSavedSearch, setJobStatus } from '../lib/api'
+import { fetchJobs, fetchSavedSearches, createSavedSearch, deleteSavedSearch, setJobStatus, fetchTitleVariants } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
 export default function JobListings() {
@@ -30,6 +30,8 @@ export default function JobListings() {
   const [error, setError] = useState(null)
   const [showDefaultsModal, setShowDefaultsModal] = useState(false)
   const [savingDefaults, setSavingDefaults] = useState(false)
+  const [titleVariants, setTitleVariants] = useState([])
+  const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -88,6 +90,30 @@ export default function JobListings() {
       setShowDefaultsModal(true)
     }
   }, [user])
+
+  useEffect(() => {
+    if (!appliedFilters.title) {
+      setTitleVariants([])
+      return
+    }
+    let cancelled = false
+    setTitleVariantsLoading(true)
+
+    fetchTitleVariants(appliedFilters.title)
+      .then((variants) => {
+        if (!cancelled) setTitleVariants(variants)
+      })
+      .catch(() => {
+        if (!cancelled) setTitleVariants([])
+      })
+      .finally(() => {
+        if (!cancelled) setTitleVariantsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [appliedFilters.title])
 
   function handleSaveDefaults(newFilters) {
     setSavingDefaults(true)
@@ -197,6 +223,8 @@ export default function JobListings() {
                 onSaveSearch={handleSaveSearch}
                 onDeleteSearch={handleDeleteSearch}
                 loggedIn={Boolean(user)}
+                titleVariants={titleVariants}
+                titleVariantsLoading={titleVariantsLoading}
               />
             </div>
 

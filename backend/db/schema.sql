@@ -129,3 +129,19 @@ CREATE TABLE IF NOT EXISTS saved_searches (
 CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON saved_searches (user_id);
 CREATE INDEX IF NOT EXISTS idx_user_job_status_user_id ON user_job_status (user_id);
 CREATE INDEX IF NOT EXISTS idx_job_matches_user_id ON job_matches (user_id);
+
+-- ---------------------------------------------------------------------------
+-- job_title_variants: cache of the closest real job titles already in the
+-- `jobs` table for a searched title (via pg_trgm similarity), e.g. searching
+-- "PM" surfaces "Product Manager", "Program Manager", etc. Shared across all
+-- users -- normalized_title is the lowercased/trimmed lookup key so a repeat
+-- search for the same title (any casing/spacing, by anyone) hits the cache
+-- instead of re-running the similarity query.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS job_title_variants (
+    id                SERIAL PRIMARY KEY,
+    job_title         TEXT NOT NULL,        -- as originally searched, for display
+    normalized_title  TEXT NOT NULL UNIQUE, -- lower(trim(job_title)), for lookup
+    variants          JSONB NOT NULL,       -- ordered array of strings, most relevant first
+    generated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
