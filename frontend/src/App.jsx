@@ -3,6 +3,7 @@ import Landing from './pages/Landing'
 import JobListings from './pages/JobListings'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
+import Profile from './pages/Profile'
 import { AuthProvider } from './lib/auth'
 
 export default function App() {
@@ -13,6 +14,7 @@ export default function App() {
         <Route path="/dashboard" element={<JobListings />} />
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/profile" element={<Profile />} />
       </Routes>
     </AuthProvider>
   )

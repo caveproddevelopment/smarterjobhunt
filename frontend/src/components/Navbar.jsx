@@ -20,7 +20,7 @@ export default function Navbar() {
   return (
     <header className="w-full">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-        <Link to="/" className="flex items-center gap-3">
+        <Link to="/dashboard" className="flex items-center gap-3">
           <img src={logo} alt="SmarterJobHunt" className="h-10 w-10" />
           <span className="font-display text-lg font-semibold tracking-tight text-ink">
             SmarterJobHunt
@@ -39,7 +39,12 @@ export default function Navbar() {
           ))}
           {user ? (
             <div className="flex items-center gap-4">
-              <span className="text-sm text-ink-soft">{user.email}</span>
+              <Link
+                to="/profile"
+                className="text-sm text-ink-soft transition-colors hover:text-ink"
+              >
+                {user.email}
+              </Link>
               <button
                 type="button"
                 onClick={handleLogout}

@@ -113,6 +113,28 @@ export function AuthProvider({ children }) {
     return updated
   }
 
+  async function updateProfile(username, email) {
+    const res = await fetch(`${API_URL}/api/auth/me`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ username, email }),
+    })
+    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not update profile'))
+    const updated = await res.json()
+    setUser((prev) => (prev ? { ...prev, ...updated } : prev))
+    return updated
+  }
+
+  async function changePassword(currentPassword, newPassword) {
+    const res = await fetch(`${API_URL}/api/auth/me/password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    })
+    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not change password'))
+    return res.json()
+  }
+
   function logout() {
     localStorage.removeItem(TOKEN_KEY)
     setToken(null)
@@ -132,6 +154,8 @@ export function AuthProvider({ children }) {
         register,
         login,
         logout,
+        updateProfile,
+        changePassword,
         updateDefaultFilters,
         resendVerification,
         forgotPassword,

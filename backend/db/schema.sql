@@ -84,6 +84,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS default_funding_filter TEXT NOT NULL 
     CHECK (default_funding_filter IN ('both', 'a', 'b'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS has_set_default_filters BOOLEAN NOT NULL DEFAULT false;
 
+-- Placeholder plan tier for the profile page's billing section. There's no
+-- payment processor wired up yet, so this just tracks 'free' vs 'pro' —
+-- swap in real Stripe subscription status here once billing is built.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free'
+    CHECK (plan IN ('free', 'pro'));
+
 -- ---------------------------------------------------------------------------
 -- job_matches: per-user match % against a job (computed by the AI agent later;
 -- until then this table can simply be left empty and the API defaults to null)

@@ -75,7 +75,7 @@ def login():
     cur = get_cursor()
     cur.execute(
         """
-        SELECT id, username, email, password_hash, is_verified,
+        SELECT id, username, email, password_hash, is_verified, plan,
                default_job_title, default_variants, default_posted_within_days,
                default_funding_filter, has_set_default_filters
         FROM users WHERE email = %s
@@ -99,6 +99,7 @@ def login():
                 "id": user["id"],
                 "username": user["username"],
                 "email": user["email"],
+                "plan": user["plan"],
                 "default_job_title": user["default_job_title"],
                 "default_variants": user["default_variants"],
                 "default_posted_within_days": user["default_posted_within_days"],
@@ -187,7 +188,7 @@ def me():
     cur = get_cursor()
     cur.execute(
         """
-        SELECT id, username, email, created_at,
+        SELECT id, username, email, created_at, plan,
                default_job_title, default_variants, default_posted_within_days,
                default_funding_filter, has_set_default_filters
         FROM users WHERE id = %s
@@ -198,3 +199,72 @@ def me():
     if user is None:
         return jsonify({"error": "User not found"}), 404
     return jsonify(user)
+
+
+@bp.put("/me")
+@require_auth
+def update_me():
+    """Update the logged-in user's username and/or email (profile page)."""
+    body = request.get_json(silent=True) or {}
+    username = (body.get("username") or "").strip().lower()
+    email = (body.get("email") or "").strip().lower()
+
+    if not USERNAME_PATTERN.match(username):
+        return jsonify(
+            {"error": "Username must be 3-20 characters: letters, numbers, and underscores only"}
+        ), 400
+    if not email or "@" not in email:
+        return jsonify({"error": "A valid email is required"}), 400
+
+    cur = get_cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE users
+            SET username = %s, email = %s
+            WHERE id = %s
+            RETURNING id, username, email, created_at, plan,
+                      default_job_title, default_variants, default_posted_within_days,
+                      default_funding_filter, has_set_default_filters
+            """,
+            (username, email, g.user_id),
+        )
+        updated = cur.fetchone()
+        cur.connection.commit()
+    except psycopg2.errors.UniqueViolation as exc:
+        cur.connection.rollback()
+        constraint = getattr(exc.diag, "constraint_name", "") or ""
+        if "username" in constraint:
+            return jsonify({"error": "That username is already taken"}), 409
+        return jsonify({"error": "An account with that email already exists"}), 409
+
+    if updated is None:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify(updated)
+
+
+@bp.put("/me/password")
+@require_auth
+def update_password():
+    """Change the logged-in user's password (requires the current password)."""
+    body = request.get_json(silent=True) or {}
+    current_password = body.get("current_password") or ""
+    new_password = body.get("new_password") or ""
+
+    if len(new_password) < 8:
+        return jsonify({"error": "New password must be at least 8 characters"}), 400
+
+    cur = get_cursor()
+    cur.execute("SELECT password_hash FROM users WHERE id = %s", (g.user_id,))
+    user = cur.fetchone()
+    if user is None or not check_password_hash(user["password_hash"], current_password):
+        return jsonify({"error": "Current password is incorrect"}), 401
+
+    cur.execute(
+        "UPDATE users SET password_hash = %s WHERE id = %s",
+        (generate_password_hash(new_password), g.user_id),
+    )
+    cur.connection.commit()
+
+    return jsonify({"message": "Password updated."})
