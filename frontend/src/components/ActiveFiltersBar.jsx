@@ -1,10 +1,4 @@
-const FUNDING_LABELS = {
-  both: 'Both fundings',
-  a: 'Series A only',
-  b: 'Series B only',
-}
-
-const DEFAULT_FILTERS = { title: '', variants: 10, postedDays: '', funding: 'both' }
+const DEFAULT_FILTERS = { title: '', variants: 10, postedDays: '' }
 
 export default function ActiveFiltersBar({
   filters,
@@ -33,12 +27,6 @@ export default function ActiveFiltersBar({
       clear: () => onChange({ ...filters, postedDays: '' }),
     })
   }
-  chips.push({
-    key: 'funding',
-    label: FUNDING_LABELS[filters.funding],
-    clear: () => onChange({ ...filters, funding: 'both' }),
-  })
-
   if (chips.length === 0) return null
 
   return (

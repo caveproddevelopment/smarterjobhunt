@@ -164,7 +164,7 @@ export default function Login() {
             {mode === 'register' && (
               <div>
                 <label htmlFor="username" className="text-sm font-medium text-ink">
-                  Username
+                  Full Name
                 </label>
                 <input
                   id="username"

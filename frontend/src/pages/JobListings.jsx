@@ -19,7 +19,6 @@ export default function JobListings() {
     title: searchParams.get('title') || '',
     variants: 10,
     postedDays: '',
-    funding: 'both',
   })
   const [appliedFilters, setAppliedFilters] = useState(filters)
   const [savedSearches, setSavedSearches] = useState([])
@@ -101,7 +100,6 @@ export default function JobListings() {
         title: user.default_job_title || '',
         variants: user.default_variants || 10,
         postedDays: user.default_posted_within_days || '',
-        funding: user.default_funding_filter || 'both',
       }
       setFilters(seeded)
       setAppliedFilters(seeded)
@@ -124,7 +122,7 @@ export default function JobListings() {
 
   function handleSkipDefaults() {
     setSavingDefaults(true)
-    updateDefaultFilters({ title: '', variants: 10, postedDays: '', funding: 'both' })
+    updateDefaultFilters({ title: '', variants: 10, postedDays: '' })
       .then(() => setShowDefaultsModal(false))
       .catch((err) => setError(err.message))
       .finally(() => setSavingDefaults(false))
@@ -160,7 +158,6 @@ export default function JobListings() {
       jobTitle: filters.title,
       variants: filters.variants,
       postedWithinDays: filters.postedDays || null,
-      fundingFilter: filters.funding,
     })
       .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
       .catch((err) => setError(err.message))

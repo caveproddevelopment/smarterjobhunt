@@ -5,7 +5,6 @@ export default function DefaultFiltersModal({ onSave, onSkip, saving }) {
     title: '',
     variants: 10,
     postedDays: '',
-    funding: 'both',
   })
 
   return (
@@ -62,27 +61,6 @@ export default function DefaultFiltersModal({ onSave, onSkip, saving }) {
               className="w-16 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
             />
             <span className="text-sm text-ink">days</span>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <p className="text-sm text-ink">Limit Funding</p>
-          <div className="mt-1 flex flex-wrap items-center gap-4">
-            {[
-              { value: 'both', label: 'Both' },
-              { value: 'a', label: 'A Only' },
-              { value: 'b', label: 'B Only' },
-            ].map((option) => (
-              <label key={option.value} className="flex items-center gap-1.5 text-sm text-ink">
-                <input
-                  type="radio"
-                  name="default-funding"
-                  checked={filters.funding === option.value}
-                  onChange={() => setFilters({ ...filters, funding: option.value })}
-                />
-                {option.label}
-              </label>
-            ))}
           </div>
         </div>
 

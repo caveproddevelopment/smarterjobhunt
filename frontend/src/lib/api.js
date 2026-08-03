@@ -1,15 +1,5 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
-const FUNDING_STAGE_LABELS = {
-  seed: 'Seed',
-  series_a: 'Series A',
-  series_b: 'Series B',
-  series_c_plus: 'Series C+',
-  public: 'Public',
-  bootstrapped: 'Bootstrapped',
-  unknown: '',
-}
-
 function authHeaders() {
   const token = localStorage.getItem('sjh_token')
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -25,8 +15,6 @@ function mapJob(row) {
     department: row.department || '',
     location: row.location || '',
     datePosted: row.date_posted,
-    match: row.match ?? null,
-    funding: FUNDING_STAGE_LABELS[row.funding] ?? row.funding ?? '',
     otherJobsAtCompany: row.other_jobs_at_company || 0,
     status: row.status,
     reasonRejected: row.reason_rejected,
@@ -41,7 +29,6 @@ export async function fetchJobs(filters) {
   const params = new URLSearchParams()
   if (filters.title) params.set('title', filters.title)
   if (filters.postedDays) params.set('posted_days', filters.postedDays)
-  if (filters.funding) params.set('funding', filters.funding)
   for (const variantTitle of filters.variantTitles || []) {
     params.append('variant_title', variantTitle)
   }
@@ -71,7 +58,7 @@ export async function fetchSavedSearches() {
   return data.saved_searches
 }
 
-export async function createSavedSearch({ name, jobTitle, variants, postedWithinDays, fundingFilter }) {
+export async function createSavedSearch({ name, jobTitle, variants, postedWithinDays }) {
   const res = await fetch(`${API_URL}/api/saved-searches`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -80,7 +67,6 @@ export async function createSavedSearch({ name, jobTitle, variants, postedWithin
       job_title: jobTitle || null,
       variants,
       posted_within_days: postedWithinDays || null,
-      funding_filter: fundingFilter,
     }),
   })
   if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to save search (${res.status})`))

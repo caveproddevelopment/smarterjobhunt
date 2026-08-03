@@ -77,35 +77,6 @@ export default function FilterSidebar({
         </div>
       </div>
 
-      <div className="mt-4">
-        <p className="flex items-center gap-1.5 text-sm text-ink">
-          Limit Funding
-          <span
-            title="Filter to companies at a specific funding stage"
-            className="flex h-4 w-4 items-center justify-center rounded-full bg-mist text-[10px] font-semibold text-ink-soft"
-          >
-            i
-          </span>
-        </p>
-        <div className="mt-1 flex flex-wrap items-center gap-4">
-          {[
-            { value: 'both', label: 'Both' },
-            { value: 'a', label: 'A Only' },
-            { value: 'b', label: 'B Only' },
-          ].map((option) => (
-            <label key={option.value} className="flex items-center gap-1.5 text-sm text-ink">
-              <input
-                type="radio"
-                name="funding"
-                checked={filters.funding === option.value}
-                onChange={() => onFilterChange({ ...filters, funding: option.value })}
-              />
-              {option.label}
-            </label>
-          ))}
-        </div>
-      </div>
-
       <button
         type="button"
         onClick={onCompanyDb}
@@ -170,7 +141,6 @@ export default function FilterSidebar({
                       title: search.job_title || '',
                       variants: search.variants || 10,
                       postedDays: search.posted_within_days || '',
-                      funding: search.funding_filter || 'both',
                     })
                   }
                   className="text-ember underline decoration-line underline-offset-2 hover:text-flame"

@@ -23,9 +23,7 @@ export default function JobCard({ job, status, onStatusChange, shaded = false })
         <p className="mt-1 text-sm text-ink">
           {job.company} &nbsp;&nbsp; {job.department} &nbsp;&nbsp; {job.location}
         </p>
-        <p className="mt-1 text-sm text-ink">
-          {formattedDate} &nbsp;&nbsp; {job.match}% match &nbsp;&nbsp; {job.funding}
-        </p>
+        <p className="mt-1 text-sm text-ink">Posted on {formattedDate}</p>
 
         {job.otherJobsAtCompany > 0 && (
           <p className="mt-3 text-xs text-ink">
@@ -57,6 +55,8 @@ export default function JobCard({ job, status, onStatusChange, shaded = false })
             Apply
           </button>
         )}
+
+        <p className="text-xs font-medium text-ink-soft">Did/Will You Apply?</p>
 
         <label className="flex items-center gap-1.5 text-sm text-ink">
           <input

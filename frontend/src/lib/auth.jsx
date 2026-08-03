@@ -96,7 +96,7 @@ export function AuthProvider({ children }) {
     return res.json() // { message }
   }
 
-  async function updateDefaultFilters({ title, variants, postedDays, funding }) {
+  async function updateDefaultFilters({ title, variants, postedDays }) {
     const res = await fetch(`${API_URL}/api/preferences`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -104,7 +104,6 @@ export function AuthProvider({ children }) {
         job_title: title || null,
         variants,
         posted_within_days: postedDays || null,
-        funding_filter: funding,
       }),
     })
     if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not save default filters'))
