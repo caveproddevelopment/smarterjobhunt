@@ -38,11 +38,11 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false))
   }, [token])
 
-  async function register(username, email, password) {
+  async function register(fullName, email, password) {
     const res = await fetch(`${API_URL}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, email, password }),
+      body: JSON.stringify({ full_name: fullName, email, password }),
     })
     if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not create account'))
     return res.json() // { message, user } — account is unverified, no session yet
@@ -112,11 +112,11 @@ export function AuthProvider({ children }) {
     return updated
   }
 
-  async function updateProfile(username, email) {
+  async function updateProfile(fullName, email) {
     const res = await fetch(`${API_URL}/api/auth/me`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ username, email }),
+      body: JSON.stringify({ full_name: fullName, email }),
     })
     if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not update profile'))
     const updated = await res.json()

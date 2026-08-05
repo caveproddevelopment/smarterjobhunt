@@ -17,19 +17,25 @@ from email_utils import send_password_reset_email, send_verification_email
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
-USERNAME_PATTERN = re.compile(r"^[a-z0-9_]{3,20}$")
+# Letters and single spaces between words (e.g. "John Smith"). No leading/
+# trailing space, no double spaces, no digits or punctuation.
+FULL_NAME_PATTERN = re.compile(r"^[A-Za-z]+( [A-Za-z]+)*$")
+
+
+def _valid_full_name(full_name):
+    return 2 <= len(full_name) <= 50 and bool(FULL_NAME_PATTERN.match(full_name))
 
 
 @bp.post("/register")
 def register():
     body = request.get_json(silent=True) or {}
-    username = (body.get("username") or "").strip().lower()
+    full_name = (body.get("full_name") or "").strip()
     email = (body.get("email") or "").strip().lower()
     password = body.get("password") or ""
 
-    if not USERNAME_PATTERN.match(username):
+    if not _valid_full_name(full_name):
         return jsonify(
-            {"error": "Username must be 3-20 characters: letters, numbers, and underscores only"}
+            {"error": "Full name must be 2-50 characters: letters and spaces only"}
         ), 400
     if not email or "@" not in email:
         return jsonify({"error": "A valid email is required"}), 400
@@ -40,28 +46,25 @@ def register():
     try:
         cur.execute(
             """
-            INSERT INTO users (username, email, password_hash, is_verified)
+            INSERT INTO users (full_name, email, password_hash, is_verified)
             VALUES (%s, %s, %s, false)
-            RETURNING id, username, email, created_at
+            RETURNING id, full_name, email, created_at
             """,
-            (username, email, generate_password_hash(password)),
+            (full_name, email, generate_password_hash(password)),
         )
         user = cur.fetchone()
         cur.connection.commit()
-    except psycopg2.errors.UniqueViolation as exc:
+    except psycopg2.errors.UniqueViolation:
         cur.connection.rollback()
-        constraint = getattr(exc.diag, "constraint_name", "") or ""
-        if "username" in constraint:
-            return jsonify({"error": "That username is already taken"}), 409
         return jsonify({"error": "An account with that email already exists"}), 409
 
     token = issue_verification_token(user["id"])
-    send_verification_email(user["email"], token, name=user["username"])
+    send_verification_email(user["email"], token, name=user["full_name"])
 
     return jsonify(
         {
             "message": "Account created. Check your email for a link to verify your address before logging in.",
-            "user": {"id": user["id"], "username": user["username"], "email": user["email"]},
+            "user": {"id": user["id"], "full_name": user["full_name"], "email": user["email"]},
         }
     ), 201
 
@@ -75,7 +78,7 @@ def login():
     cur = get_cursor()
     cur.execute(
         """
-        SELECT id, username, email, password_hash, is_verified, plan,
+        SELECT id, full_name, email, password_hash, is_verified, plan,
                default_job_title, default_variants, default_posted_within_days,
                default_funding_filter, has_set_default_filters
         FROM users WHERE email = %s
@@ -97,7 +100,7 @@ def login():
             "token": issue_token(user["id"]),
             "user": {
                 "id": user["id"],
-                "username": user["username"],
+                "full_name": user["full_name"],
                 "email": user["email"],
                 "plan": user["plan"],
                 "default_job_title": user["default_job_title"],
@@ -129,14 +132,14 @@ def resend_verification():
     email = (body.get("email") or "").strip().lower()
 
     cur = get_cursor()
-    cur.execute("SELECT id, username, email, is_verified FROM users WHERE email = %s", (email,))
+    cur.execute("SELECT id, full_name, email, is_verified FROM users WHERE email = %s", (email,))
     user = cur.fetchone()
 
     # Same response whether the account exists, is already verified, or the
     # email was typo'd — don't leak which emails have accounts.
     if user is not None and not user["is_verified"]:
         token = issue_verification_token(user["id"])
-        send_verification_email(user["email"], token, name=user["username"])
+        send_verification_email(user["email"], token, name=user["full_name"])
 
     return jsonify({"message": "If that email has a pending account, a verification link has been sent."})
 
@@ -147,14 +150,14 @@ def forgot_password():
     email = (body.get("email") or "").strip().lower()
 
     cur = get_cursor()
-    cur.execute("SELECT id, username, email FROM users WHERE email = %s", (email,))
+    cur.execute("SELECT id, full_name, email FROM users WHERE email = %s", (email,))
     user = cur.fetchone()
 
     # Same response whether the account exists or the email was typo'd —
     # don't leak which emails have accounts.
     if user is not None:
         token = issue_password_reset_token(user["id"])
-        send_password_reset_email(user["email"], token, name=user["username"])
+        send_password_reset_email(user["email"], token, name=user["full_name"])
 
     return jsonify({"message": "If that email has an account, a password reset link has been sent."})
 
@@ -188,7 +191,7 @@ def me():
     cur = get_cursor()
     cur.execute(
         """
-        SELECT id, username, email, created_at, plan,
+        SELECT id, full_name, email, created_at, plan,
                default_job_title, default_variants, default_posted_within_days,
                default_funding_filter, has_set_default_filters
         FROM users WHERE id = %s
@@ -204,14 +207,14 @@ def me():
 @bp.put("/me")
 @require_auth
 def update_me():
-    """Update the logged-in user's username and/or email (profile page)."""
+    """Update the logged-in user's full name and/or email (profile page)."""
     body = request.get_json(silent=True) or {}
-    username = (body.get("username") or "").strip().lower()
+    full_name = (body.get("full_name") or "").strip()
     email = (body.get("email") or "").strip().lower()
 
-    if not USERNAME_PATTERN.match(username):
+    if not _valid_full_name(full_name):
         return jsonify(
-            {"error": "Username must be 3-20 characters: letters, numbers, and underscores only"}
+            {"error": "Full name must be 2-50 characters: letters and spaces only"}
         ), 400
     if not email or "@" not in email:
         return jsonify({"error": "A valid email is required"}), 400
@@ -221,21 +224,18 @@ def update_me():
         cur.execute(
             """
             UPDATE users
-            SET username = %s, email = %s
+            SET full_name = %s, email = %s
             WHERE id = %s
-            RETURNING id, username, email, created_at, plan,
+            RETURNING id, full_name, email, created_at, plan,
                       default_job_title, default_variants, default_posted_within_days,
                       default_funding_filter, has_set_default_filters
             """,
-            (username, email, g.user_id),
+            (full_name, email, g.user_id),
         )
         updated = cur.fetchone()
         cur.connection.commit()
-    except psycopg2.errors.UniqueViolation as exc:
+    except psycopg2.errors.UniqueViolation:
         cur.connection.rollback()
-        constraint = getattr(exc.diag, "constraint_name", "") or ""
-        if "username" in constraint:
-            return jsonify({"error": "That username is already taken"}), 409
         return jsonify({"error": "An account with that email already exists"}), 409
 
     if updated is None:

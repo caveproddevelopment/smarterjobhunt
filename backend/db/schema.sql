@@ -52,7 +52,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_dedup
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
     id             SERIAL PRIMARY KEY,
-    username       TEXT NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9_]{3,20}$'),
+    full_name      TEXT NOT NULL
+                   CHECK (full_name ~ '^[A-Za-z]+( [A-Za-z]+)*$' AND char_length(full_name) BETWEEN 2 AND 50),
     email          TEXT NOT NULL UNIQUE,
     password_hash  TEXT NOT NULL,
     is_verified    BOOLEAN NOT NULL DEFAULT false,
@@ -64,15 +65,35 @@ CREATE TABLE IF NOT EXISTS users (
 -- against a DB created before email verification existed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false;
 
--- Safe to re-run: adds the column if this schema.sql is being re-applied
--- against a DB created before usernames existed. Added nullable — unlike
--- is_verified, there's no sane default for existing rows. If you already
--- have users in prod, backfill usernames first, THEN run:
---   ALTER TABLE users ALTER COLUMN username SET NOT NULL;
---   ALTER TABLE users ADD CONSTRAINT users_username_key UNIQUE (username);
---   ALTER TABLE users ADD CONSTRAINT users_username_check
---       CHECK (username ~ '^[a-z0-9_]{3,20}$');
-ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+-- Renamed from `username` to `full_name`: full names allow spaces, aren't
+-- unique (people can share a name), and don't fit the old handle-style
+-- character set. If this schema.sql is being re-applied against a DB that
+-- still has the old `username` column, rename it in place so existing data
+-- isn't lost.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'username'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'full_name'
+    ) THEN
+        ALTER TABLE users RENAME COLUMN username TO full_name;
+    END IF;
+END $$;
+
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_key;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_check;
+
+-- Added nullable — unlike is_verified, there's no sane default for
+-- existing rows. If you already have users in prod, backfill full_name
+-- first, THEN run:
+--   ALTER TABLE users ALTER COLUMN full_name SET NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_full_name_check;
+ALTER TABLE users ADD CONSTRAINT users_full_name_check
+    CHECK (full_name ~ '^[A-Za-z]+( [A-Za-z]+)*$' AND char_length(full_name) BETWEEN 2 AND 50);
 
 -- Default filters: what a user sees pre-filled on Job Listings after the
 -- first-login popup. has_set_default_filters flips to true the first time

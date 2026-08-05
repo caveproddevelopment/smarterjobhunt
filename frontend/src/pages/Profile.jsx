@@ -8,7 +8,7 @@ export default function Profile() {
   const { user, loading, logout, updateProfile, changePassword } = useAuth()
   const navigate = useNavigate()
 
-  const [username, setUsername] = useState('')
+  const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [profileError, setProfileError] = useState(null)
   const [profileSuccess, setProfileSuccess] = useState(null)
@@ -29,7 +29,7 @@ export default function Profile() {
   // Seed the form fields once we have a user.
   useEffect(() => {
     if (user) {
-      setUsername(user.username || '')
+      setFullName(user.full_name || '')
       setEmail(user.email || '')
     }
   }, [user])
@@ -45,7 +45,7 @@ export default function Profile() {
     setProfileSuccess(null)
     setSavingProfile(true)
     try {
-      await updateProfile(username, email)
+      await updateProfile(fullName, email)
       setProfileSuccess('Profile updated.')
     } catch (err) {
       setProfileError(err.message)
@@ -105,22 +105,22 @@ export default function Profile() {
             <h2 className="font-display text-lg font-semibold text-ink">Account details</h2>
             <form onSubmit={handleProfileSubmit} className="mt-4 space-y-4">
               <div>
-                <label htmlFor="username" className="text-sm font-medium text-ink">
-                  Username
+                <label htmlFor="fullName" className="text-sm font-medium text-ink">
+                  Full Name
                 </label>
                 <input
-                  id="username"
+                  id="fullName"
                   type="text"
                   required
-                  minLength={3}
-                  maxLength={20}
-                  pattern="[a-zA-Z0-9_]+"
-                  title="Letters, numbers, and underscores only"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
+                  minLength={2}
+                  maxLength={50}
+                  pattern="[A-Za-z]+( [A-Za-z]+)*"
+                  title="Letters and spaces only"
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
                   className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
                 />
-                <p className="mt-1 text-xs text-ink-soft">3–20 characters. Letters, numbers, and underscores only.</p>
+                <p className="mt-1 text-xs text-ink-soft">2–50 characters. Letters and spaces only.</p>
               </div>
 
               <div>

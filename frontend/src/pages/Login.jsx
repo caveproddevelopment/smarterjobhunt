@@ -8,7 +8,7 @@ export default function Login() {
   const [searchParams] = useSearchParams()
   const [mode, setMode] = useState('login') // 'login' | 'register' | 'forgot'
   const [email, setEmail] = useState('')
-  const [username, setUsername] = useState('')
+  const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [errorCode, setErrorCode] = useState(null)
@@ -35,7 +35,7 @@ export default function Login() {
         await login(email, password)
         navigate('/dashboard')
       } else if (mode === 'register') {
-        await register(username, email, password)
+        await register(fullName, email, password)
         setPendingVerificationEmail(email)
       } else {
         await forgotPassword(email)
@@ -163,22 +163,22 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             {mode === 'register' && (
               <div>
-                <label htmlFor="username" className="text-sm font-medium text-ink">
+                <label htmlFor="fullName" className="text-sm font-medium text-ink">
                   Full Name
                 </label>
                 <input
-                  id="username"
+                  id="fullName"
                   type="text"
                   required
-                  minLength={3}
-                  maxLength={20}
-                  pattern="[a-zA-Z0-9_]+"
-                  title="Letters, numbers, and underscores only"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
+                  minLength={2}
+                  maxLength={50}
+                  pattern="[A-Za-z]+( [A-Za-z]+)*"
+                  title="Letters and spaces only"
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
                   className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
                 />
-                <p className="mt-1 text-xs text-ink-soft">3–20 characters. Letters, numbers, and underscores only.</p>
+                <p className="mt-1 text-xs text-ink-soft">2–50 characters. Letters and spaces only.</p>
               </div>
             )}
 
