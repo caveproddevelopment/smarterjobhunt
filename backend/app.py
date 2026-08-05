@@ -10,7 +10,7 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    CORS(app, origins=[app.config["FRONTEND_ORIGIN"]], supports_credentials=True)
+    CORS(app, origins=app.config["FRONTEND_ORIGINS"], supports_credentials=True)
 
     init_pool(app)
     register_teardown(app)
