@@ -106,7 +106,7 @@ export default function Profile() {
             <form onSubmit={handleProfileSubmit} className="mt-4 space-y-4">
               <div>
                 <label htmlFor="fullName" className="text-sm font-medium text-ink">
-                  Full Name
+                  Full name
                 </label>
                 <input
                   id="fullName"
