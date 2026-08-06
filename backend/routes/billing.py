@@ -106,11 +106,12 @@ def webhook():
         return jsonify({"error": "Invalid payload or signature"}), 400
 
     event_type = event["type"]
-    # Converted to a plain dict here: the installed stripe SDK's StripeObject
-    # no longer supports .get() (bracket access still works, but every
-    # handler below uses .get() for safe optional-field access), so this is
-    # the one place we normalize it for everything downstream.
-    data = dict(event["data"]["object"])
+    # This SDK's StripeObject has no .keys() or .get() — only bracket access
+    # and attribute access. .to_dict() is its own recursive serializer and
+    # is the correct way to get a plain, nested dict that .get() works on
+    # everywhere downstream. (Plain dict(...) does NOT work here — without
+    # .keys() it falls back to sequence-of-pairs iteration and breaks.)
+    data = event["data"]["object"].to_dict()
 
     if event_type == "checkout.session.completed":
         _handle_checkout_completed(data)
@@ -156,10 +157,9 @@ def _handle_checkout_completed(session):
     if user_id is None or subscription_id is None:
         return
 
-    # stripe.Subscription.retrieve() returns a StripeObject too — same .get()
-    # issue as above, so normalize it the same way before it reaches
-    # _apply_subscription().
-    subscription = dict(stripe.Subscription.retrieve(subscription_id))
+    # Same .to_dict() treatment — stripe.Subscription.retrieve() returns a
+    # live StripeObject, not a plain dict.
+    subscription = stripe.Subscription.retrieve(subscription_id).to_dict()
     _apply_subscription(user_id, session.get("customer"), subscription)
 
 
