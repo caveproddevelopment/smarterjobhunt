@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import PasswordInput from '../components/PasswordInput'
 import { useAuth } from '../lib/auth'
 
 export default function Profile() {
@@ -142,7 +143,29 @@ export default function Profile() {
         <Navbar />
 
         <main className="mx-auto max-w-2xl px-6 pb-24 pt-8">
-          <h1 className="font-display text-2xl font-semibold text-ink">Your profile</h1>
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-soft transition-colors hover:text-ink"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4"
+              width="16"
+              height="16"
+            >
+              <path d="M19 12H5" />
+              <path d="M12 19l-7-7 7-7" />
+            </svg>
+            Back to job listings
+          </Link>
+
+          <h1 className="mt-4 font-display text-2xl font-semibold text-ink">Your profile</h1>
           <p className="mt-2 text-sm text-ink-soft">
             Manage your account details, password, and plan.
           </p>
@@ -205,29 +228,29 @@ export default function Profile() {
                 <label htmlFor="current-password" className="text-sm font-medium text-ink">
                   Current password
                 </label>
-                <input
-                  id="current-password"
-                  type="password"
-                  required
-                  value={currentPassword}
-                  onChange={(event) => setCurrentPassword(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
-                />
+                <div className="mt-2">
+                  <PasswordInput
+                    id="current-password"
+                    required
+                    value={currentPassword}
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                  />
+                </div>
               </div>
 
               <div>
                 <label htmlFor="new-password" className="text-sm font-medium text-ink">
                   New password
                 </label>
-                <input
-                  id="new-password"
-                  type="password"
-                  required
-                  minLength={8}
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
-                />
+                <div className="mt-2">
+                  <PasswordInput
+                    id="new-password"
+                    required
+                    minLength={8}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                  />
+                </div>
                 <p className="mt-1 text-xs text-ink-soft">At least 8 characters.</p>
               </div>
 
@@ -235,15 +258,15 @@ export default function Profile() {
                 <label htmlFor="confirm-password" className="text-sm font-medium text-ink">
                   Confirm new password
                 </label>
-                <input
-                  id="confirm-password"
-                  type="password"
-                  required
-                  minLength={8}
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
-                />
+                <div className="mt-2">
+                  <PasswordInput
+                    id="confirm-password"
+                    required
+                    minLength={8}
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                  />
+                </div>
               </div>
 
               {passwordError && <p className="text-sm text-ember">{passwordError}</p>}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import PasswordInput from '../components/PasswordInput'
 import { useAuth } from '../lib/auth'
 
 export default function Login() {
@@ -212,15 +213,15 @@ export default function Login() {
                     </button>
                   )}
                 </div>
-                <input
-                  id="password"
-                  type="password"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
-                />
+                <div className="mt-2">
+                  <PasswordInput
+                    id="password"
+                    required
+                    minLength={8}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                </div>
                 {mode === 'register' && (
                   <p className="mt-1 text-xs text-ink-soft">At least 8 characters.</p>
                 )}

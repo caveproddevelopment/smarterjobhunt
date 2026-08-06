@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import PasswordInput from '../components/PasswordInput'
 import { useAuth } from '../lib/auth'
 
 export default function ResetPassword() {
@@ -80,15 +81,15 @@ export default function ResetPassword() {
                   <label htmlFor="password" className="text-sm font-medium text-ink">
                     New password
                   </label>
-                  <input
-                    id="password"
-                    type="password"
-                    required
-                    minLength={8}
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
-                  />
+                  <div className="mt-2">
+                    <PasswordInput
+                      id="password"
+                      required
+                      minLength={8}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                    />
+                  </div>
                   <p className="mt-1 text-xs text-ink-soft">At least 8 characters.</p>
                 </div>
 
@@ -96,15 +97,15 @@ export default function ResetPassword() {
                   <label htmlFor="confirmPassword" className="text-sm font-medium text-ink">
                     Confirm new password
                   </label>
-                  <input
-                    id="confirmPassword"
-                    type="password"
-                    required
-                    minLength={8}
-                    value={confirmPassword}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
-                    className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
-                  />
+                  <div className="mt-2">
+                    <PasswordInput
+                      id="confirmPassword"
+                      required
+                      minLength={8}
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                    />
+                  </div>
                 </div>
 
                 {error && <p className="text-sm text-ember">{error}</p>}
