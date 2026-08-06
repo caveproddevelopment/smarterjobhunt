@@ -106,7 +106,11 @@ def webhook():
         return jsonify({"error": "Invalid payload or signature"}), 400
 
     event_type = event["type"]
-    data = event["data"]["object"]
+    # Converted to a plain dict here: the installed stripe SDK's StripeObject
+    # no longer supports .get() (bracket access still works, but every
+    # handler below uses .get() for safe optional-field access), so this is
+    # the one place we normalize it for everything downstream.
+    data = dict(event["data"]["object"])
 
     if event_type == "checkout.session.completed":
         _handle_checkout_completed(data)
@@ -152,7 +156,10 @@ def _handle_checkout_completed(session):
     if user_id is None or subscription_id is None:
         return
 
-    subscription = stripe.Subscription.retrieve(subscription_id)
+    # stripe.Subscription.retrieve() returns a StripeObject too — same .get()
+    # issue as above, so normalize it the same way before it reaches
+    # _apply_subscription().
+    subscription = dict(stripe.Subscription.retrieve(subscription_id))
     _apply_subscription(user_id, session.get("customer"), subscription)
 
 
@@ -184,7 +191,15 @@ def _handle_subscription_deleted(subscription):
 def _apply_subscription(user_id, customer_id, subscription):
     status = subscription.get("status")
     interval = _interval_from_subscription(subscription)
+    # current_period_end has moved off the top-level Subscription object in
+    # newer API versions (it now lives per subscription item, under
+    # items.data[0].current_period_end) — fall back there if it's missing.
     period_end = subscription.get("current_period_end")
+    if period_end is None:
+        try:
+            period_end = subscription["items"]["data"][0]["current_period_end"]
+        except (KeyError, IndexError, TypeError):
+            period_end = None
     period_end_dt = datetime.fromtimestamp(period_end, tz=timezone.utc) if period_end else None
     plan = "pro" if status in ("active", "trialing") else "free"
 
