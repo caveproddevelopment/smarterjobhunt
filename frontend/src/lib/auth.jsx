@@ -124,6 +124,40 @@ export function AuthProvider({ children }) {
     return updated
   }
 
+  async function refreshUser() {
+    if (!token) return
+    const res = await fetch(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return
+    setUser(await res.json())
+  }
+
+  // interval is 'week' or 'month'. Redirects the whole page to Stripe
+  // Checkout — there's no need for a Stripe.js dependency for this.
+  async function startCheckout(interval) {
+    const res = await fetch(`${API_URL}/api/billing/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ interval }),
+    })
+    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not start checkout'))
+    const { url } = await res.json()
+    window.location.href = url
+  }
+
+  // Redirects to Stripe's hosted billing portal, where the user can switch
+  // plans, update their card, or cancel.
+  async function openBillingPortal() {
+    const res = await fetch(`${API_URL}/api/billing/portal`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not open billing portal'))
+    const { url } = await res.json()
+    window.location.href = url
+  }
+
   async function changePassword(currentPassword, newPassword) {
     const res = await fetch(`${API_URL}/api/auth/me/password`, {
       method: 'PUT',
@@ -156,6 +190,9 @@ export function AuthProvider({ children }) {
         updateProfile,
         changePassword,
         updateDefaultFilters,
+        refreshUser,
+        startCheckout,
+        openBillingPortal,
         resendVerification,
         forgotPassword,
         resetPassword,

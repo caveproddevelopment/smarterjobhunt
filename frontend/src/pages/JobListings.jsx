@@ -6,6 +6,7 @@ import FilterSidebar from '../components/FilterSidebar'
 import JobCard from '../components/JobCard'
 import ActiveFiltersBar from '../components/ActiveFiltersBar'
 import DefaultFiltersModal from '../components/DefaultFiltersModal'
+import SubscribeModal from '../components/SubscribeModal'
 import { fetchJobs, fetchSavedSearches, createSavedSearch, deleteSavedSearch, setJobStatus, fetchTitleVariants } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -28,6 +29,8 @@ export default function JobListings() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showDefaultsModal, setShowDefaultsModal] = useState(false)
+  const [showSubscribeModal, setShowSubscribeModal] = useState(false)
+  const canApply = user?.plan === 'pro'
   const [savingDefaults, setSavingDefaults] = useState(false)
   const [titleVariants, setTitleVariants] = useState([])
   const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
@@ -185,6 +188,8 @@ export default function JobListings() {
         />
       )}
 
+      {showSubscribeModal && <SubscribeModal onClose={() => setShowSubscribeModal(false)} />}
+
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
         <div className="border border-line">
           <div className="border-b border-line py-4 text-center">
@@ -243,6 +248,8 @@ export default function JobListings() {
                       status={getStatus(job.id)}
                       onStatusChange={(status) => setStatus(job.id, status)}
                       shaded={index % 2 === 1}
+                      canApply={canApply}
+                      onRequireSubscription={() => setShowSubscribeModal(true)}
                     />
                   ))}
                 </div>

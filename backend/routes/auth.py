@@ -79,6 +79,7 @@ def login():
     cur.execute(
         """
         SELECT id, full_name, email, password_hash, is_verified, plan,
+               subscription_status, billing_interval, current_period_end,
                default_job_title, default_variants, default_posted_within_days,
                default_funding_filter, has_set_default_filters
         FROM users WHERE email = %s
@@ -103,6 +104,9 @@ def login():
                 "full_name": user["full_name"],
                 "email": user["email"],
                 "plan": user["plan"],
+                "subscription_status": user["subscription_status"],
+                "billing_interval": user["billing_interval"],
+                "current_period_end": user["current_period_end"],
                 "default_job_title": user["default_job_title"],
                 "default_variants": user["default_variants"],
                 "default_posted_within_days": user["default_posted_within_days"],
@@ -192,6 +196,7 @@ def me():
     cur.execute(
         """
         SELECT id, full_name, email, created_at, plan,
+               subscription_status, billing_interval, current_period_end,
                default_job_title, default_variants, default_posted_within_days,
                default_funding_filter, has_set_default_filters
         FROM users WHERE id = %s
@@ -227,6 +232,7 @@ def update_me():
             SET full_name = %s, email = %s
             WHERE id = %s
             RETURNING id, full_name, email, created_at, plan,
+                      subscription_status, billing_interval, current_period_end,
                       default_job_title, default_variants, default_posted_within_days,
                       default_funding_filter, has_set_default_filters
             """,

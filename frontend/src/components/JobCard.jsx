@@ -6,7 +6,14 @@ const rejectReasons = [
   'No response after applying',
 ]
 
-export default function JobCard({ job, status, onStatusChange, shaded = false }) {
+export default function JobCard({
+  job,
+  status,
+  onStatusChange,
+  shaded = false,
+  canApply = false,
+  onRequireSubscription = () => {},
+}) {
   const formattedDate = new Date(job.datePosted).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -36,7 +43,16 @@ export default function JobCard({ job, status, onStatusChange, shaded = false })
       </div>
 
       <div className="flex flex-col items-start gap-2 sm:items-end">
-        {job.applyUrl ? (
+        {!job.applyUrl ? (
+          <button
+            type="button"
+            disabled
+            title="No application link found for this listing yet"
+            className="cursor-not-allowed rounded-md bg-moss/40 px-8 py-2 text-sm font-semibold text-white"
+          >
+            Apply
+          </button>
+        ) : canApply ? (
           <a
             href={job.applyUrl}
             target="_blank"
@@ -46,11 +62,13 @@ export default function JobCard({ job, status, onStatusChange, shaded = false })
             Apply
           </a>
         ) : (
+          // Not html-disabled on purpose: it needs to stay clickable so we
+          // can prompt the subscribe modal instead of just looking inert.
           <button
             type="button"
-            disabled
-            title="No application link found for this listing yet"
-            className="cursor-not-allowed rounded-md bg-moss/40 px-8 py-2 text-sm font-semibold text-white"
+            onClick={onRequireSubscription}
+            title="Subscribe to apply"
+            className="rounded-md bg-moss/40 px-8 py-2 text-sm font-semibold text-white blur-[1.5px]"
           >
             Apply
           </button>

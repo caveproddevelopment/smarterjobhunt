@@ -105,11 +105,26 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS default_funding_filter TEXT NOT NULL 
     CHECK (default_funding_filter IN ('both', 'a', 'b'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS has_set_default_filters BOOLEAN NOT NULL DEFAULT false;
 
--- Placeholder plan tier for the profile page's billing section. There's no
--- payment processor wired up yet, so this just tracks 'free' vs 'pro' —
--- swap in real Stripe subscription status here once billing is built.
+-- Plan tier for the profile page's billing section. 'plan' is the simple
+-- free/pro gate the rest of the app reads; it's derived from (and kept in
+-- sync with) the Stripe columns below by the billing webhook.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free'
     CHECK (plan IN ('free', 'pro'));
+
+-- Stripe subscription billing (weekly/monthly plans). subscription_status
+-- mirrors Stripe's own status string (active, trialing, past_due, canceled,
+-- unpaid, incomplete, incomplete_expired, paused) — left unconstrained since
+-- Stripe can add new values. billing_interval is 'week' or 'month', matching
+-- the Stripe Price's recurring.interval for whichever plan the user is on.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_interval TEXT
+    CHECK (billing_interval IN ('week', 'month'));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_users_stripe_customer_id ON users (stripe_customer_id)
+    WHERE stripe_customer_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- job_matches: per-user match % against a job (computed by the AI agent later;
