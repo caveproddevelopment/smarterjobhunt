@@ -98,6 +98,11 @@ export default function JobListings() {
     if (!user || appliedUserDefaultsRef.current) return
     appliedUserDefaultsRef.current = true
 
+    // If the user arrived here with a title from the landing page search
+    // (or any other explicit ?title= link), that takes priority — don't
+    // let saved account defaults overwrite it.
+    if (searchParams.get('title')) return
+
     if (user.has_set_default_filters) {
       const seeded = {
         title: user.default_job_title || '',
@@ -109,7 +114,7 @@ export default function JobListings() {
     } else {
       setShowDefaultsModal(true)
     }
-  }, [user])
+  }, [user, searchParams])
 
   function handleSaveDefaults(newFilters) {
     setSavingDefaults(true)
