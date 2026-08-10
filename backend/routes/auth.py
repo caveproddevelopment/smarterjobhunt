@@ -2,6 +2,8 @@ import re
 
 import psycopg2
 from flask import Blueprint, current_app, g, jsonify, redirect, request
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from auth_utils import (
@@ -21,9 +23,40 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 # trailing space, no double spaces, no digits or punctuation.
 FULL_NAME_PATTERN = re.compile(r"^[A-Za-z]+( [A-Za-z]+)*$")
 
+# Fields returned for a logged-in user everywhere (login, /me, /google).
+# has_password lets the frontend know whether to show password-related UI
+# (the "Change password" section, the "Forgot password" link) -- Google-only
+# accounts have password_hash = NULL and can't use either.
+USER_FIELDS = """
+    id, full_name, email, created_at, plan, subscription_status, billing_interval,
+    current_period_end, default_job_title, default_variants,
+    default_posted_within_days, default_funding_filter, has_set_default_filters,
+    (password_hash IS NOT NULL) AS has_password
+"""
+
 
 def _valid_full_name(full_name):
     return 2 <= len(full_name) <= 50 and bool(FULL_NAME_PATTERN.match(full_name))
+
+
+def _sanitize_google_name(raw_name, email):
+    """The full_name column only allows letters and single spaces (see
+    schema.sql), but real names from Google can include hyphens, apostrophes,
+    digits, or non-Latin scripts entirely. Strip down to what's allowed; if
+    nothing usable survives (e.g. a name in a non-Latin script), fall back to
+    the letters in the email's local part, then to a generic placeholder.
+    The user can always edit this afterwards on their profile page.
+    """
+    cleaned = re.sub(r"[^A-Za-z ]", " ", raw_name or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if _valid_full_name(cleaned):
+        return cleaned
+
+    local_part = re.sub(r"[^A-Za-z]", "", (email or "").split("@")[0])
+    if _valid_full_name(local_part):
+        return local_part
+
+    return "Google User"
 
 
 @bp.post("/register")
@@ -77,18 +110,26 @@ def login():
 
     cur = get_cursor()
     cur.execute(
-        """
-        SELECT id, full_name, email, password_hash, is_verified, plan,
-               subscription_status, billing_interval, current_period_end,
-               default_job_title, default_variants, default_posted_within_days,
-               default_funding_filter, has_set_default_filters
+        f"""
+        SELECT {USER_FIELDS}, password_hash, is_verified
         FROM users WHERE email = %s
         """,
         (email,),
     )
     user = cur.fetchone()
 
-    if user is None or not check_password_hash(user["password_hash"], password):
+    if user is None:
+        return jsonify({"error": "Invalid email or password"}), 401
+
+    if user["password_hash"] is None:
+        return jsonify(
+            {
+                "error": "This account uses Google Sign-In. Use the \"Continue with Google\" button instead.",
+                "code": "google_account",
+            }
+        ), 401
+
+    if not check_password_hash(user["password_hash"], password):
         return jsonify({"error": "Invalid email or password"}), 401
 
     if not user["is_verified"]:
@@ -96,25 +137,81 @@ def login():
             {"error": "Please verify your email before logging in.", "code": "email_not_verified"}
         ), 403
 
-    return jsonify(
-        {
-            "token": issue_token(user["id"]),
-            "user": {
-                "id": user["id"],
-                "full_name": user["full_name"],
-                "email": user["email"],
-                "plan": user["plan"],
-                "subscription_status": user["subscription_status"],
-                "billing_interval": user["billing_interval"],
-                "current_period_end": user["current_period_end"],
-                "default_job_title": user["default_job_title"],
-                "default_variants": user["default_variants"],
-                "default_posted_within_days": user["default_posted_within_days"],
-                "default_funding_filter": user["default_funding_filter"],
-                "has_set_default_filters": user["has_set_default_filters"],
-            },
-        }
-    )
+    user.pop("password_hash")
+    user.pop("is_verified")
+    return jsonify({"token": issue_token(user["id"]), "user": user})
+
+
+@bp.post("/google")
+def google_login():
+    """Log in (or sign up) via a Google ID token from the frontend's
+    'Continue with Google' button. Three cases, in order:
+      1. google_id already on file -> that's their account, log in.
+      2. No google_id match, but a password account already exists with this
+         email -> link Google to it (so they can use either from now on)
+         and mark it verified (Google already verified the email).
+      3. Neither -> brand-new account, created with no password.
+    """
+    body = request.get_json(silent=True) or {}
+    credential = body.get("credential") or ""
+    if not credential:
+        return jsonify({"error": "Missing Google credential"}), 400
+
+    client_id = current_app.config.get("GOOGLE_CLIENT_ID")
+    if not client_id:
+        return jsonify({"error": "Google sign-in isn't configured"}), 500
+
+    try:
+        payload = google_id_token.verify_oauth2_token(
+            credential, google_requests.Request(), client_id
+        )
+    except ValueError:
+        return jsonify({"error": "Invalid Google credential"}), 401
+
+    if not payload.get("email_verified"):
+        return jsonify({"error": "Google account email is not verified"}), 401
+
+    google_id = payload["sub"]
+    email = (payload.get("email") or "").strip().lower()
+    full_name = _sanitize_google_name(payload.get("name"), email)
+
+    cur = get_cursor()
+
+    # 1. Already linked to this Google account.
+    cur.execute(f"SELECT {USER_FIELDS} FROM users WHERE google_id = %s", (google_id,))
+    user = cur.fetchone()
+
+    if user is None:
+        # 2. An existing password account with this email -> link it.
+        cur.execute(
+            f"""
+            UPDATE users SET google_id = %s, is_verified = true
+            WHERE email = %s AND google_id IS NULL
+            RETURNING {USER_FIELDS}
+            """,
+            (google_id, email),
+        )
+        user = cur.fetchone()
+        cur.connection.commit()
+
+    if user is None:
+        # 3. Brand-new account, no password.
+        try:
+            cur.execute(
+                f"""
+                INSERT INTO users (full_name, email, password_hash, google_id, is_verified)
+                VALUES (%s, %s, NULL, %s, true)
+                RETURNING {USER_FIELDS}
+                """,
+                (full_name, email, google_id),
+            )
+            user = cur.fetchone()
+            cur.connection.commit()
+        except psycopg2.errors.UniqueViolation:
+            cur.connection.rollback()
+            return jsonify({"error": "An account with that email already exists"}), 409
+
+    return jsonify({"token": issue_token(user["id"]), "user": user})
 
 
 @bp.get("/verify/<token>")
@@ -193,16 +290,7 @@ def reset_password():
 @require_auth
 def me():
     cur = get_cursor()
-    cur.execute(
-        """
-        SELECT id, full_name, email, created_at, plan,
-               subscription_status, billing_interval, current_period_end,
-               default_job_title, default_variants, default_posted_within_days,
-               default_funding_filter, has_set_default_filters
-        FROM users WHERE id = %s
-        """,
-        (g.user_id,),
-    )
+    cur.execute(f"SELECT {USER_FIELDS} FROM users WHERE id = %s", (g.user_id,))
     user = cur.fetchone()
     if user is None:
         return jsonify({"error": "User not found"}), 404
@@ -227,14 +315,11 @@ def update_me():
     cur = get_cursor()
     try:
         cur.execute(
-            """
+            f"""
             UPDATE users
             SET full_name = %s, email = %s
             WHERE id = %s
-            RETURNING id, full_name, email, created_at, plan,
-                      subscription_status, billing_interval, current_period_end,
-                      default_job_title, default_variants, default_posted_within_days,
-                      default_funding_filter, has_set_default_filters
+            RETURNING {USER_FIELDS}
             """,
             (full_name, email, g.user_id),
         )
@@ -264,7 +349,13 @@ def update_password():
     cur = get_cursor()
     cur.execute("SELECT password_hash FROM users WHERE id = %s", (g.user_id,))
     user = cur.fetchone()
-    if user is None or not check_password_hash(user["password_hash"], current_password):
+    if user is None:
+        return jsonify({"error": "User not found"}), 404
+    if user["password_hash"] is None:
+        return jsonify(
+            {"error": "This account uses Google Sign-In and doesn't have a password to change."}
+        ), 400
+    if not check_password_hash(user["password_hash"], current_password):
         return jsonify({"error": "Current password is incorrect"}), 401
 
     cur.execute(

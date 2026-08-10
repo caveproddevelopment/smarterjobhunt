@@ -68,3 +68,9 @@ class Config:
     # for that endpoint to work -- if unset, it returns a 502 rather than
     # falling back to anything jobs-table-dependent.
     ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+
+    # Google Sign-In (routes/auth.py's /google endpoint). This is the OAuth
+    # client ID from Google Cloud Console -- the SAME value the frontend
+    # uses as VITE_GOOGLE_CLIENT_ID. The backend uses it to verify that a
+    # Google ID token was actually issued for THIS app, not some other one.
+    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")

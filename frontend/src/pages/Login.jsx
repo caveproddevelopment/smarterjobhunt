@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import PasswordInput from '../components/PasswordInput'
+import GoogleSignInButton from '../components/GoogleSignInButton'
 import { useAuth } from '../lib/auth'
 
 export default function Login() {
@@ -17,14 +18,35 @@ export default function Login() {
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState(null)
   const [pendingResetEmail, setPendingResetEmail] = useState(null)
   const [resendStatus, setResendStatus] = useState(null)
-  const { login, register, resendVerification, forgotPassword, sessionMessage, clearSessionMessage } =
-    useAuth()
+  const {
+    login,
+    loginWithGoogle,
+    register,
+    resendVerification,
+    forgotPassword,
+    sessionMessage,
+    clearSessionMessage,
+  } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
     return () => clearSessionMessage()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function handleGoogleCredential(credential) {
+    setError(null)
+    setErrorCode(null)
+    setSubmitting(true)
+    try {
+      await loginWithGoogle(credential)
+      navigate('/dashboard')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -162,6 +184,17 @@ export default function Login() {
           )}
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            {mode !== 'forgot' && (
+              <>
+                <GoogleSignInButton onCredential={handleGoogleCredential} disabled={submitting} />
+                <div className="flex items-center gap-3 text-xs font-medium uppercase tracking-wide text-ink-soft">
+                  <div className="h-px flex-1 bg-line" />
+                  or
+                  <div className="h-px flex-1 bg-line" />
+                </div>
+              </>
+            )}
+
             {mode === 'register' && (
               <div>
                 <label htmlFor="fullName" className="text-sm font-medium text-ink">

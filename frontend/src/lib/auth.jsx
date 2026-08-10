@@ -66,6 +66,25 @@ export function AuthProvider({ children }) {
     setUser(data.user)
   }
 
+  // credential is the ID token Google's Sign in with Google button hands
+  // back via GoogleSignInButton's onCredential callback. Logs in if this
+  // Google account is already linked to a user, links Google to a matching
+  // password account, or creates a brand-new account -- backend decides
+  // which; either way it comes back in the same {token, user} shape as
+  // login() above.
+  async function loginWithGoogle(credential) {
+    const res = await fetch(`${API_URL}/api/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential }),
+    })
+    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not sign in with Google'))
+    const data = await res.json()
+    localStorage.setItem(TOKEN_KEY, data.token)
+    setToken(data.token)
+    setUser(data.user)
+  }
+
   async function resendVerification(email) {
     const res = await fetch(`${API_URL}/api/auth/resend-verification`, {
       method: 'POST',
@@ -186,6 +205,7 @@ export function AuthProvider({ children }) {
         loading,
         register,
         login,
+        loginWithGoogle,
         logout,
         updateProfile,
         changePassword,

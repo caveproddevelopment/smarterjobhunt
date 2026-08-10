@@ -223,63 +223,69 @@ export default function Profile() {
           {/* Change password */}
           <section className="mt-8 border border-line p-6">
             <h2 className="font-display text-lg font-semibold text-ink">Change password</h2>
-            <form onSubmit={handlePasswordSubmit} className="mt-4 space-y-4">
-              <div>
-                <label htmlFor="current-password" className="text-sm font-medium text-ink">
-                  Current password
-                </label>
-                <div className="mt-2">
-                  <PasswordInput
-                    id="current-password"
-                    required
-                    value={currentPassword}
-                    onChange={(event) => setCurrentPassword(event.target.value)}
-                  />
+            {user.has_password === false ? (
+              <p className="mt-4 text-sm text-ink-soft">
+                Your account signs in with Google, so there's no password to change here.
+              </p>
+            ) : (
+              <form onSubmit={handlePasswordSubmit} className="mt-4 space-y-4">
+                <div>
+                  <label htmlFor="current-password" className="text-sm font-medium text-ink">
+                    Current password
+                  </label>
+                  <div className="mt-2">
+                    <PasswordInput
+                      id="current-password"
+                      required
+                      value={currentPassword}
+                      onChange={(event) => setCurrentPassword(event.target.value)}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label htmlFor="new-password" className="text-sm font-medium text-ink">
-                  New password
-                </label>
-                <div className="mt-2">
-                  <PasswordInput
-                    id="new-password"
-                    required
-                    minLength={8}
-                    value={newPassword}
-                    onChange={(event) => setNewPassword(event.target.value)}
-                  />
+                <div>
+                  <label htmlFor="new-password" className="text-sm font-medium text-ink">
+                    New password
+                  </label>
+                  <div className="mt-2">
+                    <PasswordInput
+                      id="new-password"
+                      required
+                      minLength={8}
+                      value={newPassword}
+                      onChange={(event) => setNewPassword(event.target.value)}
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-ink-soft">At least 8 characters.</p>
                 </div>
-                <p className="mt-1 text-xs text-ink-soft">At least 8 characters.</p>
-              </div>
 
-              <div>
-                <label htmlFor="confirm-password" className="text-sm font-medium text-ink">
-                  Confirm new password
-                </label>
-                <div className="mt-2">
-                  <PasswordInput
-                    id="confirm-password"
-                    required
-                    minLength={8}
-                    value={confirmPassword}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
-                  />
+                <div>
+                  <label htmlFor="confirm-password" className="text-sm font-medium text-ink">
+                    Confirm new password
+                  </label>
+                  <div className="mt-2">
+                    <PasswordInput
+                      id="confirm-password"
+                      required
+                      minLength={8}
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              {passwordError && <p className="text-sm text-ember">{passwordError}</p>}
-              {passwordSuccess && <p className="text-sm text-moss">{passwordSuccess}</p>}
+                {passwordError && <p className="text-sm text-ember">{passwordError}</p>}
+                {passwordSuccess && <p className="text-sm text-moss">{passwordSuccess}</p>}
 
-              <button
-                type="submit"
-                disabled={savingPassword}
-                className="rounded-full border border-line px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist disabled:opacity-60"
-              >
-                {savingPassword ? 'Updating…' : 'Update password'}
-              </button>
-            </form>
+                <button
+                  type="submit"
+                  disabled={savingPassword}
+                  className="rounded-full border border-line px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist disabled:opacity-60"
+                >
+                  {savingPassword ? 'Updating…' : 'Update password'}
+                </button>
+              </form>
+            )}
           </section>
 
           {/* Billing */}

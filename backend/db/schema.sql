@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS users (
 -- against a DB created before email verification existed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false;
 
+-- Google Sign-In: password_hash becomes optional (accounts created via
+-- Google have none), google_id stores the Google account's stable "sub"
+-- identifier so a repeat Google login (or a password account later linking
+-- Google) can be matched. Safe to re-run against a DB created before this
+-- existed.
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_has_auth_method;
+ALTER TABLE users ADD CONSTRAINT users_has_auth_method
+    CHECK (password_hash IS NOT NULL OR google_id IS NOT NULL);
+
 -- Renamed from `username` to `full_name`: full names allow spaces, aren't
 -- unique (people can share a name), and don't fit the old handle-style
 -- character set. If this schema.sql is being re-applied against a DB that
