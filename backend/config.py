@@ -62,3 +62,9 @@ class Config:
     STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
     STRIPE_PRICE_WEEKLY = os.environ.get("STRIPE_PRICE_WEEKLY")
     STRIPE_PRICE_MONTHLY = os.environ.get("STRIPE_PRICE_MONTHLY")
+
+    # Claude-powered title-variant agent (title_variant_agent.py, called from
+    # routes/title_variants.py on a job_title_variants cache miss). Required
+    # for that endpoint to work -- if unset, it returns a 502 rather than
+    # falling back to anything jobs-table-dependent.
+    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
