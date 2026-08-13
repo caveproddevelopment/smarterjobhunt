@@ -22,9 +22,9 @@ def list_jobs():
     params = []
 
     # Title + its variants are OR'd together as one group (any of them can
-    # match), then AND'd with the other filters below. This is what makes
-    # the Variants count (5/10/15) actually widen or narrow results: more
-    # variant_title values passed in means more titles that can match.
+    # match), then AND'd with the other filters below. The frontend always
+    # sends up to the full 15 cached/generated variants for the title (the
+    # variants count is fixed, not user-selectable).
     if title or variant_titles:
         title_matches = []
         for candidate in [title, *variant_titles]:

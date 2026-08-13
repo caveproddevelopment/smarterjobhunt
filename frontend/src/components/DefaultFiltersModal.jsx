@@ -3,7 +3,6 @@ import { useState } from 'react'
 export default function DefaultFiltersModal({ onSave, onSkip, saving }) {
   const [filters, setFilters] = useState({
     title: '',
-    variants: 10,
     postedDays: '',
   })
 
@@ -28,23 +27,6 @@ export default function DefaultFiltersModal({ onSave, onSkip, saving }) {
             placeholder="e.g. Product Manager"
             className="mt-1 block w-full border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
           />
-        </div>
-
-        <div className="mt-4">
-          <p className="text-sm text-ink">Variants</p>
-          <div className="mt-1 flex items-center gap-4">
-            {[5, 10, 15].map((value) => (
-              <label key={value} className="flex items-center gap-1.5 text-sm text-ink">
-                <input
-                  type="radio"
-                  name="default-variants"
-                  checked={filters.variants === value}
-                  onChange={() => setFilters({ ...filters, variants: value })}
-                />
-                {value}
-              </label>
-            ))}
-          </div>
         </div>
 
         <div className="mt-4">

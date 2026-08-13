@@ -44,7 +44,7 @@ def create_saved_search():
                 g.user_id,
                 name,
                 body.get("job_title"),
-                body.get("variants", 10),
+                15,  # variants count is no longer user-adjustable — always 15
                 body.get("posted_within_days"),
                 body.get("funding_filter", "both"),
             ),

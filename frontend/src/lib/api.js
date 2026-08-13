@@ -58,14 +58,13 @@ export async function fetchSavedSearches() {
   return data.saved_searches
 }
 
-export async function createSavedSearch({ name, jobTitle, variants, postedWithinDays }) {
+export async function createSavedSearch({ name, jobTitle, postedWithinDays }) {
   const res = await fetch(`${API_URL}/api/saved-searches`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
       name,
       job_title: jobTitle || null,
-      variants,
       posted_within_days: postedWithinDays || null,
     }),
   })

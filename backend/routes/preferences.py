@@ -29,9 +29,8 @@ def get_preferences():
 def update_preferences():
     body = request.get_json(silent=True) or {}
 
-    variants = body.get("variants", 10)
-    if variants not in (5, 10, 15):
-        return jsonify({"error": "variants must be 5, 10, or 15"}), 400
+    # Variants count is no longer a user-adjustable filter — always 15.
+    variants = 15
 
     funding_filter = body.get("funding_filter", "both")
     if funding_filter not in FUNDING_FILTERS:

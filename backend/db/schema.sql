@@ -110,7 +110,11 @@ ALTER TABLE users ADD CONSTRAINT users_full_name_check
 -- first-login popup. has_set_default_filters flips to true the first time
 -- they save OR skip the popup, so it only ever shows once.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS default_job_title TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS default_variants SMALLINT NOT NULL DEFAULT 10;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS default_variants SMALLINT NOT NULL DEFAULT 15;
+
+-- Variants count is no longer user-adjustable -- permanently 15. Backfill
+-- any rows written back when the default (and the UI selector) was 10/5.
+UPDATE users SET default_variants = 15 WHERE default_variants <> 15;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS default_posted_within_days INTEGER;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS default_funding_filter TEXT NOT NULL DEFAULT 'both'
     CHECK (default_funding_filter IN ('both', 'a', 'b'));
@@ -171,13 +175,16 @@ CREATE TABLE IF NOT EXISTS saved_searches (
     user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name                TEXT NOT NULL,
     job_title            TEXT,
-    variants            SMALLINT NOT NULL DEFAULT 10,
+    variants            SMALLINT NOT NULL DEFAULT 15,
     posted_within_days  INTEGER,
     funding_filter      TEXT NOT NULL DEFAULT 'both'
                         CHECK (funding_filter IN ('both', 'a', 'b')),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, name)
 );
+
+-- Backfill existing saved searches created while variants was still 5/10/15-selectable.
+UPDATE saved_searches SET variants = 15 WHERE variants <> 15;
 
 CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON saved_searches (user_id);
 CREATE INDEX IF NOT EXISTS idx_user_job_status_user_id ON user_job_status (user_id);

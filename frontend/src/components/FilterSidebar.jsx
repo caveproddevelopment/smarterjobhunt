@@ -36,31 +36,6 @@ export default function FilterSidebar({
       </div>
 
       <div className="mt-4">
-        <p className="flex items-center gap-1.5 text-sm text-ink">
-          Variants
-          <span
-            title="How many close variants of this title to include, e.g. 'PM' or 'Sr. PM'"
-            className="flex h-4 w-4 items-center justify-center rounded-full bg-mist text-[10px] font-semibold text-ink-soft"
-          >
-            i
-          </span>
-        </p>
-        <div className="mt-1 flex items-center gap-4">
-          {[5, 10, 15].map((value) => (
-            <label key={value} className="flex items-center gap-1.5 text-sm text-ink">
-              <input
-                type="radio"
-                name="variants"
-                checked={filters.variants === value}
-                onChange={() => onFilterChange({ ...filters, variants: value })}
-              />
-              {value}
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-4">
         <label htmlFor="filter-days" className="text-sm text-ink">
           Posted in the last
         </label>
@@ -139,7 +114,6 @@ export default function FilterSidebar({
                   onClick={() =>
                     onFilterChange({
                       title: search.job_title || '',
-                      variants: search.variants || 10,
                       postedDays: search.posted_within_days || '',
                     })
                   }

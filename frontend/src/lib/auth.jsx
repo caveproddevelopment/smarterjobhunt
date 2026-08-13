@@ -115,13 +115,12 @@ export function AuthProvider({ children }) {
     return res.json() // { message }
   }
 
-  async function updateDefaultFilters({ title, variants, postedDays }) {
+  async function updateDefaultFilters({ title, postedDays }) {
     const res = await fetch(`${API_URL}/api/preferences`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         job_title: title || null,
-        variants,
         posted_within_days: postedDays || null,
       }),
     })

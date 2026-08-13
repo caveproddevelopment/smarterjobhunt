@@ -18,7 +18,6 @@ export default function JobListings() {
   const appliedUserDefaultsRef = useRef(false)
   const [filters, setFilters] = useState({
     title: searchParams.get('title') || '',
-    variants: 10,
     postedDays: '',
   })
   const [appliedFilters, setAppliedFilters] = useState(filters)
@@ -32,8 +31,6 @@ export default function JobListings() {
   const [showSubscribeModal, setShowSubscribeModal] = useState(false)
   const canApply = user?.plan === 'pro'
   const [savingDefaults, setSavingDefaults] = useState(false)
-  const [titleVariants, setTitleVariants] = useState([])
-  const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -43,22 +40,18 @@ export default function JobListings() {
     async function run() {
       let variants = []
       if (appliedFilters.title) {
-        setTitleVariantsLoading(true)
         try {
           variants = await fetchTitleVariants(appliedFilters.title)
         } catch {
           variants = []
-        } finally {
-          if (!cancelled) setTitleVariantsLoading(false)
         }
       }
       if (cancelled) return
-      setTitleVariants(variants)
 
       try {
         const { jobs: results, totalCount: total } = await fetchJobs({
           ...appliedFilters,
-          variantTitles: variants.slice(0, appliedFilters.variants),
+          variantTitles: variants,
         })
         if (cancelled) return
         setJobs(results)
@@ -106,7 +99,6 @@ export default function JobListings() {
     if (user.has_set_default_filters) {
       const seeded = {
         title: user.default_job_title || '',
-        variants: user.default_variants || 10,
         postedDays: user.default_posted_within_days || '',
       }
       setFilters(seeded)
@@ -130,7 +122,7 @@ export default function JobListings() {
 
   function handleSkipDefaults() {
     setSavingDefaults(true)
-    updateDefaultFilters({ title: '', variants: 10, postedDays: '' })
+    updateDefaultFilters({ title: '', postedDays: '' })
       .then(() => setShowDefaultsModal(false))
       .catch((err) => setError(err.message))
       .finally(() => setSavingDefaults(false))
@@ -164,7 +156,6 @@ export default function JobListings() {
     createSavedSearch({
       name,
       jobTitle: filters.title,
-      variants: filters.variants,
       postedWithinDays: filters.postedDays || null,
     })
       .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
@@ -213,12 +204,7 @@ export default function JobListings() {
             )}
           </div>
 
-          <ActiveFiltersBar
-            filters={appliedFilters}
-            onChange={handleActiveFiltersChange}
-            titleVariants={titleVariants}
-            titleVariantsLoading={titleVariantsLoading}
-          />
+          <ActiveFiltersBar filters={appliedFilters} onChange={handleActiveFiltersChange} />
 
           <div className="flex flex-col gap-6 p-6 md:flex-row">
             <div ref={sidebarRef}>

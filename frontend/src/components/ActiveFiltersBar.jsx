@@ -1,11 +1,6 @@
-const DEFAULT_FILTERS = { title: '', variants: 10, postedDays: '' }
+const DEFAULT_FILTERS = { title: '', postedDays: '' }
 
-export default function ActiveFiltersBar({
-  filters,
-  onChange,
-  titleVariants = [],
-  titleVariantsLoading = false,
-}) {
+export default function ActiveFiltersBar({ filters, onChange }) {
   const chips = []
 
   if (filters.title) {
@@ -15,11 +10,6 @@ export default function ActiveFiltersBar({
       clear: () => onChange({ ...filters, title: '' }),
     })
   }
-  chips.push({
-    key: 'variants',
-    label: `${filters.variants} variants`,
-    clear: () => onChange({ ...filters, variants: 10 }),
-  })
   if (filters.postedDays) {
     chips.push({
       key: 'postedDays',
@@ -56,24 +46,6 @@ export default function ActiveFiltersBar({
           </button>
         )}
       </div>
-
-      {filters.title && (titleVariantsLoading || titleVariants.length > 0) && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-line/60 pt-2">
-          <span className="text-xs font-medium text-ink-soft">Also matching:</span>
-          {titleVariantsLoading ? (
-            <span className="text-xs text-ink-soft">Finding related titles…</span>
-          ) : (
-            titleVariants.slice(0, filters.variants).map((variant) => (
-              <span
-                key={variant}
-                className="rounded-full border border-line bg-paper px-2 py-0.5 text-xs text-ink-soft"
-              >
-                {variant}
-              </span>
-            ))
-          )}
-        </div>
-      )}
     </div>
   )
 }
