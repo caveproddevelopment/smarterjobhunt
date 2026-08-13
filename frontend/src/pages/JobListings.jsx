@@ -174,6 +174,28 @@ export default function JobListings() {
       .catch((err) => setError(err.message))
   }
 
+  const bookmarkedSearch = savedSearches.find(
+    (search) => (search.job_title || '') === (appliedFilters.title || ''),
+  )
+
+  function handleToggleBookmark() {
+    if (!user) {
+      navigate('/login')
+      return
+    }
+    if (bookmarkedSearch) {
+      handleDeleteSearch(bookmarkedSearch.id)
+      return
+    }
+    createSavedSearch({
+      name: appliedFilters.title.trim() || 'All jobs',
+      jobTitle: appliedFilters.title,
+      postedWithinDays: appliedFilters.postedDays || null,
+    })
+      .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
+      .catch((err) => setError(err.message))
+  }
+
   function scrollToFilters() {
     sidebarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
@@ -194,7 +216,17 @@ export default function JobListings() {
 
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
         <div className="border border-line">
-          <div className="border-b border-line py-4 text-center">
+          <div className="relative border-b border-line py-4 text-center">
+            <button
+              type="button"
+              onClick={handleToggleBookmark}
+              className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-sm font-medium text-ink-soft hover:text-ink"
+            >
+              <span aria-hidden="true" className={bookmarkedSearch ? 'text-ember' : 'text-ink-soft'}>
+                {bookmarkedSearch ? '★' : '☆'}
+              </span>
+              Bookmark Search
+            </button>
             <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>
             <button
               type="button"
