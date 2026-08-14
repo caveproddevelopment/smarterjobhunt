@@ -9,6 +9,7 @@ export default function ActiveFiltersBar({
   variantCountsLoading = false,
   selectedVariant = null,
   onSelectVariant = () => {},
+  onReturnToFullList = () => {},
   bookmarked = false,
   onToggleBookmark = () => {},
 }) {
@@ -27,13 +28,26 @@ export default function ActiveFiltersBar({
 
   // Once a variant pill is selected, the listing is scoped to just that
   // title — the broader "Active filters" chips and "Also matching" pills
-  // no longer describe what's showing, so hide both entirely and leave
-  // only the bookmark control (which now tracks the variant, not the
-  // original search title).
+  // no longer describe what's showing, so hide both entirely. "Return to
+  // Full List" and "Current View" move into this same gray bar alongside
+  // the bookmark control, instead of living in the white header above.
   if (selectedVariant) {
     return (
       <div className="border-b border-line bg-mist/60 px-6 py-3">
-        <div className="flex items-center">{bookmarkButtonEl}</div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={onReturnToFullList}
+            className="flex items-center gap-1.5 text-sm font-medium text-ember hover:text-flame"
+          >
+            <span aria-hidden="true">←</span>
+            Return to Full List
+          </button>
+          <span className="text-sm font-semibold text-ink">
+            Current View: <span className="text-ember">{selectedVariant}</span>
+          </span>
+          {bookmarkButtonEl}
+        </div>
       </div>
     )
   }
@@ -95,12 +109,7 @@ export default function ActiveFiltersBar({
             Clear all
           </button>
         )}
-        {!showVariants && bookmarkButton}
-        {showVariants && (
-          <span className="ml-auto text-xs font-medium text-ink-soft">
-            Click a Variant To Drill Down
-          </span>
-        )}
+        {bookmarkButton}
       </div>
 
       {showVariants && (
@@ -162,7 +171,9 @@ export default function ActiveFiltersBar({
               )
             })
           )}
-          {bookmarkButton}
+          <span className="ml-auto text-xs font-medium text-ink-soft">
+            Click a Variant To Drill Down
+          </span>
         </div>
       )}
     </div>

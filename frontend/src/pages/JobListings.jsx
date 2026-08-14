@@ -303,32 +303,14 @@ export default function JobListings() {
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
         <div className="border border-line">
           <div className="border-b border-line py-4 text-center">
-            {selectedVariant ? (
-              <div className="relative px-4 sm:px-14">
-                <button
-                  type="button"
-                  onClick={handleReturnToFullList}
-                  className="absolute left-0 top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-sm font-medium text-ember hover:text-flame"
-                >
-                  <span aria-hidden="true">←</span>
-                  Return to Full List
-                </button>
-                <h1 className="text-xl font-semibold text-ink">
-                  Current View: <span className="text-ember">{selectedVariant}</span>
-                </h1>
-              </div>
-            ) : (
-              <>
-                <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>
-                <button
-                  type="button"
-                  onClick={scrollToFilters}
-                  className="mt-1 text-sm text-ember underline decoration-line underline-offset-2 hover:text-flame md:hidden"
-                >
-                  Search Criteria
-                </button>
-              </>
-            )}
+            <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>
+            <button
+              type="button"
+              onClick={scrollToFilters}
+              className="mt-1 text-sm text-ember underline decoration-line underline-offset-2 hover:text-flame md:hidden"
+            >
+              Search Criteria
+            </button>
             {!loading && (
               <p className="mt-1 text-xs text-ink-soft">
                 {totalCount} match{totalCount === 1 ? '' : 'es'} for your current filters
@@ -345,6 +327,7 @@ export default function JobListings() {
             variantCountsLoading={variantCountsLoading}
             selectedVariant={selectedVariant}
             onSelectVariant={handleSelectVariant}
+            onReturnToFullList={handleReturnToFullList}
             bookmarked={Boolean(bookmarkedSearch)}
             onToggleBookmark={handleToggleBookmark}
           />
