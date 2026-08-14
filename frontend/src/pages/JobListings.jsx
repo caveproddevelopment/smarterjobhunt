@@ -241,9 +241,12 @@ export default function JobListings() {
 
   // A "bookmark" matches the *entire* current search (title + posted-days),
   // the same way a browser bookmark points at one specific page/state —
-  // not just the title.
+  // not just the title. When a variant pill is selected, the current view
+  // is scoped to that variant's title, so the bookmark should track (and be
+  // saved under) the variant title instead of the original search title.
+  const bookmarkTitle = selectedVariant || appliedFilters.title || ''
   const bookmarkedSearch = savedSearches.find((search) => {
-    const sameTitle = (search.job_title || '') === (appliedFilters.title || '')
+    const sameTitle = (search.job_title || '') === bookmarkTitle
     const sameDays = String(search.posted_within_days || '') === String(appliedFilters.postedDays || '')
     return sameTitle && sameDays
   })
@@ -258,8 +261,8 @@ export default function JobListings() {
       return
     }
     createSavedSearch({
-      name: buildBookmarkName(appliedFilters),
-      jobTitle: appliedFilters.title,
+      name: buildBookmarkName({ ...appliedFilters, title: bookmarkTitle }),
+      jobTitle: bookmarkTitle,
       postedWithinDays: appliedFilters.postedDays || null,
     })
       .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
@@ -301,19 +304,19 @@ export default function JobListings() {
         <div className="border border-line">
           <div className="border-b border-line py-4 text-center">
             {selectedVariant ? (
-              <div className="flex flex-col gap-1 px-4 sm:flex-row sm:items-center sm:justify-between">
+              <>
+                <h1 className="text-xl font-semibold text-ink">
+                  Current View: <span className="text-ember">{selectedVariant}</span>
+                </h1>
                 <button
                   type="button"
                   onClick={handleReturnToFullList}
-                  className="flex items-center gap-1.5 text-sm font-medium text-ember hover:text-flame"
+                  className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-ember hover:text-flame"
                 >
                   <span aria-hidden="true">←</span>
                   Return to Full List
                 </button>
-                <p className="text-sm font-semibold text-ink">
-                  Current View: <span className="text-ember">{selectedVariant}</span>
-                </p>
-              </div>
+              </>
             ) : (
               <>
                 <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>

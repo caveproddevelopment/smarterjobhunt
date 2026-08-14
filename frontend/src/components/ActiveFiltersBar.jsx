@@ -12,6 +12,32 @@ export default function ActiveFiltersBar({
   bookmarked = false,
   onToggleBookmark = () => {},
 }) {
+  const bookmarkButtonEl = (
+    <button
+      type="button"
+      onClick={onToggleBookmark}
+      className="ml-auto flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
+    >
+      <span aria-hidden="true" className={bookmarked ? 'text-ember' : 'text-ink-soft'}>
+        {bookmarked ? '★' : '☆'}
+      </span>
+      Bookmark Search
+    </button>
+  )
+
+  // Once a variant pill is selected, the listing is scoped to just that
+  // title — the broader "Active filters" chips and "Also matching" pills
+  // no longer describe what's showing, so hide both entirely and leave
+  // only the bookmark control (which now tracks the variant, not the
+  // original search title).
+  if (selectedVariant) {
+    return (
+      <div className="border-b border-line bg-mist/60 px-6 py-3">
+        <div className="flex items-center">{bookmarkButtonEl}</div>
+      </div>
+    )
+  }
+
   const chips = []
 
   if (filters.title) {
@@ -33,19 +59,7 @@ export default function ActiveFiltersBar({
   // whenever a title is set. The bookmark button always lands on whichever
   // row is currently the last one in the box, right-aligned.
   const showVariants = Boolean(filters.title) && (titleVariantsLoading || titleVariants.length > 0)
-
-  const bookmarkButton = (
-    <button
-      type="button"
-      onClick={onToggleBookmark}
-      className="ml-auto flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
-    >
-      <span aria-hidden="true" className={bookmarked ? 'text-ember' : 'text-ink-soft'}>
-        {bookmarked ? '★' : '☆'}
-      </span>
-      Bookmark Search
-    </button>
-  )
+  const bookmarkButton = bookmarkButtonEl
 
   if (chips.length === 0) {
     return (
