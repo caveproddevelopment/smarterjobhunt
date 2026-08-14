@@ -111,3 +111,23 @@ export async function fetchTitleVariants(title) {
   const data = await res.json()
   return data.variants
 }
+
+// How many active jobs match each variant title on its own (never OR'd
+// together) -- e.g. { "Product Owner": 4, "Senior Product Manager": 0 }.
+// Drives which "Also matching" pills are clickable.
+export async function fetchVariantCounts(variantTitles, { postedDays } = {}) {
+  if (!variantTitles || variantTitles.length === 0) return {}
+
+  const params = new URLSearchParams()
+  for (const variantTitle of variantTitles) {
+    params.append('variant_title', variantTitle)
+  }
+  if (postedDays) params.set('posted_days', postedDays)
+
+  const res = await fetch(`${API_URL}/api/jobs/variant-counts?${params.toString()}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to load variant counts (${res.status})`))
+  const data = await res.json()
+  return data.counts
+}

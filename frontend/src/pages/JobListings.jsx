@@ -7,7 +7,15 @@ import JobCard from '../components/JobCard'
 import ActiveFiltersBar from '../components/ActiveFiltersBar'
 import DefaultFiltersModal from '../components/DefaultFiltersModal'
 import SubscribeModal from '../components/SubscribeModal'
-import { fetchJobs, fetchSavedSearches, createSavedSearch, deleteSavedSearch, setJobStatus, fetchTitleVariants } from '../lib/api'
+import {
+  fetchJobs,
+  fetchSavedSearches,
+  createSavedSearch,
+  deleteSavedSearch,
+  setJobStatus,
+  fetchTitleVariants,
+  fetchVariantCounts,
+} from '../lib/api'
 import { useAuth } from '../lib/auth'
 
 function buildBookmarkName(f) {
@@ -40,6 +48,15 @@ export default function JobListings() {
   const [savingDefaults, setSavingDefaults] = useState(false)
   const [titleVariants, setTitleVariants] = useState([])
   const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
+  const [variantCounts, setVariantCounts] = useState({})
+  const [variantCountsLoading, setVariantCountsLoading] = useState(false)
+  // Which "Also matching" pill (if any) the listing below is currently
+  // scoped to. null means the normal combined title+variants view.
+  const [selectedVariant, setSelectedVariant] = useState(null)
+  // Tracks the title+postedDays combo the current titleVariants/variantCounts
+  // were fetched for, so toggling selectedVariant alone doesn't re-trigger
+  // those fetches (and flicker the pill numbers) when nothing else changed.
+  const variantsKeyRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -47,25 +64,60 @@ export default function JobListings() {
     setError(null)
 
     async function run() {
-      let variants = []
-      if (appliedFilters.title) {
-        setTitleVariantsLoading(true)
-        try {
-          variants = await fetchTitleVariants(appliedFilters.title)
-        } catch {
-          variants = []
-        } finally {
-          if (!cancelled) setTitleVariantsLoading(false)
+      // Only re-derive titleVariants/variantCounts when the title or
+      // posted-days filter actually changed. Toggling selectedVariant alone
+      // (clicking a pill / "Return to Full List") reuses what's already
+      // loaded instead of re-fetching and flickering the pill numbers.
+      const variantsKey = `${appliedFilters.title}|||${appliedFilters.postedDays}`
+      const filtersChanged = variantsKeyRef.current !== variantsKey
+
+      let variants = titleVariants
+      if (filtersChanged) {
+        variants = []
+        if (appliedFilters.title) {
+          setTitleVariantsLoading(true)
+          try {
+            variants = await fetchTitleVariants(appliedFilters.title)
+          } catch {
+            variants = []
+          } finally {
+            if (!cancelled) setTitleVariantsLoading(false)
+          }
         }
+        if (cancelled) return
+        setTitleVariants(variants)
+        // Clear stale counts from the previous title right away, so a pill
+        // never briefly shows a number left over from a different search.
+        setVariantCounts({})
+
+        // Per-variant counts drive which "Also matching" pills are
+        // clickable. Fetched in the background so a slow count lookup never
+        // blocks the job list itself from rendering.
+        if (variants.length > 0) {
+          setVariantCountsLoading(true)
+          fetchVariantCounts(variants, { postedDays: appliedFilters.postedDays })
+            .then((counts) => {
+              if (!cancelled) setVariantCounts(counts)
+            })
+            .catch(() => {
+              if (!cancelled) setVariantCounts({})
+            })
+            .finally(() => {
+              if (!cancelled) setVariantCountsLoading(false)
+            })
+        }
+        variantsKeyRef.current = variantsKey
       }
-      if (cancelled) return
-      setTitleVariants(variants)
+
+      // A selected variant scopes the listing to ONLY that variant's jobs
+      // (title left out entirely, no OR'ing with the other variants). With
+      // nothing selected, it's the normal combined title + all-variants view.
+      const jobParams = selectedVariant
+        ? { title: '', postedDays: appliedFilters.postedDays, variantTitles: [selectedVariant] }
+        : { ...appliedFilters, variantTitles: variants }
 
       try {
-        const { jobs: results, totalCount: total } = await fetchJobs({
-          ...appliedFilters,
-          variantTitles: variants,
-        })
+        const { jobs: results, totalCount: total } = await fetchJobs(jobParams)
         if (cancelled) return
         setJobs(results)
         setTotalCount(total)
@@ -88,7 +140,7 @@ export default function JobListings() {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters])
+  }, [appliedFilters, selectedVariant])
 
   useEffect(() => {
     if (!user) {
@@ -127,6 +179,7 @@ export default function JobListings() {
       .then(() => {
         setFilters(newFilters)
         setAppliedFilters(newFilters)
+        setSelectedVariant(null)
         setShowDefaultsModal(false)
       })
       .catch((err) => setError(err.message))
@@ -144,6 +197,25 @@ export default function JobListings() {
   function handleActiveFiltersChange(newFilters) {
     setFilters(newFilters)
     setAppliedFilters(newFilters)
+    setSelectedVariant(null)
+  }
+
+  function handleUpdateListings() {
+    setAppliedFilters(filters)
+    setSelectedVariant(null)
+  }
+
+  // Clicking a clickable "Also matching" pill scopes the listing to ONLY
+  // that variant. Clicking the already-selected pill again is a shortcut
+  // back to the full list, same as the header's "Return to Full List".
+  function handleSelectVariant(variant) {
+    const count = variantCounts[variant]
+    if (!count) return
+    setSelectedVariant((prev) => (prev === variant ? null : variant))
+  }
+
+  function handleReturnToFullList() {
+    setSelectedVariant(null)
   }
 
   function getStatus(jobId) {
@@ -204,6 +276,7 @@ export default function JobListings() {
     }
     setFilters(applied)
     setAppliedFilters(applied)
+    setSelectedVariant(null)
   }
 
   function scrollToFilters() {
@@ -227,14 +300,32 @@ export default function JobListings() {
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
         <div className="border border-line">
           <div className="border-b border-line py-4 text-center">
-            <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>
-            <button
-              type="button"
-              onClick={scrollToFilters}
-              className="mt-1 text-sm text-ember underline decoration-line underline-offset-2 hover:text-flame md:hidden"
-            >
-              Search Criteria
-            </button>
+            {selectedVariant ? (
+              <div className="flex flex-col gap-1 px-4 sm:flex-row sm:items-center sm:justify-between">
+                <button
+                  type="button"
+                  onClick={handleReturnToFullList}
+                  className="flex items-center gap-1.5 text-sm font-medium text-ember hover:text-flame"
+                >
+                  <span aria-hidden="true">←</span>
+                  Return to Full List
+                </button>
+                <p className="text-sm font-semibold text-ink">
+                  Current View: <span className="text-ember">{selectedVariant}</span>
+                </p>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>
+                <button
+                  type="button"
+                  onClick={scrollToFilters}
+                  className="mt-1 text-sm text-ember underline decoration-line underline-offset-2 hover:text-flame md:hidden"
+                >
+                  Search Criteria
+                </button>
+              </>
+            )}
             {!loading && (
               <p className="mt-1 text-xs text-ink-soft">
                 {totalCount} match{totalCount === 1 ? '' : 'es'} for your current filters
@@ -247,6 +338,10 @@ export default function JobListings() {
             onChange={handleActiveFiltersChange}
             titleVariants={titleVariants}
             titleVariantsLoading={titleVariantsLoading}
+            variantCounts={variantCounts}
+            variantCountsLoading={variantCountsLoading}
+            selectedVariant={selectedVariant}
+            onSelectVariant={handleSelectVariant}
             bookmarked={Boolean(bookmarkedSearch)}
             onToggleBookmark={handleToggleBookmark}
           />
@@ -256,7 +351,7 @@ export default function JobListings() {
               <FilterSidebar
                 filters={filters}
                 onFilterChange={setFilters}
-                onUpdateListings={() => setAppliedFilters(filters)}
+                onUpdateListings={handleUpdateListings}
                 savedSearches={savedSearches}
                 onApplySearch={handleApplySearch}
                 onDeleteSearch={handleDeleteSearch}

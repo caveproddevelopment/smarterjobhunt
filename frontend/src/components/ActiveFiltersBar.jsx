@@ -5,6 +5,10 @@ export default function ActiveFiltersBar({
   onChange,
   titleVariants = [],
   titleVariantsLoading = false,
+  variantCounts = {},
+  variantCountsLoading = false,
+  selectedVariant = null,
+  onSelectVariant = () => {},
   bookmarked = false,
   onToggleBookmark = () => {},
 }) {
@@ -86,14 +90,58 @@ export default function ActiveFiltersBar({
           {titleVariantsLoading ? (
             <span className="text-xs text-ink-soft">Finding related titles…</span>
           ) : (
-            titleVariants.map((variant) => (
-              <span
-                key={variant}
-                className="rounded-full border border-line bg-paper px-2 py-0.5 text-xs text-ink-soft"
-              >
-                {variant}
-              </span>
-            ))
+            titleVariants.map((variant) => {
+              const count = variantCounts[variant]
+              const countKnown = typeof count === 'number'
+              const clickable = countKnown && count > 0
+              const isActive = selectedVariant === variant
+
+              let pillClasses =
+                'flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors '
+              if (isActive) {
+                pillClasses += 'border-ember bg-ember text-white'
+              } else if (clickable) {
+                pillClasses +=
+                  'border-line bg-paper text-ink hover:border-ember hover:text-ember cursor-pointer'
+              } else {
+                pillClasses += 'border-line bg-paper text-ink-soft/60 cursor-default'
+              }
+
+              return (
+                <button
+                  key={variant}
+                  type="button"
+                  disabled={!clickable}
+                  onClick={() => onSelectVariant(variant)}
+                  title={
+                    clickable
+                      ? `Show only "${variant}" jobs`
+                      : countKnown
+                        ? 'No jobs match this title yet'
+                        : undefined
+                  }
+                  className={pillClasses}
+                >
+                  {variant}
+                  {countKnown && (
+                    <span
+                      className={
+                        isActive
+                          ? 'text-white/80'
+                          : clickable
+                            ? 'font-semibold text-ember'
+                            : 'text-ink-soft/50'
+                      }
+                    >
+                      {count}
+                    </span>
+                  )}
+                  {!countKnown && variantCountsLoading && (
+                    <span className="text-ink-soft/50">…</span>
+                  )}
+                </button>
+              )
+            })
           )}
           {bookmarkButton}
         </div>
