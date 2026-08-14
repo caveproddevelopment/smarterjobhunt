@@ -304,19 +304,19 @@ export default function JobListings() {
         <div className="border border-line">
           <div className="border-b border-line py-4 text-center">
             {selectedVariant ? (
-              <>
-                <h1 className="text-xl font-semibold text-ink">
-                  Current View: <span className="text-ember">{selectedVariant}</span>
-                </h1>
+              <div className="relative px-4 sm:px-14">
                 <button
                   type="button"
                   onClick={handleReturnToFullList}
-                  className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-ember hover:text-flame"
+                  className="absolute left-0 top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-sm font-medium text-ember hover:text-flame"
                 >
                   <span aria-hidden="true">←</span>
                   Return to Full List
                 </button>
-              </>
+                <h1 className="text-xl font-semibold text-ink">
+                  Current View: <span className="text-ember">{selectedVariant}</span>
+                </h1>
+              </div>
             ) : (
               <>
                 <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>
