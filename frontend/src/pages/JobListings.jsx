@@ -10,6 +10,13 @@ import SubscribeModal from '../components/SubscribeModal'
 import { fetchJobs, fetchSavedSearches, createSavedSearch, deleteSavedSearch, setJobStatus, fetchTitleVariants } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
+function buildBookmarkName(f) {
+  const title = (f.title || '').trim()
+  const days = f.postedDays ? String(f.postedDays).trim() : ''
+  const label = title || 'All jobs'
+  return days ? `${label} · last ${days} day${days === '1' ? '' : 's'}` : label
+}
+
 export default function JobListings() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -154,29 +161,20 @@ export default function JobListings() {
     }
   }
 
-  function handleSaveSearch(name) {
-    if (!user) {
-      navigate('/login')
-      return
-    }
-    createSavedSearch({
-      name,
-      jobTitle: filters.title,
-      postedWithinDays: filters.postedDays || null,
-    })
-      .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
-      .catch((err) => setError(err.message))
-  }
-
   function handleDeleteSearch(id) {
     deleteSavedSearch(id)
       .then(() => setSavedSearches((prev) => prev.filter((search) => search.id !== id)))
       .catch((err) => setError(err.message))
   }
 
-  const bookmarkedSearch = savedSearches.find(
-    (search) => (search.job_title || '') === (appliedFilters.title || ''),
-  )
+  // A "bookmark" matches the *entire* current search (title + posted-days),
+  // the same way a browser bookmark points at one specific page/state —
+  // not just the title.
+  const bookmarkedSearch = savedSearches.find((search) => {
+    const sameTitle = (search.job_title || '') === (appliedFilters.title || '')
+    const sameDays = String(search.posted_within_days || '') === String(appliedFilters.postedDays || '')
+    return sameTitle && sameDays
+  })
 
   function handleToggleBookmark() {
     if (!user) {
@@ -188,12 +186,24 @@ export default function JobListings() {
       return
     }
     createSavedSearch({
-      name: appliedFilters.title.trim() || 'All jobs',
+      name: buildBookmarkName(appliedFilters),
       jobTitle: appliedFilters.title,
       postedWithinDays: appliedFilters.postedDays || null,
     })
       .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
       .catch((err) => setError(err.message))
+  }
+
+  // Clicking a bookmarked search in the sidebar jumps straight to those
+  // results, the way clicking a browser bookmark takes you straight to
+  // the page instead of just filling in an address bar.
+  function handleApplySearch(search) {
+    const applied = {
+      title: search.job_title || '',
+      postedDays: search.posted_within_days != null ? String(search.posted_within_days) : '',
+    }
+    setFilters(applied)
+    setAppliedFilters(applied)
   }
 
   function scrollToFilters() {
@@ -256,7 +266,7 @@ export default function JobListings() {
                 onFilterChange={setFilters}
                 onUpdateListings={() => setAppliedFilters(filters)}
                 savedSearches={savedSearches}
-                onSaveSearch={handleSaveSearch}
+                onApplySearch={handleApplySearch}
                 onDeleteSearch={handleDeleteSearch}
                 loggedIn={Boolean(user)}
               />

@@ -1,23 +1,13 @@
-import { useState } from 'react'
-
 export default function FilterSidebar({
   filters,
   onFilterChange,
   onUpdateListings,
   onCompanyDb = () => {},
   savedSearches,
-  onSaveSearch,
+  onApplySearch,
   onDeleteSearch,
   loggedIn = true,
 }) {
-  const [searchName, setSearchName] = useState('')
-
-  function handleSave() {
-    if (!searchName.trim()) return
-    onSaveSearch(searchName.trim())
-    setSearchName('')
-  }
-
   return (
     <aside className="w-full shrink-0 border border-line bg-paper p-5 md:w-72">
       <h2 className="text-sm font-semibold text-ink">Search Criteria and Filters</h2>
@@ -69,41 +59,14 @@ export default function FilterSidebar({
       </button>
 
       <div className="mt-6 border-t border-line pt-5">
-        <label htmlFor="search-name" className="flex items-center gap-1.5 text-sm text-ink">
-          Search Name
-          <span
-            title="Save your current filters under a name to reuse later"
-            className="flex h-4 w-4 items-center justify-center rounded-full bg-mist text-[10px] font-semibold text-ink-soft"
-          >
-            i
-          </span>
-        </label>
+        <p className="text-sm font-medium text-ink">Your Bookmarked Searches</p>
         {!loggedIn && (
-          <p className="mt-1 text-xs text-ink-soft">Log in to save searches across visits.</p>
+          <p className="mt-1 text-xs text-ink-soft">Log in to bookmark searches across visits.</p>
         )}
-        <div className="mt-1 flex gap-2">
-          <input
-            id="search-name"
-            type="text"
-            value={searchName}
-            onChange={(event) => setSearchName(event.target.value)}
-            className="w-full border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
-          />
-          <button
-            type="button"
-            onClick={handleSave}
-            className="shrink-0 rounded-md border border-line bg-mist px-3 py-1.5 text-sm font-medium text-ink hover:bg-line/40"
-          >
-            Save Search
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-5">
-        <p className="text-sm font-medium text-ink">Your Saved Searches</p>
         {savedSearches.length === 0 ? (
           <p className="mt-2 text-xs text-ink-soft">
-            Nothing saved yet — save a search above to find it here later.
+            Nothing bookmarked yet — click ☆ Bookmark Search above to save your current filters
+            here.
           </p>
         ) : (
           <ul className="mt-2 space-y-1.5">
@@ -111,12 +74,7 @@ export default function FilterSidebar({
               <li key={search.id} className="flex items-center justify-between text-sm">
                 <button
                   type="button"
-                  onClick={() =>
-                    onFilterChange({
-                      title: search.job_title || '',
-                      postedDays: search.posted_within_days || '',
-                    })
-                  }
+                  onClick={() => onApplySearch(search)}
                   className="text-ember underline decoration-line underline-offset-2 hover:text-flame"
                 >
                   {search.name}
