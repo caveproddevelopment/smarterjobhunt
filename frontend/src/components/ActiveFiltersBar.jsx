@@ -5,6 +5,8 @@ export default function ActiveFiltersBar({
   onChange,
   titleVariants = [],
   titleVariantsLoading = false,
+  bookmarked = false,
+  onToggleBookmark = () => {},
 }) {
   const chips = []
 
@@ -22,7 +24,32 @@ export default function ActiveFiltersBar({
       clear: () => onChange({ ...filters, postedDays: '' }),
     })
   }
-  if (chips.length === 0) return null
+
+  // "Also matching" (title variants) renders below the active-filter chips
+  // whenever a title is set. The bookmark button always lands on whichever
+  // row is currently the last one in the box, right-aligned.
+  const showVariants = Boolean(filters.title) && (titleVariantsLoading || titleVariants.length > 0)
+
+  const bookmarkButton = (
+    <button
+      type="button"
+      onClick={onToggleBookmark}
+      className="ml-auto flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
+    >
+      <span aria-hidden="true" className={bookmarked ? 'text-ember' : 'text-ink-soft'}>
+        {bookmarked ? '★' : '☆'}
+      </span>
+      Bookmark Search
+    </button>
+  )
+
+  if (chips.length === 0) {
+    return (
+      <div className="border-b border-line bg-mist/60 px-6 py-3">
+        <div className="flex items-center">{bookmarkButton}</div>
+      </div>
+    )
+  }
 
   return (
     <div className="border-b border-line bg-mist/60 px-6 py-3">
@@ -50,9 +77,10 @@ export default function ActiveFiltersBar({
             Clear all
           </button>
         )}
+        {!showVariants && bookmarkButton}
       </div>
 
-      {filters.title && (titleVariantsLoading || titleVariants.length > 0) && (
+      {showVariants && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-line/60 pt-2">
           <span className="text-xs font-medium text-ink-soft">Also matching:</span>
           {titleVariantsLoading ? (
@@ -67,6 +95,7 @@ export default function ActiveFiltersBar({
               </span>
             ))
           )}
+          {bookmarkButton}
         </div>
       )}
     </div>

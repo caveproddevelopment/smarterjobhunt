@@ -226,17 +226,7 @@ export default function JobListings() {
 
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
         <div className="border border-line">
-          <div className="relative border-b border-line py-4 text-center">
-            <button
-              type="button"
-              onClick={handleToggleBookmark}
-              className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-sm font-medium text-ink-soft hover:text-ink"
-            >
-              <span aria-hidden="true" className={bookmarkedSearch ? 'text-ember' : 'text-ink-soft'}>
-                {bookmarkedSearch ? '★' : '☆'}
-              </span>
-              Bookmark Search
-            </button>
+          <div className="border-b border-line py-4 text-center">
             <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>
             <button
               type="button"
@@ -257,6 +247,8 @@ export default function JobListings() {
             onChange={handleActiveFiltersChange}
             titleVariants={titleVariants}
             titleVariantsLoading={titleVariantsLoading}
+            bookmarked={Boolean(bookmarkedSearch)}
+            onToggleBookmark={handleToggleBookmark}
           />
 
           <div className="flex flex-col gap-6 p-6 md:flex-row">
