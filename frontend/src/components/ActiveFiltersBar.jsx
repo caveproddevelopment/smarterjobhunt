@@ -34,7 +34,7 @@ export default function ActiveFiltersBar({
   if (selectedVariant) {
     return (
       <div className="border-b border-line bg-mist/60 px-6 py-3">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex items-center">
           <button
             type="button"
             onClick={onReturnToFullList}
@@ -43,7 +43,7 @@ export default function ActiveFiltersBar({
             <span aria-hidden="true">←</span>
             Return to Full List
           </button>
-          <span className="text-sm font-semibold text-ink">
+          <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-ink">
             Current View: <span className="text-ember">{selectedVariant}</span>
           </span>
           {bookmarkButtonEl}
