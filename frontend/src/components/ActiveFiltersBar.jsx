@@ -96,6 +96,11 @@ export default function ActiveFiltersBar({
           </button>
         )}
         {!showVariants && bookmarkButton}
+        {showVariants && (
+          <span className="ml-auto text-xs font-medium text-ink-soft">
+            Click a Variant To Drill Down
+          </span>
+        )}
       </div>
 
       {showVariants && (
