@@ -217,15 +217,67 @@ JOB_LINK_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# NOISE FIX (2026-08-17): the broad `a[href]` fallback (used when no
+# structured LISTING_SELECTORS match) was letting through generic nav
+# chrome whose href/text happens to contain a job keyword -- "Learn
+# more", "Apply for a job", "Featured Offices" -- because NOISE_WORDS
+# only covered single navigation words, not these multi-word phrases.
+# Extended with the exact junk phrases observed in production.
 NOISE_WORDS = re.compile(
     r"^(home|about|contact|blog|news|press|team|product|pricing|sign|log|"
-    r"privacy|terms|cookie|back|next|prev|all jobs?|view all|see all|more)$",
+    r"privacy|terms|cookie|back|next|prev|all jobs?|view all|see all|more|"
+    r"learn more|read more|find out more|apply for a job|apply now|"
+    r"featured offices|our offices|our locations|explore careers|"
+    r"explore opportunities|browse jobs|browse all jobs|search jobs|"
+    r"view all jobs|see openings|see all openings|find jobs|join our team|"
+    r"join us|get started|start here|life at .+)$",
     re.IGNORECASE,
 )
 
+# A location/region picker (common on Workday, ServiceNow, and similar
+# enterprise career sites) lists countries as clickable links -- these
+# match JOB_LINK_KEYWORDS via their href (e.g. /careers/germany) but
+# the link text is just a country name, not a job title. Reject any
+# link whose full text is (only) a country/region name.
+COUNTRY_NAMES = {
+    "afghanistan", "albania", "algeria", "andorra", "angola", "argentina",
+    "armenia", "australia", "austria", "azerbaijan", "bahamas", "bahrain",
+    "bangladesh", "barbados", "belarus", "belgium", "belize", "benin",
+    "bhutan", "bolivia", "bosnia", "bosnia and herzegovina", "botswana",
+    "brazil", "brunei", "bulgaria", "burkina faso", "burundi", "cambodia",
+    "cameroon", "canada", "chad", "chile", "china", "colombia", "congo",
+    "costa rica", "croatia", "cuba", "cyprus", "czechia", "czech republic",
+    "denmark", "djibouti", "dominican republic", "ecuador", "egypt",
+    "el salvador", "estonia", "eswatini", "ethiopia", "fiji", "finland",
+    "france", "gabon", "gambia", "georgia", "germany", "ghana", "greece",
+    "guatemala", "guinea", "haiti", "honduras", "hong kong", "hungary",
+    "iceland", "india", "indonesia", "iran", "iraq", "ireland", "israel",
+    "italy", "jamaica", "japan", "jordan", "kazakhstan", "kenya", "korea",
+    "south korea", "north korea", "kosovo", "kuwait", "kyrgyzstan", "laos",
+    "latvia", "lebanon", "lesotho", "liberia", "libya", "liechtenstein",
+    "lithuania", "luxembourg", "macau", "macedonia", "north macedonia",
+    "madagascar", "malawi", "malaysia", "maldives", "mali", "malta",
+    "mauritania", "mauritius", "mexico", "moldova", "monaco", "mongolia",
+    "montenegro", "morocco", "mozambique", "myanmar", "namibia", "nepal",
+    "netherlands", "new zealand", "nicaragua", "niger", "nigeria",
+    "norway", "oman", "pakistan", "panama", "papua new guinea",
+    "paraguay", "peru", "philippines", "poland", "portugal", "qatar",
+    "romania", "russia", "rwanda", "saudi arabia", "senegal", "serbia",
+    "singapore", "slovakia", "slovenia", "somalia", "south africa",
+    "spain", "sri lanka", "sudan", "sweden", "switzerland", "syria",
+    "taiwan", "tajikistan", "tanzania", "thailand", "togo",
+    "trinidad and tobago", "tunisia", "turkey", "turkmenistan", "uganda",
+    "ukraine", "united arab emirates", "uae", "united kingdom", "uk",
+    "united states", "usa", "us", "united states of america", "uruguay",
+    "uzbekistan", "venezuela", "vietnam", "yemen", "zambia", "zimbabwe",
+}
+
 
 def _looks_like_job_link(href: str, text: str) -> bool:
+    normalized = text.strip().lower()
     if NOISE_WORDS.match(text.strip()):
+        return False
+    if normalized in COUNTRY_NAMES:
         return False
     if len(text) < 5 or len(text) > 150:
         return False
