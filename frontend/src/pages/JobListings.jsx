@@ -92,11 +92,15 @@ export default function JobListings() {
         setVariantCounts({})
 
         // Per-variant counts drive which "Also matching" pills are
-        // clickable. Fetched in the background so a slow count lookup never
-        // blocks the job list itself from rendering.
-        if (variants.length > 0) {
+        // clickable, and the base title itself rides along in the same
+        // request so the "Active filters" Title chip can show its own count
+        // pill too (and be drilled into) exactly like a variant pill.
+        // Fetched in the background so a slow count lookup never blocks the
+        // job list itself from rendering.
+        const countTargets = appliedFilters.title ? [appliedFilters.title, ...variants] : variants
+        if (countTargets.length > 0) {
           setVariantCountsLoading(true)
-          fetchVariantCounts(variants, {
+          fetchVariantCounts(countTargets, {
             postedDays: appliedFilters.postedDays,
             companyType: appliedFilters.companyType,
           })

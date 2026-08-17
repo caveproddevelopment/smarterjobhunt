@@ -96,19 +96,71 @@ export default function ActiveFiltersBar({
     <div className="border-b border-line bg-mist/60 px-6 py-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium text-ink-soft">Active filters:</span>
-        {chips.map((chip) => (
-          <button
-            key={chip.key}
-            type="button"
-            onClick={chip.clear}
-            className="flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:bg-line/40"
-          >
-            {chip.label}
-            <span aria-hidden="true" className="text-ink-soft">
-              ×
+        {chips.map((chip) => {
+          // The Title chip additionally carries a count pill, same idea as
+          // an "Also matching" pill: how many jobs match this exact title
+          // on its own. Clicking the count drills into just those jobs;
+          // clicking the rest of the chip still clears the filter as before.
+          if (chip.key !== 'title') {
+            return (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.clear}
+                className="flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:bg-line/40"
+              >
+                {chip.label}
+                <span aria-hidden="true" className="text-ink-soft">
+                  ×
+                </span>
+              </button>
+            )
+          }
+
+          const titleCount = variantCounts[filters.title]
+          const titleCountKnown = typeof titleCount === 'number'
+          const titleClickable = titleCountKnown && titleCount > 0
+
+          return (
+            <span
+              key={chip.key}
+              className="flex items-center gap-1 rounded-full border border-line bg-paper py-1 pl-3 pr-2 text-xs font-medium text-ink"
+            >
+              <button
+                type="button"
+                onClick={chip.clear}
+                className="flex items-center gap-1.5 hover:text-flame"
+              >
+                {chip.label}
+                <span aria-hidden="true" className="text-ink-soft">
+                  ×
+                </span>
+              </button>
+              {titleCountKnown && (
+                <button
+                  type="button"
+                  disabled={!titleClickable}
+                  onClick={() => onSelectVariant(filters.title)}
+                  title={
+                    titleClickable
+                      ? `Show only "${filters.title}" jobs`
+                      : 'No jobs match this exact title yet'
+                  }
+                  className={
+                    titleClickable
+                      ? 'font-semibold text-ember hover:underline cursor-pointer'
+                      : 'text-ink-soft/50 cursor-default'
+                  }
+                >
+                  {titleCount}
+                </button>
+              )}
+              {!titleCountKnown && variantCountsLoading && (
+                <span className="text-ink-soft/50">…</span>
+              )}
             </span>
-          </button>
-        ))}
+          )
+        })}
         {chips.length > 1 && (
           <button
             type="button"
