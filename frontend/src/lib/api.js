@@ -17,6 +17,7 @@ function mapJob(row) {
     location: row.location || '',
     datePosted: row.date_posted,
     otherJobsAtCompany: row.other_jobs_at_company || 0,
+    companyId: row.company_id,
     status: row.status,
     reasonRejected: row.reason_rejected,
     // Prefer the specific posting URL; fall back to the company's site if
@@ -33,6 +34,7 @@ export async function fetchJobs(filters) {
   if (filters.companyType && filters.companyType !== 'both') {
     params.set('company_type', filters.companyType)
   }
+  if (filters.companyId) params.set('company_id', filters.companyId)
   for (const variantTitle of filters.variantTitles || []) {
     params.append('variant_title', variantTitle)
   }

@@ -11,6 +11,7 @@ export default function ActiveFiltersBar({
   variantCountsLoading = false,
   selectedVariant = null,
   onSelectVariant = () => {},
+  selectedCompany = null,
   onReturnToFullList = () => {},
   bookmarked = false,
   onToggleBookmark = () => {},
@@ -28,12 +29,16 @@ export default function ActiveFiltersBar({
     </button>
   )
 
-  // Once a variant pill is selected, the listing is scoped to just that
-  // title — the broader "Active filters" chips and "Also matching" pills
-  // no longer describe what's showing, so hide both entirely. "Return to
-  // Full List" and "Current View" move into this same gray bar alongside
-  // the bookmark control, instead of living in the white header above.
-  if (selectedVariant) {
+  // Once a variant pill (or "See them all" on a job card) is selected, the
+  // listing is scoped to just that title or company — the broader "Active
+  // filters" chips and "Also matching" pills no longer describe what's
+  // showing, so hide both entirely. "Return to Full List" and "Current
+  // View" move into this same gray bar alongside the bookmark control,
+  // instead of living in the white header above. A company scope has no
+  // matching saved-search shape (bookmarks are title + posted-days only),
+  // so the bookmark control is left out in that case.
+  const scopedLabel = selectedCompany ? `All jobs at ${selectedCompany.name}` : selectedVariant
+  if (scopedLabel) {
     return (
       <div className="border-b border-line bg-mist/60 px-6 py-3">
         <div className="relative flex items-center">
@@ -46,9 +51,9 @@ export default function ActiveFiltersBar({
             Return to Full List
           </button>
           <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-ink">
-            Current View: <span className="text-ember">{selectedVariant}</span>
+            Current View: <span className="text-ember">{scopedLabel}</span>
           </span>
-          {bookmarkButtonEl}
+          {!selectedCompany && bookmarkButtonEl}
         </div>
       </div>
     )

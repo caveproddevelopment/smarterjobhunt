@@ -54,6 +54,10 @@ export default function JobListings() {
   // Which "Also matching" pill (if any) the listing below is currently
   // scoped to. null means the normal combined title+variants view.
   const [selectedVariant, setSelectedVariant] = useState(null)
+  // Set when "See them all" is clicked on a job card — scopes the listing
+  // to every job at that one company, ignoring title/variant/postedDays
+  // filters entirely. Mutually exclusive with selectedVariant.
+  const [selectedCompany, setSelectedCompany] = useState(null)
   // Tracks the title+postedDays combo the current titleVariants/variantCounts
   // were fetched for, so toggling selectedVariant alone doesn't re-trigger
   // those fetches (and flicker the pill numbers) when nothing else changed.
@@ -117,17 +121,22 @@ export default function JobListings() {
         variantsKeyRef.current = variantsKey
       }
 
-      // A selected variant scopes the listing to ONLY that variant's jobs
-      // (title left out entirely, no OR'ing with the other variants). With
-      // nothing selected, it's the normal combined title + all-variants view.
-      const jobParams = selectedVariant
-        ? {
-            title: '',
-            postedDays: appliedFilters.postedDays,
-            companyType: appliedFilters.companyType,
-            variantTitles: [selectedVariant],
-          }
-        : { ...appliedFilters, variantTitles: variants }
+      // selectedCompany takes priority over everything else: "See them all"
+      // means every job at that company, full stop, ignoring the current
+      // title/variant/postedDays/companyType filters. Otherwise a selected
+      // variant scopes the listing to ONLY that variant's jobs (title left
+      // out entirely, no OR'ing with the other variants). With nothing
+      // selected, it's the normal combined title + all-variants view.
+      const jobParams = selectedCompany
+        ? { title: '', postedDays: '', companyType: 'both', companyId: selectedCompany.id }
+        : selectedVariant
+          ? {
+              title: '',
+              postedDays: appliedFilters.postedDays,
+              companyType: appliedFilters.companyType,
+              variantTitles: [selectedVariant],
+            }
+          : { ...appliedFilters, variantTitles: variants }
 
       try {
         const { jobs: results, totalCount: total } = await fetchJobs(jobParams)
@@ -153,7 +162,7 @@ export default function JobListings() {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters, selectedVariant])
+  }, [appliedFilters, selectedVariant, selectedCompany])
 
   useEffect(() => {
     if (!user) {
@@ -194,6 +203,7 @@ export default function JobListings() {
         setFilters(newFilters)
         setAppliedFilters(newFilters)
         setSelectedVariant(null)
+        setSelectedCompany(null)
         setShowDefaultsModal(false)
       })
       .catch((err) => setError(err.message))
@@ -212,11 +222,13 @@ export default function JobListings() {
     setFilters(newFilters)
     setAppliedFilters(newFilters)
     setSelectedVariant(null)
+    setSelectedCompany(null)
   }
 
   function handleUpdateListings() {
     setAppliedFilters(filters)
     setSelectedVariant(null)
+    setSelectedCompany(null)
   }
 
   // Clicking a clickable "Also matching" pill scopes the listing to ONLY
@@ -225,11 +237,24 @@ export default function JobListings() {
   function handleSelectVariant(variant) {
     const count = variantCounts[variant]
     if (!count) return
+    setSelectedCompany(null)
     setSelectedVariant((prev) => (prev === variant ? null : variant))
+  }
+
+  // "See them all" on a job card scopes the listing to every job at that
+  // company. { id, name } -- id drives the exact backend filter, name is
+  // just for the "Current View: All jobs at X" label. Clicking it again
+  // (or from another card at the same company) is a shortcut back to the
+  // full list, same as a variant pill.
+  function handleSeeCompanyJobs(companyId, companyName) {
+    if (!companyId) return
+    setSelectedVariant(null)
+    setSelectedCompany((prev) => (prev?.id === companyId ? null : { id: companyId, name: companyName }))
   }
 
   function handleReturnToFullList() {
     setSelectedVariant(null)
+    setSelectedCompany(null)
   }
 
   function getStatus(jobId) {
@@ -295,6 +320,7 @@ export default function JobListings() {
     setFilters(applied)
     setAppliedFilters(applied)
     setSelectedVariant(null)
+    setSelectedCompany(null)
   }
 
   function scrollToFilters() {
@@ -342,6 +368,7 @@ export default function JobListings() {
             variantCountsLoading={variantCountsLoading}
             selectedVariant={selectedVariant}
             onSelectVariant={handleSelectVariant}
+            selectedCompany={selectedCompany}
             onReturnToFullList={handleReturnToFullList}
             bookmarked={Boolean(bookmarkedSearch)}
             onToggleBookmark={handleToggleBookmark}
@@ -382,6 +409,7 @@ export default function JobListings() {
                       shaded={index % 2 === 1}
                       canApply={canApply}
                       onRequireSubscription={() => setShowSubscribeModal(true)}
+                      onSeeCompanyJobs={handleSeeCompanyJobs}
                     />
                   ))}
                 </div>

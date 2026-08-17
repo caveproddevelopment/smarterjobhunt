@@ -17,6 +17,7 @@ def list_jobs():
     posted_days = request.args.get("posted_days", "").strip()
     funding = request.args.get("funding", "both").strip().lower()
     company_type = request.args.get("company_type", "both").strip().lower()
+    company_id = request.args.get("company_id", "").strip()
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
 
@@ -46,6 +47,14 @@ def list_jobs():
     if company_type in COMPANY_TYPES:
         where.append("c.company_type = %s")
         params.append(company_type)
+
+    # "See them all" on a job card: scope to exactly one company by id
+    # (never by name -- company names aren't guaranteed unique, id is).
+    # The frontend sends no title/variant/posted_days/company_type filters
+    # alongside this, so in practice it's the only clause besides is_active.
+    if company_id:
+        where.append("c.id = %s")
+        params.append(int(company_id))
 
     where_clause = " AND ".join(where)
 

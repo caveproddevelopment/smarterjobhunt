@@ -20,6 +20,7 @@ export default function JobCard({
   shaded = false,
   canApply = false,
   onRequireSubscription = () => {},
+  onSeeCompanyJobs = () => {},
 }) {
   const [showRedirectModal, setShowRedirectModal] = useState(false)
 
@@ -75,7 +76,11 @@ export default function JobCard({
             {job.otherJobsAtCompany > 0 && (
               <p className="mt-3 text-xs text-ink">
                 There are {job.otherJobsAtCompany} jobs at this company.{' '}
-                <button type="button" className="font-medium text-ember hover:text-flame">
+                <button
+                  type="button"
+                  onClick={() => onSeeCompanyJobs(job.companyId, job.company)}
+                  className="font-medium text-ember hover:text-flame"
+                >
                   See them all
                 </button>
               </p>
