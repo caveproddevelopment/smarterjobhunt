@@ -26,6 +26,15 @@ Added fut.result(timeout=...) at the orchestrator level to prevent
 stuck threads from blocking the entire batch when a future hangs
 (e.g., due to Playwright greenlet issues). Companies that time out
 are skipped and logged as errors, but the batch continues.
+
+THREAD FIX (2026-08-17):
+ats_detector.py used to open a brand-new ThreadPoolExecutor per
+company for its internal ATS/career-page probes, on top of this
+module's own worker pool. At scale (995 companies) that blew past the
+container's OS thread limit ("can't start new thread") and cascaded
+into hundreds of failures. ats_detector now uses two small shared
+pools created once at import time; shutdown_pools() releases them here,
+the same way browser_pool.close_all() releases the Playwright browsers.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
@@ -33,7 +42,7 @@ from datetime import datetime, timezone
 from typing import Optional, Callable
 import threading
 
-from .ats_detector import detect_ats
+from .ats_detector import detect_ats, shutdown_pools as shutdown_ats_pools
 from .ats_api import fetch_jobs
 from .career_scraper import scrape_careers_page
 from .browser_pool import BrowserPool
@@ -180,6 +189,7 @@ def run(
                     errors.append(err)
     finally:
         browser_pool.close_all()
+        shutdown_ats_pools()
 
     progress(0.97, f"Writing {len(all_jobs)} jobs to sink…")
     job_sink.write(all_jobs)
@@ -200,4 +210,3 @@ def _extract_domain(url: str) -> str:
     from urllib.parse import urlparse
     p = urlparse(url)
     return f"{p.scheme}://{p.netloc}"
-

@@ -17,6 +17,26 @@ with a 0.3s sleep between each. All of these are independent network
 calls, so they now fire concurrently via a small thread pool and the
 first one that resolves wins. This turns a worst-case ~8 sequential
 requests + 2.4s of sleep into a single round-trip time per company.
+
+THREAD FIX (2026-08-17):
+detect_ats() runs once per company, and it's itself called from inside
+the orchestrator's outer worker-thread pool (up to max_workers threads
+at once). The original version opened a brand-new ThreadPoolExecutor
+(3 threads, then up to 8 more) on every single call, via
+`with ThreadPoolExecutor(...) as ex:`. That meant real thread demand
+was (outer max_workers) x (11 inner threads per company), recreated
+per company for the entire run -- at 995 companies this blew past the
+container's OS thread limit and produced "can't start new thread"
+errors that cascaded into hundreds of failures.
+
+Fix: the two inner pools are now created ONCE at module load and
+reused for every company/every call, for the lifetime of the process.
+Submitting work from many outer threads at once just queues onto
+these fixed-size pools -- total inner thread count stays capped at
+3 + 8 = 11 for the whole run, no matter how many companies are
+processed or how many outer workers are running. Call
+shutdown_pools() once, after the run completes (mirrors
+BrowserPool.close_all()).
 """
 
 import re
@@ -49,6 +69,19 @@ CAREER_PATHS = [
     "/about/jobs", "/join-us", "/work-with-us", "/open-positions",
 ]
 
+# Shared, bounded pools -- created once, reused across every company and
+# every worker thread for the life of the process. Do NOT create these
+# inside detect_ats() or its helpers; that's the bug this fix addresses.
+_API_PROBE_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="ats-api-probe")
+_CAREER_PATH_POOL = ThreadPoolExecutor(max_workers=len(CAREER_PATHS), thread_name_prefix="career-path-probe")
+
+
+def shutdown_pools():
+    """Call once, after the whole ingestion run completes (alongside
+    BrowserPool.close_all()) to release the shared probe threads."""
+    _API_PROBE_POOL.shutdown(wait=True)
+    _CAREER_PATH_POOL.shutdown(wait=True)
+
 
 class ATSResult:
     def __init__(self, ats: str, token: Optional[str], can_api: bool, careers_url: Optional[str] = None):
@@ -64,7 +97,8 @@ class ATSResult:
 def detect_ats(company_name: str, website: Optional[str] = None) -> ATSResult:
     """
     Detect ATS for a company. All independent network probes (known ATS
-    APIs by guessed slug, plus career-page path guesses) run concurrently.
+    APIs by guessed slug, plus career-page path guesses) run concurrently
+    on the shared probe pools.
     """
     slug = _slugify(company_name)
 
@@ -119,16 +153,16 @@ def _probe_one_api(ats: str, slug: str) -> Optional[tuple[str, str]]:
 
 
 def _probe_known_apis_parallel(slug: str) -> Optional[tuple[str, str]]:
-    """Probe Greenhouse / Lever / Ashby concurrently instead of one-at-a-time."""
+    """Probe Greenhouse / Lever / Ashby concurrently on the shared pool
+    instead of spinning up a new ThreadPoolExecutor per company."""
     # Priority order preserved: if multiple match (rare), prefer greenhouse > lever > ashby
     priority = {"greenhouse": 0, "lever": 1, "ashby": 2}
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        futures = {ex.submit(_probe_one_api, ats, slug): ats for ats in priority}
-        results = []
-        for fut in as_completed(futures):
-            res = fut.result()
-            if res:
-                results.append(res)
+    futures = {_API_PROBE_POOL.submit(_probe_one_api, ats, slug): ats for ats in priority}
+    results = []
+    for fut in as_completed(futures):
+        res = fut.result()
+        if res:
+            results.append(res)
     if not results:
         return None
     results.sort(key=lambda r: priority[r[0]])
@@ -171,17 +205,17 @@ def _try_career_path(base_url: str, path: str) -> Optional[str]:
 
 
 def _find_careers_page_parallel(base_url: str) -> Optional[str]:
-    """Try all common career page paths concurrently; return the first hit
-    in CAREER_PATHS priority order, not the first thread to finish."""
+    """Try all common career page paths concurrently on the shared pool;
+    return the first hit in CAREER_PATHS priority order, not the first
+    thread to finish."""
     if not base_url.startswith("http"):
         base_url = "https://" + base_url
 
-    with ThreadPoolExecutor(max_workers=len(CAREER_PATHS)) as ex:
-        futures = {ex.submit(_try_career_path, base_url, path): path for path in CAREER_PATHS}
-        results = {}
-        for fut in as_completed(futures):
-            path = futures[fut]
-            results[path] = fut.result()
+    futures = {_CAREER_PATH_POOL.submit(_try_career_path, base_url, path): path for path in CAREER_PATHS}
+    results = {}
+    for fut in as_completed(futures):
+        path = futures[fut]
+        results[path] = fut.result()
 
     for path in CAREER_PATHS:
         if results.get(path):
