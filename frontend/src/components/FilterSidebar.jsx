@@ -42,6 +42,22 @@ export default function FilterSidebar({
         </div>
       </div>
 
+      <div className="mt-4">
+        <label htmlFor="filter-company-type" className="text-sm text-ink">
+          Company Database
+        </label>
+        <select
+          id="filter-company-type"
+          value={filters.companyType || 'both'}
+          onChange={(event) => onFilterChange({ ...filters, companyType: event.target.value })}
+          className="mt-1 block w-full border border-line bg-paper px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
+        >
+          <option value="both">Both</option>
+          <option value="funded">Funded Startups</option>
+          <option value="fortune500">Fortune 500</option>
+        </select>
+      </div>
+
       <button
         type="button"
         onClick={onCompanyDb}

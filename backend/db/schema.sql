@@ -20,6 +20,27 @@ CREATE TABLE IF NOT EXISTS companies (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- company_type: which curated list a company belongs to. This is the
+-- second "company DB" -- Fortune 500 / large public companies -- living
+-- alongside the original list of ~500 venture-funded companies, in the
+-- same table (one row per company either way, `name` stays globally
+-- UNIQUE). Existing rows default to 'funded' so this is backward
+-- compatible with the DB as it stands today.
+--
+-- The scraping agent is the source of truth for this value: whichever
+-- list it's currently working through, it should set company_type
+-- accordingly on insert/upsert, e.g.:
+--   INSERT INTO companies (name, website, funding_stage, company_type)
+--   VALUES (%s, %s, 'public', 'fortune500')
+--   ON CONFLICT (name) DO UPDATE SET company_type = EXCLUDED.company_type;
+-- Fortune 500 companies are almost always 'public' under funding_stage
+-- too, but company_type is the field that actually drives the list
+-- toggle below -- funding_stage keeps its original meaning otherwise.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS company_type TEXT NOT NULL DEFAULT 'funded'
+    CHECK (company_type IN ('funded', 'fortune500'));
+
+CREATE INDEX IF NOT EXISTS idx_companies_company_type ON companies (company_type);
+
 -- ---------------------------------------------------------------------------
 -- jobs: one row per posting; this is what the scraping agent will populate
 -- ---------------------------------------------------------------------------

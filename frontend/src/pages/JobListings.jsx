@@ -34,6 +34,7 @@ export default function JobListings() {
   const [filters, setFilters] = useState({
     title: searchParams.get('title') || '',
     postedDays: '',
+    companyType: 'both',
   })
   const [appliedFilters, setAppliedFilters] = useState(filters)
   const [savedSearches, setSavedSearches] = useState([])
@@ -68,7 +69,7 @@ export default function JobListings() {
       // posted-days filter actually changed. Toggling selectedVariant alone
       // (clicking a pill / "Return to Full List") reuses what's already
       // loaded instead of re-fetching and flickering the pill numbers.
-      const variantsKey = `${appliedFilters.title}|||${appliedFilters.postedDays}`
+      const variantsKey = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${appliedFilters.companyType}`
       const filtersChanged = variantsKeyRef.current !== variantsKey
 
       let variants = titleVariants
@@ -95,7 +96,10 @@ export default function JobListings() {
         // blocks the job list itself from rendering.
         if (variants.length > 0) {
           setVariantCountsLoading(true)
-          fetchVariantCounts(variants, { postedDays: appliedFilters.postedDays })
+          fetchVariantCounts(variants, {
+            postedDays: appliedFilters.postedDays,
+            companyType: appliedFilters.companyType,
+          })
             .then((counts) => {
               if (!cancelled) setVariantCounts(counts)
             })
@@ -113,7 +117,12 @@ export default function JobListings() {
       // (title left out entirely, no OR'ing with the other variants). With
       // nothing selected, it's the normal combined title + all-variants view.
       const jobParams = selectedVariant
-        ? { title: '', postedDays: appliedFilters.postedDays, variantTitles: [selectedVariant] }
+        ? {
+            title: '',
+            postedDays: appliedFilters.postedDays,
+            companyType: appliedFilters.companyType,
+            variantTitles: [selectedVariant],
+          }
         : { ...appliedFilters, variantTitles: variants }
 
       try {
@@ -165,6 +174,7 @@ export default function JobListings() {
       const seeded = {
         title: user.default_job_title || '',
         postedDays: user.default_posted_within_days || '',
+        companyType: filters.companyType || 'both',
       }
       setFilters(seeded)
       setAppliedFilters(seeded)
@@ -276,6 +286,7 @@ export default function JobListings() {
     const applied = {
       title: search.job_title || '',
       postedDays: search.posted_within_days != null ? String(search.posted_within_days) : '',
+      companyType: filters.companyType || 'both',
     }
     setFilters(applied)
     setAppliedFilters(applied)

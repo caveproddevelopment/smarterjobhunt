@@ -1,4 +1,6 @@
-const DEFAULT_FILTERS = { title: '', postedDays: '' }
+const DEFAULT_FILTERS = { title: '', postedDays: '', companyType: 'both' }
+
+const COMPANY_TYPE_LABELS = { funded: 'Funded Startups', fortune500: 'Fortune 500' }
 
 export default function ActiveFiltersBar({
   filters,
@@ -66,6 +68,13 @@ export default function ActiveFiltersBar({
       key: 'postedDays',
       label: `Last ${filters.postedDays} days`,
       clear: () => onChange({ ...filters, postedDays: '' }),
+    })
+  }
+  if (filters.companyType && filters.companyType !== 'both') {
+    chips.push({
+      key: 'companyType',
+      label: COMPANY_TYPE_LABELS[filters.companyType] || filters.companyType,
+      clear: () => onChange({ ...filters, companyType: 'both' }),
     })
   }
 

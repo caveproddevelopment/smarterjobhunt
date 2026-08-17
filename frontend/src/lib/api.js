@@ -12,6 +12,7 @@ function mapJob(row) {
     id: row.id,
     title: row.title,
     company: row.company,
+    companyType: row.company_type,
     department: row.department || '',
     location: row.location || '',
     datePosted: row.date_posted,
@@ -29,6 +30,9 @@ export async function fetchJobs(filters) {
   const params = new URLSearchParams()
   if (filters.title) params.set('title', filters.title)
   if (filters.postedDays) params.set('posted_days', filters.postedDays)
+  if (filters.companyType && filters.companyType !== 'both') {
+    params.set('company_type', filters.companyType)
+  }
   for (const variantTitle of filters.variantTitles || []) {
     params.append('variant_title', variantTitle)
   }
@@ -115,7 +119,7 @@ export async function fetchTitleVariants(title) {
 // How many active jobs match each variant title on its own (never OR'd
 // together) -- e.g. { "Product Owner": 4, "Senior Product Manager": 0 }.
 // Drives which "Also matching" pills are clickable.
-export async function fetchVariantCounts(variantTitles, { postedDays } = {}) {
+export async function fetchVariantCounts(variantTitles, { postedDays, companyType } = {}) {
   if (!variantTitles || variantTitles.length === 0) return {}
 
   const params = new URLSearchParams()
@@ -123,6 +127,7 @@ export async function fetchVariantCounts(variantTitles, { postedDays } = {}) {
     params.append('variant_title', variantTitle)
   }
   if (postedDays) params.set('posted_days', postedDays)
+  if (companyType && companyType !== 'both') params.set('company_type', companyType)
 
   const res = await fetch(`${API_URL}/api/jobs/variant-counts?${params.toString()}`, {
     headers: authHeaders(),

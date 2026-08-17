@@ -6,6 +6,7 @@ from db.connection import get_cursor
 bp = Blueprint("jobs", __name__, url_prefix="/api")
 
 FUNDING_FILTER_MAP = {"a": "series_a", "b": "series_b"}  # 'both' applies no filter
+COMPANY_TYPES = {"funded", "fortune500"}  # 'both' applies no filter
 
 
 @bp.get("/jobs")
@@ -15,6 +16,7 @@ def list_jobs():
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
     funding = request.args.get("funding", "both").strip().lower()
+    company_type = request.args.get("company_type", "both").strip().lower()
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
 
@@ -41,6 +43,10 @@ def list_jobs():
         where.append("c.funding_stage = %s")
         params.append(FUNDING_FILTER_MAP[funding])
 
+    if company_type in COMPANY_TYPES:
+        where.append("c.company_type = %s")
+        params.append(company_type)
+
     where_clause = " AND ".join(where)
 
     count_query = f"""
@@ -65,6 +71,7 @@ def list_jobs():
             c.name AS company,
             c.website AS company_website,
             c.funding_stage AS funding,
+            c.company_type AS company_type,
             (
                 SELECT count(*) FROM jobs j2
                 WHERE j2.company_id = c.id AND j2.is_active AND j2.id != j.id
@@ -103,6 +110,7 @@ def variant_counts():
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
     funding = request.args.get("funding", "both").strip().lower()
+    company_type = request.args.get("company_type", "both").strip().lower()
 
     if not variant_titles:
         return jsonify({"counts": {}})
@@ -121,6 +129,10 @@ def variant_counts():
     if funding in FUNDING_FILTER_MAP:
         where.append("c.funding_stage = %s")
         params.append(FUNDING_FILTER_MAP[funding])
+
+    if company_type in COMPANY_TYPES:
+        where.append("c.company_type = %s")
+        params.append(company_type)
 
     where_clause = " AND ".join(where)
 
