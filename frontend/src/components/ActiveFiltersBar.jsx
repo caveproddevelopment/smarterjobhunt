@@ -121,6 +121,10 @@ export default function ActiveFiltersBar({
           const titleCountKnown = typeof titleCount === 'number'
           const titleClickable = titleCountKnown && titleCount > 0
 
+          // Unlike the other chips, the Title chip's label+count is its own
+          // drill-down button (same action as clicking an "Also matching"
+          // pill) — clicking the name no longer clears the filter. Only the
+          // separate "×" button does that now.
           return (
             <span
               key={chip.key}
@@ -128,36 +132,39 @@ export default function ActiveFiltersBar({
             >
               <button
                 type="button"
-                onClick={chip.clear}
-                className="flex items-center gap-1.5 hover:text-flame"
+                disabled={!titleClickable}
+                onClick={() => onSelectVariant(filters.title)}
+                title={
+                  titleClickable
+                    ? `Show only "${filters.title}" jobs`
+                    : titleCountKnown
+                      ? 'No jobs match this exact title yet'
+                      : undefined
+                }
+                className={
+                  titleClickable
+                    ? 'flex items-center gap-1.5 hover:text-ember cursor-pointer'
+                    : 'flex items-center gap-1.5 cursor-default'
+                }
               >
                 {chip.label}
-                <span aria-hidden="true" className="text-ink-soft">
-                  ×
-                </span>
+                {titleCountKnown && (
+                  <span className={titleClickable ? 'font-semibold text-ember' : 'text-ink-soft/50'}>
+                    {titleCount}
+                  </span>
+                )}
+                {!titleCountKnown && variantCountsLoading && (
+                  <span className="text-ink-soft/50">…</span>
+                )}
               </button>
-              {titleCountKnown && (
-                <button
-                  type="button"
-                  disabled={!titleClickable}
-                  onClick={() => onSelectVariant(filters.title)}
-                  title={
-                    titleClickable
-                      ? `Show only "${filters.title}" jobs`
-                      : 'No jobs match this exact title yet'
-                  }
-                  className={
-                    titleClickable
-                      ? 'font-semibold text-ember hover:underline cursor-pointer'
-                      : 'text-ink-soft/50 cursor-default'
-                  }
-                >
-                  {titleCount}
-                </button>
-              )}
-              {!titleCountKnown && variantCountsLoading && (
-                <span className="text-ink-soft/50">…</span>
-              )}
+              <button
+                type="button"
+                onClick={chip.clear}
+                aria-label={`Clear ${chip.label} filter`}
+                className="text-ink-soft hover:text-ink"
+              >
+                ×
+              </button>
             </span>
           )
         })}
