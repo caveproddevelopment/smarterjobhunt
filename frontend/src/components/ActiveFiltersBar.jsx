@@ -2,6 +2,12 @@ const DEFAULT_FILTERS = { title: '', postedDays: '', companyType: 'both' }
 
 const COMPANY_TYPE_LABELS = { funded: 'Funded Startups', fortune500: 'Fortune 500' }
 
+const STATUS_LABELS = {
+  applied: 'Applied Jobs',
+  rejected: 'Rejected Jobs',
+  tracked: 'Applied + Rejected Jobs',
+}
+
 export default function ActiveFiltersBar({
   filters,
   onChange,
@@ -12,6 +18,7 @@ export default function ActiveFiltersBar({
   selectedVariant = null,
   onSelectVariant = () => {},
   selectedCompany = null,
+  selectedStatus = null,
   onReturnToFullList = () => {},
   bookmarked = false,
   onToggleBookmark = () => {},
@@ -29,15 +36,20 @@ export default function ActiveFiltersBar({
     </button>
   )
 
-  // Once a variant pill (or "See them all" on a job card) is selected, the
-  // listing is scoped to just that title or company — the broader "Active
-  // filters" chips and "Also matching" pills no longer describe what's
-  // showing, so hide both entirely. "Return to Full List" and "Current
-  // View" move into this same gray bar alongside the bookmark control,
-  // instead of living in the white header above. A company scope has no
-  // matching saved-search shape (bookmarks are title + posted-days only),
-  // so the bookmark control is left out in that case.
-  const scopedLabel = selectedCompany ? `All jobs at ${selectedCompany.name}` : selectedVariant
+  // Once a variant pill, "See them all", or a "Track Applications" radio is
+  // selected, the listing is scoped to just that title, company, or
+  // application status — the broader "Active filters" chips and "Also
+  // matching" pills no longer describe what's showing, so hide both
+  // entirely. "Return to Full List" and "Current View" move into this same
+  // gray bar alongside the bookmark control, instead of living in the white
+  // header above. Company and status scopes have no matching saved-search
+  // shape (bookmarks are title + posted-days only), so the bookmark control
+  // is left out for those.
+  const scopedLabel = selectedStatus
+    ? STATUS_LABELS[selectedStatus]
+    : selectedCompany
+      ? `All jobs at ${selectedCompany.name}`
+      : selectedVariant
   if (scopedLabel) {
     return (
       <div className="border-b border-line bg-mist/60 px-6 py-3">
@@ -53,7 +65,7 @@ export default function ActiveFiltersBar({
           <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-ink">
             Current View: <span className="text-ember">{scopedLabel}</span>
           </span>
-          {!selectedCompany && bookmarkButtonEl}
+          {!selectedCompany && !selectedStatus && bookmarkButtonEl}
         </div>
       </div>
     )

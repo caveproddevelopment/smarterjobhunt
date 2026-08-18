@@ -58,6 +58,11 @@ export default function JobListings() {
   // to every job at that one company, ignoring title/variant/postedDays
   // filters entirely. Mutually exclusive with selectedVariant.
   const [selectedCompany, setSelectedCompany] = useState(null)
+  // Set from the sidebar's "Track Applications" radios (applied / rejected
+  // / tracked = both). Scopes the listing to the user's marked jobs across
+  // ALL searches, ignoring every other filter. Mutually exclusive with
+  // selectedVariant and selectedCompany.
+  const [selectedStatus, setSelectedStatus] = useState(null)
   // Tracks the title+postedDays combo the current titleVariants/variantCounts
   // were fetched for, so toggling selectedVariant alone doesn't re-trigger
   // those fetches (and flicker the pill numbers) when nothing else changed.
@@ -121,22 +126,25 @@ export default function JobListings() {
         variantsKeyRef.current = variantsKey
       }
 
-      // selectedCompany takes priority over everything else: "See them all"
-      // means every job at that company, full stop, ignoring the current
-      // title/variant/postedDays/companyType filters. Otherwise a selected
-      // variant scopes the listing to ONLY that variant's jobs (title left
-      // out entirely, no OR'ing with the other variants). With nothing
+      // selectedStatus (Track Applications) takes priority over everything:
+      // it's the user's marked-job history, not a search, so it ignores
+      // title/variant/company/postedDays/companyType entirely. Next,
+      // selectedCompany means every job at that company, full stop. Then a
+      // selected variant scopes to ONLY that variant's jobs (title left out
+      // entirely, no OR'ing with the other variants). With nothing
       // selected, it's the normal combined title + all-variants view.
-      const jobParams = selectedCompany
-        ? { title: '', postedDays: '', companyType: 'both', companyId: selectedCompany.id }
-        : selectedVariant
-          ? {
-              title: '',
-              postedDays: appliedFilters.postedDays,
-              companyType: appliedFilters.companyType,
-              variantTitles: [selectedVariant],
-            }
-          : { ...appliedFilters, variantTitles: variants }
+      const jobParams = selectedStatus
+        ? { title: '', postedDays: '', companyType: 'both', status: selectedStatus }
+        : selectedCompany
+          ? { title: '', postedDays: '', companyType: 'both', companyId: selectedCompany.id }
+          : selectedVariant
+            ? {
+                title: '',
+                postedDays: appliedFilters.postedDays,
+                companyType: appliedFilters.companyType,
+                variantTitles: [selectedVariant],
+              }
+            : { ...appliedFilters, variantTitles: variants }
 
       try {
         const { jobs: results, totalCount: total } = await fetchJobs(jobParams)
@@ -162,7 +170,7 @@ export default function JobListings() {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters, selectedVariant, selectedCompany])
+  }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus])
 
   useEffect(() => {
     if (!user) {
@@ -204,6 +212,7 @@ export default function JobListings() {
         setAppliedFilters(newFilters)
         setSelectedVariant(null)
         setSelectedCompany(null)
+        setSelectedStatus(null)
         setShowDefaultsModal(false)
       })
       .catch((err) => setError(err.message))
@@ -223,12 +232,14 @@ export default function JobListings() {
     setAppliedFilters(newFilters)
     setSelectedVariant(null)
     setSelectedCompany(null)
+    setSelectedStatus(null)
   }
 
   function handleUpdateListings() {
     setAppliedFilters(filters)
     setSelectedVariant(null)
     setSelectedCompany(null)
+    setSelectedStatus(null)
   }
 
   // Clicking a clickable "Also matching" pill scopes the listing to ONLY
@@ -238,6 +249,7 @@ export default function JobListings() {
     const count = variantCounts[variant]
     if (!count) return
     setSelectedCompany(null)
+    setSelectedStatus(null)
     setSelectedVariant((prev) => (prev === variant ? null : variant))
   }
 
@@ -249,12 +261,23 @@ export default function JobListings() {
   function handleSeeCompanyJobs(companyId, companyName) {
     if (!companyId) return
     setSelectedVariant(null)
+    setSelectedStatus(null)
     setSelectedCompany((prev) => (prev?.id === companyId ? null : { id: companyId, name: companyName }))
+  }
+
+  // The sidebar's "Track Applications" radios. Picking one shows the
+  // user's marked jobs of that kind, across every search -- not just
+  // whatever's in the title box right now.
+  function handleSelectStatus(value) {
+    setSelectedVariant(null)
+    setSelectedCompany(null)
+    setSelectedStatus(value)
   }
 
   function handleReturnToFullList() {
     setSelectedVariant(null)
     setSelectedCompany(null)
+    setSelectedStatus(null)
   }
 
   function getStatus(jobId) {
@@ -321,6 +344,7 @@ export default function JobListings() {
     setAppliedFilters(applied)
     setSelectedVariant(null)
     setSelectedCompany(null)
+    setSelectedStatus(null)
   }
 
   function scrollToFilters() {
@@ -369,6 +393,7 @@ export default function JobListings() {
             selectedVariant={selectedVariant}
             onSelectVariant={handleSelectVariant}
             selectedCompany={selectedCompany}
+            selectedStatus={selectedStatus}
             onReturnToFullList={handleReturnToFullList}
             bookmarked={Boolean(bookmarkedSearch)}
             onToggleBookmark={handleToggleBookmark}
@@ -384,6 +409,8 @@ export default function JobListings() {
                 onApplySearch={handleApplySearch}
                 onDeleteSearch={handleDeleteSearch}
                 loggedIn={Boolean(user)}
+                selectedStatus={selectedStatus}
+                onSelectStatus={handleSelectStatus}
               />
             </div>
 

@@ -7,6 +7,8 @@ export default function FilterSidebar({
   onApplySearch,
   onDeleteSearch,
   loggedIn = true,
+  selectedStatus = null,
+  onSelectStatus = () => {},
 }) {
   return (
     <aside className="w-full shrink-0 border border-line bg-paper p-5 md:w-72">
@@ -73,6 +75,44 @@ export default function FilterSidebar({
       >
         Update Listings
       </button>
+
+      {loggedIn && (
+        <div className="mt-5 border-t border-line pt-4">
+          <p className="text-sm font-medium text-ink">Track Applications</p>
+          <p className="mt-1 text-xs text-ink-soft">
+            Shows every job you've marked, across all searches — not just the current filters.
+          </p>
+          <div className="mt-2 space-y-1.5">
+            <label className="flex items-center gap-1.5 text-sm text-ink">
+              <input
+                type="radio"
+                name="status-filter"
+                checked={selectedStatus === 'applied'}
+                onChange={() => onSelectStatus('applied')}
+              />
+              Applied
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-ink">
+              <input
+                type="radio"
+                name="status-filter"
+                checked={selectedStatus === 'rejected'}
+                onChange={() => onSelectStatus('rejected')}
+              />
+              Rejected
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-ink">
+              <input
+                type="radio"
+                name="status-filter"
+                checked={selectedStatus === 'tracked'}
+                onChange={() => onSelectStatus('tracked')}
+              />
+              All (Applied + Rejected)
+            </label>
+          </div>
+        </div>
+      )}
 
       <div className="mt-6 border-t border-line pt-5">
         <p className="text-sm font-medium text-ink">Your Bookmarked Searches</p>

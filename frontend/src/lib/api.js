@@ -35,6 +35,7 @@ export async function fetchJobs(filters) {
     params.set('company_type', filters.companyType)
   }
   if (filters.companyId) params.set('company_id', filters.companyId)
+  if (filters.status) params.set('status', filters.status)
   for (const variantTitle of filters.variantTitles || []) {
     params.append('variant_title', variantTitle)
   }

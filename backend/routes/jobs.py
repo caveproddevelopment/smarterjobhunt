@@ -18,11 +18,19 @@ def list_jobs():
     funding = request.args.get("funding", "both").strip().lower()
     company_type = request.args.get("company_type", "both").strip().lower()
     company_id = request.args.get("company_id", "").strip()
+    status_filter = request.args.get("status", "").strip().lower()
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
 
-    where = ["j.is_active = true"]
+    where = []
     params = []
+
+    # "Track Applications" (Applied / Rejected / All) is a history view of
+    # what the user has marked, not a normal browse -- a job they applied
+    # to may have gone inactive since, and they still want it to show up,
+    # so is_active is skipped entirely whenever this mode is on.
+    if status_filter not in {"applied", "rejected", "tracked"}:
+        where.append("j.is_active = true")
 
     # Title + its variants are OR'd together as one group (any of them can
     # match), then AND'd with the other filters below. The frontend always
@@ -56,16 +64,30 @@ def list_jobs():
         where.append("c.id = %s")
         params.append(int(company_id))
 
-    where_clause = " AND ".join(where)
+    # Scopes to the current user's application-tracking history instead of
+    # the normal title-driven search. Checked against the fixed set above,
+    # never interpolated from raw input, so the f-string below stays safe.
+    # For a logged-out user g.user_id is None, the join below never matches
+    # anything, s.status comes back NULL for every row, and these clauses
+    # naturally filter down to zero results rather than erroring.
+    if status_filter == "applied":
+        where.append("s.status = 'applied'")
+    elif status_filter == "rejected":
+        where.append("s.status = 'rejected'")
+    elif status_filter == "tracked":
+        where.append("s.status IS NOT NULL")
+
+    where_clause = " AND ".join(where) if where else "true"
 
     count_query = f"""
         SELECT count(*)
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
+        LEFT JOIN user_job_status s ON s.job_id = j.id AND s.user_id = %s
         WHERE {where_clause}
     """
     cur = get_cursor()
-    cur.execute(count_query, params)
+    cur.execute(count_query, [g.user_id, *params])
     total_count = cur.fetchone()["count"]
 
     query = f"""
