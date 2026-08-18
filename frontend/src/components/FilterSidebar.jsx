@@ -105,10 +105,10 @@ export default function FilterSidebar({
               <input
                 type="radio"
                 name="status-filter"
-                checked={selectedStatus === 'tracked'}
-                onChange={() => onSelectStatus('tracked')}
+                checked={selectedStatus == null}
+                onChange={() => onSelectStatus(null)}
               />
-              All (Applied + Rejected)
+              All
             </label>
           </div>
         </div>

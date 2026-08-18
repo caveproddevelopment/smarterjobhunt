@@ -42,9 +42,9 @@ export default function ActiveFiltersBar({
   // matching" pills no longer describe what's showing, so hide both
   // entirely. "Return to Full List" and "Current View" move into this same
   // gray bar alongside the bookmark control, instead of living in the white
-  // header above. Company and status scopes have no matching saved-search
-  // shape (bookmarks are title + posted-days only), so the bookmark control
-  // is left out for those.
+  // header above. Every scoped view is bookmarkable now (see
+  // buildBookmarkName / currentView in JobListings), so the bookmark
+  // control always shows here too.
   const scopedLabel = selectedStatus
     ? STATUS_LABELS[selectedStatus]
     : selectedCompany
@@ -65,7 +65,7 @@ export default function ActiveFiltersBar({
           <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-ink">
             Current View: <span className="text-ember">{scopedLabel}</span>
           </span>
-          {!selectedCompany && !selectedStatus && bookmarkButtonEl}
+          {bookmarkButtonEl}
         </div>
       </div>
     )

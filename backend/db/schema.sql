@@ -207,7 +207,42 @@ CREATE TABLE IF NOT EXISTS saved_searches (
 -- Backfill existing saved searches created while variants was still 5/10/15-selectable.
 UPDATE saved_searches SET variants = 15 WHERE variants <> 15;
 
+-- Generalized bookmarking: a saved search can now point at any of the
+-- Job Listings page's scoped views, not just a plain title+days search --
+-- a drilled-into title variant, a single company's "See them all" list, or
+-- an Applied/Rejected tracking view. view_type says which shape applies;
+-- job_title/variants/posted_within_days/funding_filter keep their existing
+-- meaning for 'search' (and job_title + posted_within_days double up for
+-- 'variant', see variant_title below); the other columns stay NULL for
+-- whichever shapes don't use them. Safe to re-run against a DB created
+-- before this existed.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS view_type TEXT NOT NULL DEFAULT 'search'
+    CHECK (view_type IN ('search', 'variant', 'company', 'status'));
+-- Mirrors the jobs.company_type filter (Both / Funded Startups / Fortune
+-- 500) for the 'search' and 'variant' view types, so re-applying one of
+-- those bookmarks restores the exact same Company Database dropdown value
+-- it was saved under, not just whatever the sidebar currently has selected.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS company_type TEXT NOT NULL DEFAULT 'both'
+    CHECK (company_type IN ('both', 'funded', 'fortune500'));
+-- 'variant': which "Also matching" pill was drilled into. job_title above
+-- still holds the ORIGINAL search title this variant was found under, so
+-- "Return to Full List" after re-applying the bookmark lands back on that
+-- search rather than an empty title box.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS variant_title TEXT;
+-- 'company': which company's "See them all" list this points at. Cascades
+-- with the company row itself -- if a company is ever removed, any
+-- bookmarks pointing at it go with it rather than linking nowhere.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS company_id INTEGER
+    REFERENCES companies(id) ON DELETE CASCADE;
+-- 'status': which Track Applications radio (Applied or Rejected) this
+-- points at. "All" isn't bookmarkable since it's just the absence of a
+-- status filter -- the same as any other view with tracking off.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS status_filter TEXT
+    CHECK (status_filter IN ('applied', 'rejected'));
+
 CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON saved_searches (user_id);
+CREATE INDEX IF NOT EXISTS idx_saved_searches_company_id ON saved_searches (company_id)
+    WHERE company_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_user_job_status_user_id ON user_job_status (user_id);
 CREATE INDEX IF NOT EXISTS idx_job_matches_user_id ON job_matches (user_id);
 

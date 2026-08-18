@@ -65,14 +65,28 @@ export async function fetchSavedSearches() {
   return data.saved_searches
 }
 
-export async function createSavedSearch({ name, jobTitle, postedWithinDays }) {
+export async function createSavedSearch({
+  name,
+  viewType = 'search',
+  jobTitle,
+  variantTitle,
+  postedWithinDays,
+  companyType,
+  statusFilter,
+  companyId,
+}) {
   const res = await fetch(`${API_URL}/api/saved-searches`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
       name,
+      view_type: viewType,
       job_title: jobTitle || null,
+      variant_title: variantTitle || null,
       posted_within_days: postedWithinDays || null,
+      company_type: companyType || 'both',
+      status_filter: statusFilter || null,
+      company_id: companyId || null,
     }),
   })
   if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to save search (${res.status})`))

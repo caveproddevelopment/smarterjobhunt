@@ -18,11 +18,22 @@ import {
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
-function buildBookmarkName(f) {
-  const title = (f.title || '').trim()
-  const days = f.postedDays ? String(f.postedDays).trim() : ''
-  const label = title || 'All jobs'
-  return days ? `${label} · last ${days} day${days === '1' ? '' : 's'}` : label
+// Describes a saved-search row (or the page's current scoped view, in the
+// same shape) as a human name. Distinct per view_type since each one means
+// something different to look at later, not just "a title search".
+function buildBookmarkName(view) {
+  const days = view.days ? String(view.days) : ''
+  const suffix = days ? ` · last ${days} day${days === '1' ? '' : 's'}` : ''
+  if (view.viewType === 'status') {
+    return view.statusFilter === 'applied' ? 'Applied Jobs' : 'Rejected Jobs'
+  }
+  if (view.viewType === 'company') {
+    return `All jobs at ${view.companyName}`
+  }
+  if (view.viewType === 'variant') {
+    return `${view.variantTitle}${suffix}`
+  }
+  return `${(view.title || '').trim() || 'All jobs'}${suffix}`
 }
 
 export default function JobListings() {
@@ -301,16 +312,44 @@ export default function JobListings() {
       .catch((err) => setError(err.message))
   }
 
-  // A "bookmark" matches the *entire* current search (title + posted-days),
-  // the same way a browser bookmark points at one specific page/state —
-  // not just the title. When a variant pill is selected, the current view
-  // is scoped to that variant's title, so the bookmark should track (and be
-  // saved under) the variant title instead of the original search title.
-  const bookmarkTitle = selectedVariant || appliedFilters.title || ''
+  // A single descriptor for whichever view is currently on screen, in the
+  // same shape a saved_searches row comes back in. Drives both which
+  // bookmark (if any) is already saved for the current view, and what gets
+  // sent to the API when saving a new one — so those two things can never
+  // drift out of sync with each other.
+  const currentView = selectedStatus
+    ? { viewType: 'status', statusFilter: selectedStatus }
+    : selectedCompany
+      ? { viewType: 'company', companyId: selectedCompany.id, companyName: selectedCompany.name }
+      : selectedVariant
+        ? {
+            viewType: 'variant',
+            variantTitle: selectedVariant,
+            title: appliedFilters.title,
+            days: appliedFilters.postedDays,
+            companyType: appliedFilters.companyType,
+          }
+        : {
+            viewType: 'search',
+            title: appliedFilters.title,
+            days: appliedFilters.postedDays,
+            companyType: appliedFilters.companyType,
+          }
+
   const bookmarkedSearch = savedSearches.find((search) => {
-    const sameTitle = (search.job_title || '') === bookmarkTitle
-    const sameDays = String(search.posted_within_days || '') === String(appliedFilters.postedDays || '')
-    return sameTitle && sameDays
+    if (search.view_type !== currentView.viewType) return false
+    if (currentView.viewType === 'status') {
+      return search.status_filter === currentView.statusFilter
+    }
+    if (currentView.viewType === 'company') {
+      return search.company_id === currentView.companyId
+    }
+    const sameDays = String(search.posted_within_days || '') === String(currentView.days || '')
+    const sameCompanyType = (search.company_type || 'both') === (currentView.companyType || 'both')
+    if (currentView.viewType === 'variant') {
+      return (search.variant_title || '') === currentView.variantTitle && sameDays && sameCompanyType
+    }
+    return (search.job_title || '') === (currentView.title || '') && sameDays && sameCompanyType
   })
 
   function handleToggleBookmark() {
@@ -323,28 +362,48 @@ export default function JobListings() {
       return
     }
     createSavedSearch({
-      name: buildBookmarkName({ ...appliedFilters, title: bookmarkTitle }),
-      jobTitle: bookmarkTitle,
-      postedWithinDays: appliedFilters.postedDays || null,
+      name: buildBookmarkName(currentView),
+      viewType: currentView.viewType,
+      jobTitle: currentView.viewType === 'company' ? null : currentView.title,
+      variantTitle: currentView.viewType === 'variant' ? currentView.variantTitle : null,
+      postedWithinDays: currentView.viewType === 'company' ? null : currentView.days,
+      companyType: currentView.viewType === 'company' ? undefined : currentView.companyType,
+      statusFilter: currentView.viewType === 'status' ? currentView.statusFilter : null,
+      companyId: currentView.viewType === 'company' ? currentView.companyId : null,
     })
       .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
       .catch((err) => setError(err.message))
   }
 
-  // Clicking a bookmarked search in the sidebar jumps straight to those
-  // results, the way clicking a browser bookmark takes you straight to
-  // the page instead of just filling in an address bar.
+  // Clicking a bookmarked search in the sidebar restores the EXACT view it
+  // was saved under, not just an approximation of it — a variant bookmark
+  // re-enters the same drilled-down variant view (not a plain title search
+  // for that variant's name), a company bookmark goes straight back to
+  // that company's "See them all" list, and a status bookmark re-enters
+  // Track Applications on the same radio.
   function handleApplySearch(search) {
+    if (search.view_type === 'status') {
+      setSelectedVariant(null)
+      setSelectedCompany(null)
+      setSelectedStatus(search.status_filter)
+      return
+    }
+    if (search.view_type === 'company') {
+      setSelectedVariant(null)
+      setSelectedStatus(null)
+      setSelectedCompany({ id: search.company_id, name: search.company_name || 'this company' })
+      return
+    }
     const applied = {
       title: search.job_title || '',
       postedDays: search.posted_within_days != null ? String(search.posted_within_days) : '',
-      companyType: filters.companyType || 'both',
+      companyType: search.company_type || 'both',
     }
     setFilters(applied)
     setAppliedFilters(applied)
-    setSelectedVariant(null)
     setSelectedCompany(null)
     setSelectedStatus(null)
+    setSelectedVariant(search.view_type === 'variant' ? search.variant_title || '' : null)
   }
 
   function scrollToFilters() {
