@@ -2,7 +2,6 @@ export default function FilterSidebar({
   filters,
   onFilterChange,
   onUpdateListings,
-  onCompanyDb = () => {},
   savedSearches,
   onApplySearch,
   onDeleteSearch,
@@ -76,14 +75,6 @@ export default function FilterSidebar({
           </label>
         </div>
       </div>
-
-      <button
-        type="button"
-        onClick={onCompanyDb}
-        className="mt-5 w-full rounded-md border border-line bg-mist py-2 text-sm font-medium text-ink hover:bg-line/40"
-      >
-        Company DB
-      </button>
 
       <button
         type="button"
