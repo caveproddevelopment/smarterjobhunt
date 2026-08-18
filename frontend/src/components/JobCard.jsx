@@ -117,15 +117,27 @@ export default function JobCard({
             Apply
           </button>
         ) : canApply ? (
-          <a
-            href={job.applyUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={handleApplyClick}
-            className="rounded-md bg-moss px-8 py-2 text-center text-sm font-semibold text-white hover:opacity-90"
-          >
-            Apply
-          </a>
+          status.value === 'applied' ? (
+            
+              href={job.applyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleApplyClick}
+              className="text-sm font-semibold text-ember hover:text-flame"
+            >
+              Go to the Job Page &rarr;
+            </a>
+          ) : (
+            
+              href={job.applyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleApplyClick}
+              className="rounded-md bg-moss px-8 py-2 text-center text-sm font-semibold text-white hover:opacity-90"
+            >
+              Apply
+            </a>
+          )
         ) : (
           // Not html-disabled on purpose: it needs to stay clickable so we
           // can prompt the subscribe modal instead of just looking inert.
