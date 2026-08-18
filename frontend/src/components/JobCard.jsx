@@ -118,7 +118,7 @@ export default function JobCard({
           </button>
         ) : canApply ? (
           status.value === 'applied' ? (
-            
+            <a
               href={job.applyUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -128,7 +128,7 @@ export default function JobCard({
               Go to the Job Page &rarr;
             </a>
           ) : (
-            
+            <a
               href={job.applyUrl}
               target="_blank"
               rel="noopener noreferrer"
