@@ -45,7 +45,7 @@ export default function JobListings() {
   const [filters, setFilters] = useState({
     title: searchParams.get('title') || '',
     postedDays: '',
-    companyType: 'both',
+    companyType: 'funded',
   })
   const [appliedFilters, setAppliedFilters] = useState(filters)
   const [savedSearches, setSavedSearches] = useState([])
@@ -206,7 +206,7 @@ export default function JobListings() {
       const seeded = {
         title: user.default_job_title || '',
         postedDays: user.default_posted_within_days || '',
-        companyType: filters.companyType || 'both',
+        companyType: filters.companyType || 'funded',
       }
       setFilters(seeded)
       setAppliedFilters(seeded)

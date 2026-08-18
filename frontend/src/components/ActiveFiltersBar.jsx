@@ -1,6 +1,6 @@
-const DEFAULT_FILTERS = { title: '', postedDays: '', companyType: 'both' }
+const DEFAULT_FILTERS = { title: '', postedDays: '', companyType: 'funded' }
 
-const COMPANY_TYPE_LABELS = { funded: 'Funded Startups', fortune500: 'Fortune 500' }
+const COMPANY_TYPE_LABELS = { both: 'Both', funded: 'Funded Startups', fortune500: 'Fortune 500' }
 
 const STATUS_LABELS = {
   applied: 'Applied Jobs',
@@ -87,11 +87,11 @@ export default function ActiveFiltersBar({
       clear: () => onChange({ ...filters, postedDays: '' }),
     })
   }
-  if (filters.companyType && filters.companyType !== 'both') {
+  if (filters.companyType && filters.companyType !== 'funded') {
     chips.push({
       key: 'companyType',
       label: COMPANY_TYPE_LABELS[filters.companyType] || filters.companyType,
-      clear: () => onChange({ ...filters, companyType: 'both' }),
+      clear: () => onChange({ ...filters, companyType: 'funded' }),
     })
   }
 
