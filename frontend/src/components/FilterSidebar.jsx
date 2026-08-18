@@ -37,7 +37,7 @@ export default function FilterSidebar({
             min="0"
             value={filters.postedDays}
             onChange={(event) => onFilterChange({ ...filters, postedDays: event.target.value })}
-            className="w-16 ml-10 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
+            className="w-16 ml-8 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
           />
           <span className="text-sm text-ink">days</span>
         </div>
@@ -45,7 +45,7 @@ export default function FilterSidebar({
 
       <div className="mt-4">
         <p className="text-sm text-ink">Company Database</p>
-        <div className="mt-1.5 ml-12 space-y-1.5">
+        <div className="mt-1.5 ml-8 space-y-1.5">
           <label className="flex items-center gap-1.5 text-sm text-ink">
             <input
               type="radio"
