@@ -29,6 +29,7 @@ export default function Profile() {
   const [profileSuccess, setProfileSuccess] = useState(null)
   const [savingProfile, setSavingProfile] = useState(false)
   const [cancelingEmailChange, setCancelingEmailChange] = useState(false)
+  const [showEmailInfo, setShowEmailInfo] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -253,10 +254,39 @@ export default function Profile() {
                   id="email"
                   type="email"
                   required
+                  disabled
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
+                  className="mt-2 w-full cursor-not-allowed rounded-lg border border-line bg-mist px-3 py-2 text-sm text-ink-soft focus:outline-none"
                 />
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailInfo((prev) => !prev)}
+                    aria-expanded={showEmailInfo}
+                    aria-label="Why can't I change my email?"
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-line text-ink-soft transition-colors hover:border-ember hover:text-ember"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-2.5 w-2.5"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="11" x2="12" y2="16" />
+                      <circle cx="12" cy="8" r="0.5" fill="currentColor" stroke="none" />
+                    </svg>
+                  </button>
+                  {showEmailInfo && (
+                    <p className="text-xs text-ink-soft">
+                      Want to change your email? Contact us.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {profileError && <p className="text-sm text-ember">{profileError}</p>}
