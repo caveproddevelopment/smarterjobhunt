@@ -48,6 +48,14 @@ class Config:
         os.environ.get("PASSWORD_RESET_MAX_AGE_SECONDS", 60 * 5)  # 5 min
     )
 
+    # Email change confirmation (profile page). Longer-lived than the other
+    # two: unlike signup verification or a password reset, the user has to
+    # go open a DIFFERENT inbox they may not have handy, sometimes on
+    # another device -- 5 minutes was judged too tight for that.
+    EMAIL_CHANGE_MAX_AGE_SECONDS = int(
+        os.environ.get("EMAIL_CHANGE_MAX_AGE_SECONDS", 60 * 30)  # 30 min
+    )
+
     # Google Apps Script web app (Gmail-backed) that sends verification/reset
     # emails. There's no shared secret — access is controlled purely by
     # keeping this URL private, so treat it like a credential.
