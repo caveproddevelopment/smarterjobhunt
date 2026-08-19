@@ -86,6 +86,15 @@ CREATE TABLE IF NOT EXISTS users (
 -- against a DB created before email verification existed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false;
 
+-- Holds a requested new email address from the profile page until the user
+-- clicks the confirmation link sent to it -- `email` itself only changes at
+-- that point (see /api/auth/me PUT and /api/auth/confirm-email/<token> in
+-- routes/auth.py). NULL means no change is pending. Deliberately NOT
+-- UNIQUE: it's unconfirmed, so two different accounts could transiently
+-- have the same address pending -- only `email` needs to stay unique, and
+-- that's enforced when the change is confirmed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email TEXT;
+
 -- Google Sign-In: password_hash becomes optional (accounts created via
 -- Google have none), google_id stores the Google account's stable "sub"
 -- identifier so a repeat Google login (or a password account later linking

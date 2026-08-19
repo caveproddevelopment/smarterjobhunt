@@ -7,15 +7,21 @@ from google.oauth2 import id_token as google_id_token
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from auth_utils import (
+    issue_email_change_token,
     issue_password_reset_token,
     issue_token,
     issue_verification_token,
     require_auth,
+    verify_email_change_token,
     verify_password_reset_token,
     verify_verification_token,
 )
 from db.connection import get_cursor
-from email_utils import send_password_reset_email, send_verification_email
+from email_utils import (
+    send_email_change_confirmation,
+    send_password_reset_email,
+    send_verification_email,
+)
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -28,8 +34,8 @@ FULL_NAME_PATTERN = re.compile(r"^[A-Za-z]+( [A-Za-z]+)*$")
 # (the "Change password" section, the "Forgot password" link) -- Google-only
 # accounts have password_hash = NULL and can't use either.
 USER_FIELDS = """
-    id, full_name, email, created_at, plan, subscription_status, billing_interval,
-    current_period_end, default_job_title, default_variants,
+    id, full_name, email, pending_email, created_at, plan, subscription_status,
+    billing_interval, current_period_end, default_job_title, default_variants,
     default_posted_within_days, default_funding_filter, has_set_default_filters,
     (password_hash IS NOT NULL) AS has_password
 """
@@ -300,7 +306,15 @@ def me():
 @bp.put("/me")
 @require_auth
 def update_me():
-    """Update the logged-in user's full name and/or email (profile page)."""
+    """Update the logged-in user's full name (profile page), and start an
+    email change if the submitted email differs from their current one.
+
+    The email doesn't change immediately: the new address is stashed in
+    pending_email and a confirmation link is emailed to it. The `email`
+    column itself only updates once that link is clicked (see
+    confirm_email below) -- this proves the user actually controls the new
+    inbox before things like login and password-reset start using it.
+    """
     body = request.get_json(silent=True) or {}
     full_name = (body.get("full_name") or "").strip()
     email = (body.get("email") or "").strip().lower()
@@ -313,25 +327,100 @@ def update_me():
         return jsonify({"error": "A valid email is required"}), 400
 
     cur = get_cursor()
-    try:
+    cur.execute("SELECT email FROM users WHERE id = %s", (g.user_id,))
+    current = cur.fetchone()
+    if current is None:
+        return jsonify({"error": "User not found"}), 404
+
+    if email == current["email"]:
+        # No real email change -- and if they typed their current address
+        # back in, that reads as "never mind", so drop any pending change too.
         cur.execute(
             f"""
-            UPDATE users
-            SET full_name = %s, email = %s
+            UPDATE users SET full_name = %s, pending_email = NULL
             WHERE id = %s
             RETURNING {USER_FIELDS}
             """,
-            (full_name, email, g.user_id),
+            (full_name, g.user_id),
         )
         updated = cur.fetchone()
         cur.connection.commit()
-    except psycopg2.errors.UniqueViolation:
-        cur.connection.rollback()
+        return jsonify(updated)
+
+    # Changing email: `email` itself isn't touched here, so a UniqueViolation
+    # can't catch a collision the way the no-op branch above's UPDATE would --
+    # check explicitly instead.
+    cur.execute("SELECT 1 FROM users WHERE email = %s AND id != %s", (email, g.user_id))
+    if cur.fetchone() is not None:
         return jsonify({"error": "An account with that email already exists"}), 409
 
+    cur.execute(
+        f"""
+        UPDATE users SET full_name = %s, pending_email = %s
+        WHERE id = %s
+        RETURNING {USER_FIELDS}
+        """,
+        (full_name, email, g.user_id),
+    )
+    updated = cur.fetchone()
+    cur.connection.commit()
+
+    token = issue_email_change_token(g.user_id, email)
+    send_email_change_confirmation(email, token, name=full_name)
+
+    return jsonify(updated)
+
+
+@bp.get("/confirm-email/<token>")
+def confirm_email(token):
+    """Landed on by clicking the link sent to a NEW email address after a
+    profile-page email change. Only swaps `email` over if pending_email on
+    the account still matches what this specific token was issued for --
+    guards against a stale link after the user cancelled or re-requested
+    the change with a different address."""
+    data = verify_email_change_token(token)
+    if data is None:
+        return redirect(f"{current_app.config['FRONTEND_ORIGIN']}/profile?email_change_error=invalid")
+
+    user_id, new_email = data.get("user_id"), data.get("new_email")
+
+    cur = get_cursor()
+    cur.execute("SELECT pending_email FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    if row is None or row["pending_email"] != new_email:
+        return redirect(f"{current_app.config['FRONTEND_ORIGIN']}/profile?email_change_error=stale")
+
+    try:
+        cur.execute(
+            "UPDATE users SET email = %s, pending_email = NULL WHERE id = %s",
+            (new_email, user_id),
+        )
+        cur.connection.commit()
+    except psycopg2.errors.UniqueViolation:
+        # Someone else grabbed this email while the link sat unclicked.
+        cur.connection.rollback()
+        return redirect(f"{current_app.config['FRONTEND_ORIGIN']}/profile?email_change_error=taken")
+
+    return redirect(f"{current_app.config['FRONTEND_ORIGIN']}/profile?email_changed=1")
+
+
+@bp.post("/me/cancel-email-change")
+@require_auth
+def cancel_email_change():
+    """Lets the user back out of a pending email change from the profile page."""
+    cur = get_cursor()
+    cur.execute(
+        f"""
+        UPDATE users SET pending_email = NULL
+        WHERE id = %s
+        RETURNING {USER_FIELDS}
+        """,
+        (g.user_id,),
+    )
+    updated = cur.fetchone()
+    cur.connection.commit()
     if updated is None:
         return jsonify({"error": "User not found"}), 404
-
     return jsonify(updated)
 
 

@@ -16,6 +16,10 @@ def _password_reset_serializer():
     return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="smarterjobhunt-password-reset")
 
 
+def _email_change_serializer():
+    return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="smarterjobhunt-email-change")
+
+
 def issue_token(user_id):
     return _serializer().dumps({"user_id": user_id})
 
@@ -26,6 +30,13 @@ def issue_verification_token(user_id):
 
 def issue_password_reset_token(user_id):
     return _password_reset_serializer().dumps({"user_id": user_id})
+
+
+def issue_email_change_token(user_id, new_email):
+    """Encodes both the user and the requested new address, so confirming
+    the link can't be tricked into applying a *different* pending change
+    than the one this particular email was sent for (see confirm_email)."""
+    return _email_change_serializer().dumps({"user_id": user_id, "new_email": new_email})
 
 
 def verify_verification_token(token):
@@ -54,6 +65,17 @@ def verify_password_reset_token(token):
             token, max_age=current_app.config["PASSWORD_RESET_MAX_AGE_SECONDS"]
         )
         return data.get("user_id")
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+def verify_email_change_token(token):
+    """Return {"user_id": ..., "new_email": ...} encoded in an email-change
+    token, or None if it's missing/invalid/expired."""
+    try:
+        return _email_change_serializer().loads(
+            token, max_age=current_app.config["EMAIL_CHANGE_MAX_AGE_SECONDS"]
+        )
     except (BadSignature, SignatureExpired):
         return None
 

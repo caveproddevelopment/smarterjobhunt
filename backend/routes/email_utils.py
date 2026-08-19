@@ -23,6 +23,10 @@ def _password_reset_url(token: str) -> str:
     return f"{current_app.config['FRONTEND_ORIGIN']}/reset-password?token={token}"
 
 
+def _email_change_url(token: str) -> str:
+    return f"{current_app.config['BACKEND_ORIGIN']}/api/auth/confirm-email/{token}"
+
+
 def _send_via_apps_script(payload: dict, fallback_link: str) -> None:
     apps_script_url = current_app.config.get("APPS_SCRIPT_URL")
 
@@ -63,5 +67,16 @@ def send_password_reset_email(to_email: str, token: str, name: str | None = None
     link = _password_reset_url(token)
     _send_via_apps_script(
         {"type": "reset", "email": to_email, "link": link, "name": name},
+        fallback_link=link,
+    )
+
+
+def send_email_change_confirmation(to_email: str, token: str, name: str | None = None) -> None:
+    """Sent to the NEW address the user entered on their profile page --
+    proves they actually control that inbox before /me's email column
+    changes over to it (see confirm_email in routes/auth.py)."""
+    link = _email_change_url(token)
+    _send_via_apps_script(
+        {"type": "email_change", "email": to_email, "link": link, "name": name},
         fallback_link=link,
     )

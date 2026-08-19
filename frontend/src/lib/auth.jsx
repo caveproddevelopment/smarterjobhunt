@@ -142,6 +142,20 @@ export function AuthProvider({ children }) {
     return updated
   }
 
+  // Backs out of a pending email change started by updateProfile() above --
+  // clears pending_email server-side so the confirmation link, if clicked
+  // later, is treated as stale.
+  async function cancelEmailChange() {
+    const res = await fetch(`${API_URL}/api/auth/me/cancel-email-change`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not cancel email change'))
+    const updated = await res.json()
+    setUser((prev) => (prev ? { ...prev, ...updated } : prev))
+    return updated
+  }
+
   async function refreshUser() {
     if (!token) return
     const res = await fetch(`${API_URL}/api/auth/me`, {
@@ -207,6 +221,7 @@ export function AuthProvider({ children }) {
         loginWithGoogle,
         logout,
         updateProfile,
+        cancelEmailChange,
         changePassword,
         updateDefaultFilters,
         refreshUser,

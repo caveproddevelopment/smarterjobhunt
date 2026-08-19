@@ -11,6 +11,7 @@ export default function Profile() {
     loading,
     logout,
     updateProfile,
+    cancelEmailChange,
     changePassword,
     refreshUser,
     startCheckout,
@@ -19,12 +20,15 @@ export default function Profile() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const checkoutStatus = searchParams.get('checkout')
+  const emailChanged = searchParams.get('email_changed') === '1'
+  const emailChangeError = searchParams.get('email_change_error')
 
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [profileError, setProfileError] = useState(null)
   const [profileSuccess, setProfileSuccess] = useState(null)
   const [savingProfile, setSavingProfile] = useState(false)
+  const [cancelingEmailChange, setCancelingEmailChange] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -71,12 +75,29 @@ export default function Profile() {
     setProfileSuccess(null)
     setSavingProfile(true)
     try {
-      await updateProfile(fullName, email)
-      setProfileSuccess('Profile updated.')
+      const updated = await updateProfile(fullName, email)
+      setProfileSuccess(
+        updated.pending_email
+          ? `We sent a confirmation link to ${updated.pending_email} — click it to finish changing your email.`
+          : 'Profile updated.'
+      )
     } catch (err) {
       setProfileError(err.message)
     } finally {
       setSavingProfile(false)
+    }
+  }
+
+  async function handleCancelEmailChange() {
+    setProfileError(null)
+    setProfileSuccess(null)
+    setCancelingEmailChange(true)
+    try {
+      await cancelEmailChange()
+    } catch (err) {
+      setProfileError(err.message)
+    } finally {
+      setCancelingEmailChange(false)
     }
   }
 
@@ -173,6 +194,37 @@ export default function Profile() {
           {/* Account details */}
           <section className="mt-8 border border-line p-6">
             <h2 className="font-display text-lg font-semibold text-ink">Account details</h2>
+
+            {emailChanged && (
+              <p className="mt-4 rounded-lg border border-line bg-mist px-3 py-2 text-sm text-moss">
+                Email updated — you can now log in with your new address.
+              </p>
+            )}
+            {emailChangeError && (
+              <p className="mt-4 rounded-lg border border-line bg-mist px-3 py-2 text-sm text-ember">
+                {emailChangeError === 'taken'
+                  ? "That email is now used by another account, so the change couldn't be completed."
+                  : 'That confirmation link is invalid or has expired — try changing your email again.'}
+              </p>
+            )}
+            {user.pending_email && (
+              <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-line bg-mist px-4 py-3">
+                <p className="text-sm text-ink-soft">
+                  Confirmation link sent to{' '}
+                  <span className="font-medium text-ink">{user.pending_email}</span>. Click it to
+                  finish changing your email.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCancelEmailChange}
+                  disabled={cancelingEmailChange}
+                  className="shrink-0 text-sm font-semibold text-ink-soft transition-colors hover:text-ink disabled:opacity-60"
+                >
+                  {cancelingEmailChange ? 'Cancelling…' : 'Cancel'}
+                </button>
+              </div>
+            )}
+
             <form onSubmit={handleProfileSubmit} className="mt-4 space-y-4">
               <div>
                 <label htmlFor="fullName" className="text-sm font-medium text-ink">
