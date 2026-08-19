@@ -38,7 +38,7 @@ export default function ActiveFiltersBar({
       >
         <span
           aria-hidden="true"
-          className={`text-base leading-none ${bookmarked ? 'text-ember' : 'text-ink-soft'}`}
+          className={`text-xl leading-none ${bookmarked ? 'text-ember' : 'text-ink-soft'}`}
         >
           {bookmarked ? '★' : '☆'}
         </span>
