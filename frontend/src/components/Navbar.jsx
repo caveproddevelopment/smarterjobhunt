@@ -41,9 +41,11 @@ export default function Navbar() {
             <div className="flex items-center gap-4">
               <Link
                 to="/profile"
-                className="text-sm text-ink-soft transition-colors hover:text-ink"
+                title={user.email}
+                aria-label={user.email}
+                className="flame-gradient flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold uppercase text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.05]"
               >
-                {user.email}
+                {user.email.slice(0, 2)}
               </Link>
               <button
                 type="button"

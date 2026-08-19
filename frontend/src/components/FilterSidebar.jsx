@@ -11,22 +11,17 @@ export default function FilterSidebar({
   companyTypeCounts = {},
   companyTypeCountsLoading = false,
 }) {
-  // Small count badge shown next to a Company Database option, same idea
-  // as the "Also matching" pill counts: ember + bold once we know there's
-  // at least one match, muted once we know it's zero, "…" while the fetch
+  // Small count label shown next to a Company Database option: plain
+  // ink text (not ember) once we know the count, muted while the fetch
   // for the current title/postedDays search is still in flight.
   function renderCount(key) {
     const count = companyTypeCounts[key]
     const countKnown = typeof count === 'number'
     if (countKnown) {
-      return (
-        <span className={count > 0 ? 'font-semibold text-ember' : 'text-ink-soft/50'}>
-          -({count})
-        </span>
-      )
+      return <span className="text-ink">{count} jobs</span>
     }
     if (companyTypeCountsLoading) {
-      return <span className="text-ink-soft/50">-(…)</span>
+      return <span className="text-ink-soft/50">…</span>
     }
     return null
   }
