@@ -1,3 +1,5 @@
+import re
+
 from flask import Blueprint, g, jsonify, request
 
 from auth_utils import optional_auth
@@ -19,6 +21,23 @@ FUNDING_FILTER_MAP = {"a": "series_a", "b": "series_b"}  # 'both' applies no fil
 # forget this one when adding a database -- the symptom is the new filter
 # quietly doing nothing instead of a visible failure.
 COMPANY_TYPES = {"funded", "fortune500"}
+
+
+def _tokenize_title(title):
+    """Split a search title into whitespace-separated terms for word-overlap
+    scoring. e.g. "Senior Project Manager" -> ["Senior", "Project", "Manager"].
+    """
+    return [t for t in title.split() if t]
+
+
+def _word_boundary_pattern(term):
+    """Build a Postgres word-boundary regex (\\y...\\y) for a single term,
+    escaping any regex metacharacters in the term itself first so terms like
+    "C++" or "UX/UI" are matched literally rather than as regex syntax. \\y
+    (not a bare substring) avoids short terms like "PM" false-positive
+    matching inside an unrelated word.
+    """
+    return r"\y" + re.escape(term) + r"\y"
 
 
 @bp.get("/jobs")
@@ -48,12 +67,38 @@ def list_jobs():
     # match), then AND'd with the other filters below. The frontend always
     # sends up to the full 15 cached/generated variants for the title (the
     # variants count is fixed, not user-selectable).
+    #
+    # A job that matches none of those exact phrases still gets included if
+    # a majority of the *typed* title's individual words appear in it (each
+    # word weighted 100/word-count, summed, included if the total is >50%).
+    # e.g. searching "Senior Project Manager" against a job titled "Project
+    # Manager" scores 66% and is shown even though neither the exact title
+    # nor any of the 15 variants matched it as a phrase. This is folded into
+    # the same OR group as the exact/variant checks above -- "match A OR
+    # match B" gives the identical result as "if A: show, elif B: show".
+    # Word terms are matched on a word boundary rather than a bare
+    # substring, so a short word like "PM" can't match inside an unrelated
+    # word the way ILIKE '%PM%' would.
     if title or variant_titles:
         title_matches = []
         for candidate in [title, *variant_titles]:
             if candidate:
                 title_matches.append("j.title ILIKE %s")
                 params.append(f"%{candidate}%")
+
+        if title:
+            terms = _tokenize_title(title)
+            if len(terms) > 1:
+                percent_per_term = 100.0 / len(terms)
+                score_terms = []
+                for term in terms:
+                    score_terms.append(
+                        f"(CASE WHEN j.title ~* %s THEN {percent_per_term} ELSE 0 END)"
+                    )
+                    params.append(_word_boundary_pattern(term))
+                score_expr = " + ".join(score_terms)
+                title_matches.append(f"(({score_expr}) > 50)")
+
         where.append("(" + " OR ".join(title_matches) + ")")
 
     if posted_days:
