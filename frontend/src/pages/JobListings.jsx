@@ -18,10 +18,17 @@ import {
   fetchCompanyTypeCounts,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 
 // Describes a saved-search row (or the page's current scoped view, in the
 // same shape) as a human name. Distinct per view_type since each one means
 // something different to look at later, not just "a title search".
+//
+// For 'search'/'variant' views, the Company Database scope is folded into
+// the name too -- e.g. "product manager · Funded Startups" vs "product
+// manager · Fortune 500" -- so the same title bookmarked under two
+// different databases gets two distinct, tellable-apart entries in the
+// sidebar instead of two identically-named rows.
 function buildBookmarkName(view) {
   const days = view.days ? String(view.days) : ''
   const suffix = days ? ` · last ${days} day${days === '1' ? '' : 's'}` : ''
@@ -31,10 +38,11 @@ function buildBookmarkName(view) {
   if (view.viewType === 'company') {
     return `All jobs at ${view.companyName}`
   }
+  const dbLabel = ` · ${COMPANY_TYPE_LABELS[view.companyType || 'both']}`
   if (view.viewType === 'variant') {
-    return `${view.variantTitle}${suffix}`
+    return `${view.variantTitle}${suffix}${dbLabel}`
   }
-  return `${(view.title || '').trim() || 'All jobs'}${suffix}`
+  return `${(view.title || '').trim() || 'All jobs'}${suffix}${dbLabel}`
 }
 
 export default function JobListings() {
@@ -46,7 +54,7 @@ export default function JobListings() {
   const [filters, setFilters] = useState({
     title: searchParams.get('title') || '',
     postedDays: '',
-    companyType: 'funded',
+    companyType: DEFAULT_COMPANY_TYPE,
   })
   const [appliedFilters, setAppliedFilters] = useState(filters)
   const [savedSearches, setSavedSearches] = useState([])
@@ -55,6 +63,7 @@ export default function JobListings() {
   const [totalCount, setTotalCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [bookmarkError, setBookmarkError] = useState(null)
   const [showDefaultsModal, setShowDefaultsModal] = useState(false)
   const [showSubscribeModal, setShowSubscribeModal] = useState(false)
   const canApply = user?.plan === 'pro'
@@ -89,6 +98,7 @@ export default function JobListings() {
     let cancelled = false
     setLoading(true)
     setError(null)
+    setBookmarkError(null)
 
     async function run() {
       // Only re-derive titleVariants/variantCounts when the title or
@@ -233,7 +243,7 @@ export default function JobListings() {
       const seeded = {
         title: user.default_job_title || '',
         postedDays: user.default_posted_within_days || '',
-        companyType: filters.companyType || 'funded',
+        companyType: filters.companyType || DEFAULT_COMPANY_TYPE,
       }
       setFilters(seeded)
       setAppliedFilters(seeded)
@@ -384,6 +394,7 @@ export default function JobListings() {
       navigate('/login')
       return
     }
+    setBookmarkError(null)
     if (bookmarkedSearch) {
       handleDeleteSearch(bookmarkedSearch.id)
       return
@@ -399,7 +410,7 @@ export default function JobListings() {
       companyId: currentView.viewType === 'company' ? currentView.companyId : null,
     })
       .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
-      .catch((err) => setError(err.message))
+      .catch((err) => setBookmarkError(err.message))
   }
 
   // Clicking a bookmarked search in the sidebar restores the EXACT view it
@@ -483,6 +494,7 @@ export default function JobListings() {
             onReturnToFullList={handleReturnToFullList}
             bookmarked={Boolean(bookmarkedSearch)}
             onToggleBookmark={handleToggleBookmark}
+            bookmarkError={bookmarkError}
           />
 
           <div className="flex flex-col gap-6 p-6 md:flex-row">

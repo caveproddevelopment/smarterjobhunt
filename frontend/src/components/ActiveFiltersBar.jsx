@@ -1,6 +1,6 @@
-const DEFAULT_FILTERS = { title: '', postedDays: '', companyType: 'funded' }
+import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 
-const COMPANY_TYPE_LABELS = { both: 'Both', funded: 'Funded Startups', fortune500: 'Fortune 500' }
+const DEFAULT_FILTERS = { title: '', postedDays: '', companyType: DEFAULT_COMPANY_TYPE }
 
 const STATUS_LABELS = {
   applied: 'Applied Jobs',
@@ -22,21 +22,32 @@ export default function ActiveFiltersBar({
   onReturnToFullList = () => {},
   bookmarked = false,
   onToggleBookmark = () => {},
+  bookmarkError = null,
 }) {
+  // Wrapped (rather than putting ml-auto on the button itself) so a failed
+  // save can show a small message right under the button -- e.g. "You
+  // already have this search bookmarked" -- without disturbing the rest of
+  // the bar's layout, and without commandeering the whole job-listings
+  // panel the way the page-level error banner does.
   const bookmarkButtonEl = (
-    <button
-      type="button"
-      onClick={onToggleBookmark}
-      className="ml-auto flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
-    >
-      <span
-        aria-hidden="true"
-        className={`text-base leading-none ${bookmarked ? 'text-ember' : 'text-ink-soft'}`}
+    <div className="ml-auto flex shrink-0 flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={onToggleBookmark}
+        className="flex items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
       >
-        {bookmarked ? '★' : '☆'}
-      </span>
-      Bookmark Search
-    </button>
+        <span
+          aria-hidden="true"
+          className={`text-base leading-none ${bookmarked ? 'text-ember' : 'text-ink-soft'}`}
+        >
+          {bookmarked ? '★' : '☆'}
+        </span>
+        Bookmark Search
+      </button>
+      {bookmarkError && (
+        <p className="max-w-[200px] text-right text-xs text-ember">{bookmarkError}</p>
+      )}
+    </div>
   )
 
   // Once a variant pill, "See them all", or a "Track Applications" radio is
@@ -90,11 +101,11 @@ export default function ActiveFiltersBar({
       clear: () => onChange({ ...filters, postedDays: '' }),
     })
   }
-  if (filters.companyType && filters.companyType !== 'funded') {
+  if (filters.companyType && filters.companyType !== DEFAULT_COMPANY_TYPE) {
     chips.push({
       key: 'companyType',
       label: COMPANY_TYPE_LABELS[filters.companyType] || filters.companyType,
-      clear: () => onChange({ ...filters, companyType: 'funded' }),
+      clear: () => onChange({ ...filters, companyType: DEFAULT_COMPANY_TYPE }),
     })
   }
 

@@ -1,3 +1,5 @@
+import { COMPANY_TYPE_FILTER_OPTIONS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
+
 export default function FilterSidebar({
   filters,
   onFilterChange,
@@ -63,36 +65,18 @@ export default function FilterSidebar({
       <div className="mt-4">
         <p className="text-sm text-ink">Company Database</p>
         <div className="mt-1.5 ml-8 space-y-1.5">
-          <label className="flex items-center gap-1.5 text-sm text-ink">
-            <input
-              type="radio"
-              name="company-type"
-              checked={(filters.companyType || 'funded') === 'funded'}
-              onChange={() => onFilterChange({ ...filters, companyType: 'funded' })}
-            />
-            Funded Startups
-            {renderCount('funded')}
-          </label>
-          <label className="flex items-center gap-1.5 text-sm text-ink">
-            <input
-              type="radio"
-              name="company-type"
-              checked={filters.companyType === 'fortune500'}
-              onChange={() => onFilterChange({ ...filters, companyType: 'fortune500' })}
-            />
-            Fortune 500
-            {renderCount('fortune500')}
-          </label>
-          <label className="flex items-center gap-1.5 text-sm text-ink">
-            <input
-              type="radio"
-              name="company-type"
-              checked={filters.companyType === 'both'}
-              onChange={() => onFilterChange({ ...filters, companyType: 'both' })}
-            />
-            Both
-            {renderCount('both')}
-          </label>
+          {COMPANY_TYPE_FILTER_OPTIONS.map(({ value, label }) => (
+            <label key={value} className="flex items-center gap-1.5 text-sm text-ink">
+              <input
+                type="radio"
+                name="company-type"
+                checked={(filters.companyType || DEFAULT_COMPANY_TYPE) === value}
+                onChange={() => onFilterChange({ ...filters, companyType: value })}
+              />
+              {label}
+              {renderCount(value)}
+            </label>
+          ))}
         </div>
       </div>
 

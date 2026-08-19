@@ -78,7 +78,7 @@ def create_saved_search():
         cur.connection.commit()
     except psycopg2.errors.UniqueViolation:
         cur.connection.rollback()
-        return jsonify({"error": "You already have a saved search with that name"}), 409
+        return jsonify({"error": "You already have this search bookmarked"}), 409
 
     # The RETURNING clause above can't include the joined company name (it's
     # not a column on this table) -- fetch it separately so the response

@@ -6,7 +6,19 @@ from db.connection import get_cursor
 bp = Blueprint("jobs", __name__, url_prefix="/api")
 
 FUNDING_FILTER_MAP = {"a": "series_a", "b": "series_b"}  # 'both' applies no filter
-COMPANY_TYPES = {"funded", "fortune500"}  # 'both' applies no filter
+
+# The backend's list of real Company Database categories (distinct from the
+# 'both' filter value, which means "no restriction" rather than being a
+# category itself). Kept in sync BY HAND with two other places, since Python
+# and the frontend's JS can't share this literal directly:
+#   - the CHECK (company_type IN (...)) constraints on companies.company_type
+#     and saved_searches.company_type in db/schema.sql
+#   - COMPANY_TYPES in frontend/src/lib/companyTypes.js
+# Unknown values here are silently ignored (see the `if company_type in
+# COMPANY_TYPES` checks below) rather than raising an error, so it's easy to
+# forget this one when adding a database -- the symptom is the new filter
+# quietly doing nothing instead of a visible failure.
+COMPANY_TYPES = {"funded", "fortune500"}
 
 
 @bp.get("/jobs")

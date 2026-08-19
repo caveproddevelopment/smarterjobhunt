@@ -36,6 +36,13 @@ CREATE TABLE IF NOT EXISTS companies (
 -- Fortune 500 companies are almost always 'public' under funding_stage
 -- too, but company_type is the field that actually drives the list
 -- toggle below -- funding_stage keeps its original meaning otherwise.
+--
+-- Kept in sync BY HAND with two other places when a database is added:
+--   - COMPANY_TYPES in backend/routes/jobs.py
+--   - COMPANY_TYPES in frontend/src/lib/companyTypes.js
+-- (the saved_searches.company_type CHECK further below additionally
+-- allows 'both', since that column also has to represent "no restriction"
+-- as a bookmarkable/filterable value, which a company itself can't be.)
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS company_type TEXT NOT NULL DEFAULT 'funded'
     CHECK (company_type IN ('funded', 'fortune500'));
 
@@ -248,6 +255,34 @@ ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS company_id INTEGER
 -- status filter -- the same as any other view with tracking off.
 ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS status_filter TEXT
     CHECK (status_filter IN ('applied', 'rejected'));
+
+-- The original UNIQUE (user_id, name) treated the display NAME as the
+-- definition of "already bookmarked" -- but `name` is just a human-readable
+-- label built by buildBookmarkName() on the frontend, and was never
+-- guaranteed to be distinct per view. Concretely: bookmarking "product
+-- manager" under Funded Startups, then bookmarking "product manager" again
+-- under Fortune 500, produced the identical name and got rejected as a
+-- duplicate even though they're two different views (different
+-- company_type). Replace it with a constraint on the fields that actually
+-- define a unique view -- the same fields JobListings.jsx's
+-- `bookmarkedSearch` finder already uses to decide whether the CURRENT view
+-- is already bookmarked -- so the database's definition of "duplicate"
+-- matches the app's. COALESCE the nullable columns to sentinel values
+-- first: Postgres treats NULL <> NULL in unique indexes, so without this,
+-- two truly-identical rows that both happen to have NULL in the same
+-- column (e.g. two 'company' bookmarks, which never set job_title) would
+-- NOT be caught as duplicates.
+ALTER TABLE saved_searches DROP CONSTRAINT IF EXISTS saved_searches_user_id_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_saved_searches_view ON saved_searches (
+    user_id,
+    view_type,
+    COALESCE(job_title, ''),
+    COALESCE(variant_title, ''),
+    COALESCE(posted_within_days, -1),
+    company_type,
+    COALESCE(status_filter, ''),
+    COALESCE(company_id, -1)
+);
 
 CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON saved_searches (user_id);
 CREATE INDEX IF NOT EXISTS idx_saved_searches_company_id ON saved_searches (company_id)
