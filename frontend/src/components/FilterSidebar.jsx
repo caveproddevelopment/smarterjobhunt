@@ -21,12 +21,12 @@ export default function FilterSidebar({
     if (countKnown) {
       return (
         <span className={count > 0 ? 'font-semibold text-ember' : 'text-ink-soft/50'}>
-          ({count})
+          -({count})
         </span>
       )
     }
     if (companyTypeCountsLoading) {
-      return <span className="text-ink-soft/50">(…)</span>
+      return <span className="text-ink-soft/50">-(…)</span>
     }
     return null
   }
