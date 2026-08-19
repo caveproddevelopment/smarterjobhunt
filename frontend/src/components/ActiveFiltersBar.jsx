@@ -29,7 +29,10 @@ export default function ActiveFiltersBar({
       onClick={onToggleBookmark}
       className="ml-auto flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
     >
-      <span aria-hidden="true" className={bookmarked ? 'text-ember' : 'text-ink-soft'}>
+      <span
+        aria-hidden="true"
+        className={`text-base leading-none ${bookmarked ? 'text-ember' : 'text-ink-soft'}`}
+      >
         {bookmarked ? '★' : '☆'}
       </span>
       Bookmark Search
