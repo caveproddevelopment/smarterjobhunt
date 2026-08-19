@@ -153,3 +153,18 @@ export async function fetchVariantCounts(variantTitles, { postedDays, companyTyp
   const data = await res.json()
   return data.counts
 }
+
+// Total active jobs in each company database, unfiltered -- not scoped to
+// title, posted-days, or any other search filter, e.g.
+// { funded: 1025, fortune500: 1500, both: 2525 }. Drives the counts shown
+// next to all three Company Database radios in the sidebar.
+export async function fetchCompanyTypeCounts() {
+  const res = await fetch(`${API_URL}/api/jobs/company-type-counts`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    throw new Error(await parseErrorOr(res, `Failed to load company type counts (${res.status})`))
+  }
+  const data = await res.json()
+  return data.counts
+}

@@ -8,7 +8,29 @@ export default function FilterSidebar({
   loggedIn = true,
   selectedStatus = null,
   onSelectStatus = () => {},
+  companyTypeCounts = {},
+  companyTypeCountsLoading = false,
 }) {
+  // Small count badge shown next to a Company Database option, same idea
+  // as the "Also matching" pill counts: ember + bold once we know there's
+  // at least one match, muted once we know it's zero, "…" while the fetch
+  // for the current title/postedDays search is still in flight.
+  function renderCount(key) {
+    const count = companyTypeCounts[key]
+    const countKnown = typeof count === 'number'
+    if (countKnown) {
+      return (
+        <span className={count > 0 ? 'font-semibold text-ember' : 'text-ink-soft/50'}>
+          {count}
+        </span>
+      )
+    }
+    if (companyTypeCountsLoading) {
+      return <span className="text-ink-soft/50">…</span>
+    }
+    return null
+  }
+
   return (
     <aside className="w-full shrink-0 border border-line bg-paper p-5 md:w-72">
       <h2 className="text-sm font-semibold text-ink">Search Criteria and Filters</h2>
@@ -54,6 +76,7 @@ export default function FilterSidebar({
               onChange={() => onFilterChange({ ...filters, companyType: 'funded' })}
             />
             Funded Startups
+            {renderCount('funded')}
           </label>
           <label className="flex items-center gap-1.5 text-sm text-ink">
             <input
@@ -63,6 +86,7 @@ export default function FilterSidebar({
               onChange={() => onFilterChange({ ...filters, companyType: 'fortune500' })}
             />
             Fortune 500
+            {renderCount('fortune500')}
           </label>
           <label className="flex items-center gap-1.5 text-sm text-ink">
             <input
@@ -72,6 +96,7 @@ export default function FilterSidebar({
               onChange={() => onFilterChange({ ...filters, companyType: 'both' })}
             />
             Both
+            {renderCount('both')}
           </label>
         </div>
       </div>

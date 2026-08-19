@@ -192,6 +192,36 @@ def variant_counts():
     return jsonify({"counts": counts})
 
 
+@bp.get("/jobs/company-type-counts")
+@optional_auth
+def company_type_counts():
+    """Total active jobs in each company database, e.g.
+    {"funded": 1025, "fortune500": 1500, "both": 2525}. Powers the counts
+    shown next to "Funded Startups" / "Fortune 500" / "Both" in the
+    sidebar. Deliberately unfiltered -- not scoped to title, posted_days,
+    or any other search filter, just the total size of each database.
+    """
+    cur = get_cursor()
+    cur.execute(
+        """
+        SELECT c.company_type, count(*) AS job_count
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.is_active = true
+        GROUP BY c.company_type
+        """
+    )
+    rows = cur.fetchall()
+
+    counts = {"funded": 0, "fortune500": 0}
+    for row in rows:
+        if row["company_type"] in counts:
+            counts[row["company_type"]] = row["job_count"]
+    counts["both"] = counts["funded"] + counts["fortune500"]
+
+    return jsonify({"counts": counts})
+
+
 @bp.get("/companies/<int:company_id>/jobs")
 @optional_auth
 def company_jobs(company_id):

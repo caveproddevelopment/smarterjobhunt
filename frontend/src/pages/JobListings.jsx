@@ -15,6 +15,7 @@ import {
   setJobStatus,
   fetchTitleVariants,
   fetchVariantCounts,
+  fetchCompanyTypeCounts,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -62,6 +63,11 @@ export default function JobListings() {
   const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
   const [variantCounts, setVariantCounts] = useState({})
   const [variantCountsLoading, setVariantCountsLoading] = useState(false)
+  // Total active jobs in each of the three Company Database options --
+  // { funded, fortune500, both } -- unfiltered (not scoped to title,
+  // postedDays, or anything else), fetched once on mount.
+  const [companyTypeCounts, setCompanyTypeCounts] = useState({})
+  const [companyTypeCountsLoading, setCompanyTypeCountsLoading] = useState(false)
   // Which "Also matching" pill (if any) the listing below is currently
   // scoped to. null means the normal combined title+variants view.
   const [selectedVariant, setSelectedVariant] = useState(null)
@@ -182,6 +188,27 @@ export default function JobListings() {
       cancelled = true
     }
   }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus])
+
+  // Total jobs per company database, unfiltered -- fetched once on mount
+  // (not tied to title/postedDays/companyType at all), since it's meant to
+  // show the overall size of each database, not a per-search count.
+  useEffect(() => {
+    let cancelled = false
+    setCompanyTypeCountsLoading(true)
+    fetchCompanyTypeCounts()
+      .then((counts) => {
+        if (!cancelled) setCompanyTypeCounts(counts)
+      })
+      .catch(() => {
+        if (!cancelled) setCompanyTypeCounts({})
+      })
+      .finally(() => {
+        if (!cancelled) setCompanyTypeCountsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!user) {
@@ -470,6 +497,8 @@ export default function JobListings() {
                 loggedIn={Boolean(user)}
                 selectedStatus={selectedStatus}
                 onSelectStatus={handleSelectStatus}
+                companyTypeCounts={companyTypeCounts}
+                companyTypeCountsLoading={companyTypeCountsLoading}
               />
             </div>
 
