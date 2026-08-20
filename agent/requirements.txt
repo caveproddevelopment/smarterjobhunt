@@ -3,3 +3,5 @@ playwright
 gradio
 pandas
 beautifulsoup4
+psycopg2-binary
+ 
