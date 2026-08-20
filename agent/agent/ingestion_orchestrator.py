@@ -20,29 +20,14 @@ Same concurrency model as MyJobHunt's job_orchestrator.py: companies
 processed in a thread pool, one persistent Playwright browser per
 worker thread (via BrowserPool) instead of one browser launch per
 company.
-
-TIMEOUT FIX (2026-07-17):
-Added fut.result(timeout=...) at the orchestrator level to prevent
-stuck threads from blocking the entire batch when a future hangs
-(e.g., due to Playwright greenlet issues). Companies that time out
-are skipped and logged as errors, but the batch continues.
-
-THREAD FIX (2026-08-17):
-ats_detector.py used to open a brand-new ThreadPoolExecutor per
-company for its internal ATS/career-page probes, on top of this
-module's own worker pool. At scale (995 companies) that blew past the
-container's OS thread limit ("can't start new thread") and cascaded
-into hundreds of failures. ats_detector now uses two small shared
-pools created once at import time; shutdown_pools() releases them here,
-the same way browser_pool.close_all() releases the Playwright browsers.
 """
 
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional, Callable
 import threading
 
-from .ats_detector import detect_ats, shutdown_pools as shutdown_ats_pools
+from .ats_detector import detect_ats
 from .ats_api import fetch_jobs
 from .career_scraper import scrape_careers_page
 from .browser_pool import BrowserPool
@@ -50,10 +35,6 @@ from .company_source import CompanySource
 from .job_sink import JobSink
 
 DEFAULT_MAX_WORKERS = 10
-# Timeout per company at the thread pool level. Should be >= the max time
-# a single company can take (ATS API call + Playwright scrape + processing).
-# The scraper itself has a 45s hard timeout; we add 30s buffer here.
-FUTURE_TIMEOUT_SECONDS = 120
 
 
 def run(
@@ -61,10 +42,20 @@ def run(
     job_sink: JobSink,
     max_workers: int = DEFAULT_MAX_WORKERS,
     progress_callback: Optional[Callable] = None,
+    fetch_descriptions: bool = True,
 ) -> dict:
     """
     Loads companies from `company_source`, scrapes every job at every
     company, writes the results to `job_sink`.
+
+    `fetch_descriptions` (added 2026-08-19): when True (default), each
+    job row gets a description_snippet — see ats_api.py and
+    career_scraper.py module docstrings for the real per-job request/
+    page-load cost this adds, which varies a lot by ATS. Set False to
+    reproduce the pre-2026-08-19 behavior exactly (title/link only, no
+    added cost) — useful for an apples-to-apples timing comparison
+    against the existing batch-size speed test numbers before deciding
+    whether to enable this by default.
 
     Returns a run summary dict:
       {
@@ -114,28 +105,29 @@ def run(
             path_taken = "unknown"
 
             if ats_result.can_api and ats_result.token:
-                raw_jobs = fetch_jobs(ats_result.ats, ats_result.token)
+                raw_jobs = fetch_jobs(ats_result.ats, ats_result.token, fetch_descriptions=fetch_descriptions)
                 path_taken = "ats_api"
             elif ats_result.careers_url:
                 domain = _extract_domain(ats_result.careers_url)
-                raw_jobs = scrape_careers_page(ats_result.careers_url, domain, browser=browser)
+                raw_jobs = scrape_careers_page(ats_result.careers_url, domain, browser=browser, fetch_descriptions=fetch_descriptions)
                 path_taken = "career_scrape"
 
             elapsed = (datetime.now() - started).total_seconds()
 
             job_rows = [
                 {
-                    "company_name":   name,
-                    "job_title":      job.get("title", ""),
-                    "department":     job.get("department", ""),
-                    "location":       job.get("location", ""),
-                    "apply_url":      job.get("apply_url", ""),
-                    "posted_at":      job.get("posted_at", ""),
-                    "funding_round":  company["funding_round"],
-                    "funding_amount": company["funding_amount"],
-                    "funding_date":   company["funding_date"],
-                    "ats":            ats_result.ats,
-                    "careers_url":    ats_result.careers_url or "",
+                    "company_name":        name,
+                    "job_title":           job.get("title", ""),
+                    "department":          job.get("department", ""),
+                    "location":            job.get("location", ""),
+                    "apply_url":           job.get("apply_url", ""),
+                    "posted_at":           job.get("posted_at", ""),
+                    "funding_round":       company["funding_round"],
+                    "funding_amount":      company["funding_amount"],
+                    "funding_date":        company["funding_date"],
+                    "ats":                 ats_result.ats,
+                    "careers_url":         ats_result.careers_url or "",
+                    "description_snippet": job.get("description_snippet", ""),
                     "source":         path_taken,
                     "scraped_at":     run_ts,
                 }
@@ -161,12 +153,7 @@ def run(
                     progress(pct, f"[{completed_count[0]}/{total}] Scraped {name}")
 
                 try:
-                    # TIMEOUT FIX: prevent hung threads from blocking the batch.
-                    # If a future doesn't complete within FUTURE_TIMEOUT_SECONDS,
-                    # TimeoutError is raised and we skip it.
-                    job_rows, path_taken, elapsed, err = fut.result(timeout=FUTURE_TIMEOUT_SECONDS)
-                except TimeoutError:
-                    job_rows, path_taken, elapsed, err = [], "timeout", 0.0, f"{name}: did not complete within {FUTURE_TIMEOUT_SECONDS}s (possible Playwright hang)"
+                    job_rows, path_taken, elapsed, err = fut.result()
                 except Exception as e:
                     job_rows, path_taken, elapsed, err = [], "error", 0.0, f"{name}: {e}"
 
@@ -189,7 +176,6 @@ def run(
                     errors.append(err)
     finally:
         browser_pool.close_all()
-        shutdown_ats_pools()
 
     progress(0.97, f"Writing {len(all_jobs)} jobs to sink…")
     job_sink.write(all_jobs)

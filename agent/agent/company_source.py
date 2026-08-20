@@ -4,10 +4,10 @@ Company Source — where the list of companies to scrape comes from.
 This is the swap point called out in the SJH.com proof-of-concept plan:
 today it's a CSV file (the same Organization Name / Homepage URL / Last
 Funding Type / Last Funding Amount / Last Funding Date format used in
-MyJobHunt's company lists). In production this is `PostgresCompanySource`,
-reading from the `companies` table. Nothing else in the ingestion
-pipeline needs to change when that swap happens — ingestion_orchestrator.py
-only ever calls `.load()` and gets back the same list[dict] shape either way.
+MyJobHunt's company lists). Later, this becomes a MySQL query. Nothing
+else in the ingestion pipeline needs to change when that swap happens —
+ingestion_orchestrator.py only ever calls `.load()` and gets back the
+same list[dict] shape either way.
 
 Normalized company dict shape:
   {
@@ -61,51 +61,24 @@ class CSVCompanySource(CompanySource):
         return companies
 
 
-class PostgresCompanySource(CompanySource):
+class MySQLCompanySource(CompanySource):
     """
-    Reads the company list from the Postgres `companies` table instead
-    of a CSV. This is what the scheduled Railway ingestion run uses —
-    the CSV is only needed once, to seed `companies` (see
-    seed_companies.py), after that the DB is the source of truth: add,
-    edit, or remove companies there and the next scrape picks it up.
+    PLANNED — not yet implemented. Will query the `companies` table
+    instead of reading a CSV. Left as a stub so the interface is visible
+    now and the swap later is a one-file change, not a redesign.
 
-    `connection` is any psycopg2 connection (e.g. from
-    `psycopg2.connect(os.environ["DATABASE_URL"])`).
+    Expected eventual shape:
+        SELECT company_name, website, funding_round, funding_amount, funding_date
+        FROM companies
+        WHERE <scrape-cadence filter, e.g. last_scraped_at IS NULL OR last_scraped_at < ...>
     """
 
-    _FUNDING_STAGE_LABELS = {
-        "seed": "Seed",
-        "series_a": "Series A",
-        "series_b": "Series B",
-        "series_c_plus": "Series C+",
-        "public": "Public",
-        "bootstrapped": "Bootstrapped",
-        "unknown": "",
-    }
-
-    def __init__(self, connection, limit: Optional[int] = None):
+    def __init__(self, connection, query: Optional[str] = None):
         self.connection = connection
-        self.limit = limit
+        self.query = query
 
     def load(self) -> list[dict]:
-        cur = self.connection.cursor()
-        try:
-            query = "SELECT name, website, funding_stage, funding_amount, funding_date FROM companies ORDER BY id"
-            if self.limit:
-                query += " LIMIT %s"
-                cur.execute(query, (self.limit,))
-            else:
-                cur.execute(query)
-
-            companies = []
-            for name, website, funding_stage, funding_amount, funding_date in cur.fetchall():
-                companies.append({
-                    "company_name": name,
-                    "website": website or "",
-                    "funding_round": self._FUNDING_STAGE_LABELS.get(funding_stage, ""),
-                    "funding_amount": funding_amount or "",
-                    "funding_date": funding_date.isoformat() if funding_date else "",
-                })
-            return companies
-        finally:
-            cur.close()
+        raise NotImplementedError(
+            "MySQLCompanySource is a planned stub — SJH.com will implement this "
+            "once the company DB schema is finalized. Use CSVCompanySource for now."
+        )

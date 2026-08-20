@@ -28,6 +28,10 @@ def main():
     parser.add_argument("--output", required=True, help="Path to write scraped job listings CSV")
     parser.add_argument("--max-workers", type=int, default=10, help="Concurrent companies to process (default 10)")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N companies (for quick smoke tests)")
+    parser.add_argument("--no-descriptions", action="store_true",
+                         help="Skip description_snippet capture — reproduces pre-2026-08-19 speed/cost exactly. "
+                              "Use this to get a clean before/after timing comparison against the existing "
+                              "batch-size speed test numbers before deciding whether to run with descriptions by default.")
     args = parser.parse_args()
 
     source = CSVCompanySource(args.input, limit=args.limit)
@@ -37,7 +41,10 @@ def main():
         print(f"[{int(pct*100):3d}%] {msg}", flush=True)
 
     start = time.time()
-    summary = run(source, sink, max_workers=args.max_workers, progress_callback=progress)
+    summary = run(
+        source, sink, max_workers=args.max_workers, progress_callback=progress,
+        fetch_descriptions=not args.no_descriptions,
+    )
     total_elapsed = time.time() - start
 
     timing_path = args.output.rsplit(".", 1)[0] + ".timing.csv"

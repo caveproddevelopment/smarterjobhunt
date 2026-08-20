@@ -4,7 +4,7 @@ are not on a supported ATS. Navigates to the careers page and
 extracts job listings via DOM inspection.
 
 Returns the same normalized dict shape as ats_api.py:
-  { title, department, location, apply_url, posted_at }
+  { title, department, location, apply_url, posted_at, description_snippet }
 
 Perf note: the original version called `pw.chromium.launch()` fresh
 for every single company. Browser launch is ~1-3s on its own, before
@@ -17,22 +17,27 @@ see agent/browser_pool.py). It opens a fresh *page* per company
 (cheap, milliseconds) instead of a fresh *browser* (expensive, seconds).
 If no browser is passed in, it falls back to the old launch-per-call
 behavior so this module still works standalone.
+
+Description-snippet capture (added 2026-08-19): this is the most
+expensive of the four data sources for descriptions. The listing page
+only ever had title + link — there was never a description available
+here for free. Getting one means visiting every individual job's page,
+one extra Playwright navigation per job found, on top of the one
+navigation this function already does for the listing page itself. For
+a company with 20 open roles, that's 20 extra page loads instead of 1.
+This runs sequentially within the calling worker thread (no added
+threading here, to keep the change easy to reason about and roll back)
+so it directly extends how long a scrape-fallback company takes — see
+the evaluation note in the project doc about measuring this against a
+real batch before enabling broadly. Set `fetch_descriptions=False` to
+skip it and keep the original title/link-only behavior.
 """
 
 import re
-import threading
 from typing import Optional
 from urllib.parse import urljoin
 
-# Hard wall-clock cap on top of Playwright's own per-call timeouts. Belt and
-# suspenders: page.goto() already has a 20s timeout, but that alone doesn't
-# bound the whole function — a page that loads fine and then hangs on
-# something else (an unhandled JS dialog, a stuck client-side redirect, a
-# context.close() that blocks on a pending download) has nothing forcing it
-# to give up. This watchdog force-closes the browser context once the cap is
-# hit, which raises inside whatever Playwright call is in-flight and
-# unblocks it — guaranteeing _scrape_with_browser always returns.
-HARD_TIMEOUT_SECONDS = 45
+from .text_extract import html_to_text, make_snippet, DESCRIPTION_SNIPPET_CHARS
 
 LISTING_SELECTORS = [
     "a[href*='/job']",
@@ -59,16 +64,20 @@ CAREER_PATHS = [
 ]
 
 
-def scrape_careers_page(careers_url: str, base_domain: str, browser=None) -> list[dict]:
+def scrape_careers_page(careers_url: str, base_domain: str, browser=None, fetch_descriptions: bool = True) -> list[dict]:
     """
     Navigate to a careers page and extract job links.
 
     `browser`: an already-launched playwright Chromium browser (reused
     across many companies). If None, launches (and closes) a throwaway
     browser for this call only — slower, kept for standalone use.
+    `fetch_descriptions`: when True (default), visit each job's own page
+    to pull a description snippet — see the module docstring for the
+    real per-job cost this adds. False restores the original
+    title/link-only behavior with no extra navigations.
     """
     if browser is not None:
-        return _scrape_with_browser(browser, careers_url, base_domain)
+        return _scrape_with_browser(browser, careers_url, base_domain, fetch_descriptions=fetch_descriptions)
 
     try:
         from playwright.sync_api import sync_playwright
@@ -79,12 +88,38 @@ def scrape_careers_page(careers_url: str, base_domain: str, browser=None) -> lis
     with sync_playwright() as pw:
         b = pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
         try:
-            return _scrape_with_browser(b, careers_url, base_domain)
+            return _scrape_with_browser(b, careers_url, base_domain, fetch_descriptions=fetch_descriptions)
         finally:
             b.close()
 
 
-def _scrape_with_browser(browser, careers_url: str, base_domain: str) -> list[dict]:
+def _fetch_job_description_snippet(ctx, url: str) -> str:
+    """One extra page load per job — see the cost note in the module
+    docstring. Opens its own page in the given (already-open) context,
+    reads the rendered HTML, cleans it, and closes the page. Fails soft
+    (returns "") on timeout or any error rather than aborting the rest
+    of the company's scrape.
+    """
+    from playwright.sync_api import TimeoutError as PWTimeout
+
+    page = ctx.new_page()
+    try:
+        page.goto(url, timeout=15_000, wait_until="domcontentloaded")
+        page.wait_for_timeout(1000)  # let JS render, shorter than the listing-page wait since this is a single job page
+        html = page.content()
+        return make_snippet(html, is_html=True, max_chars=DESCRIPTION_SNIPPET_CHARS)
+    except PWTimeout:
+        return ""
+    except Exception:
+        return ""
+    finally:
+        try:
+            page.close()
+        except Exception:
+            pass
+
+
+def _scrape_with_browser(browser, careers_url: str, base_domain: str, fetch_descriptions: bool = True) -> list[dict]:
     from playwright.sync_api import TimeoutError as PWTimeout
 
     jobs = []
@@ -95,16 +130,7 @@ def _scrape_with_browser(browser, careers_url: str, base_domain: str) -> list[di
             "Chrome/120.0.0.0 Safari/537.36"
         )
     )
-
-    # Watchdog: if this company isn't done within HARD_TIMEOUT_SECONDS,
-    # force-close the context so whatever's blocking (goto, an element call,
-    # ctx.close() itself) gets interrupted instead of hanging indefinitely.
-    watchdog = threading.Timer(HARD_TIMEOUT_SECONDS, lambda: _force_close(ctx))
-    watchdog.daemon = True
-    watchdog.start()
-
     page = ctx.new_page()
-    page.set_default_timeout(15_000)  # catches any action call not given an explicit timeout below
 
     try:
         page.goto(careers_url, timeout=20_000, wait_until="domcontentloaded")
@@ -145,31 +171,32 @@ def _scrape_with_browser(browser, careers_url: str, base_domain: str) -> list[di
                 seen_hrefs.add(href)
 
                 jobs.append({
-                    "title":      _clean_title(text),
-                    "department": "",
-                    "location":   "",
-                    "apply_url":  href,
-                    "posted_at":  "",
+                    "title":               _clean_title(text),
+                    "department":          "",
+                    "location":            "",
+                    "apply_url":           href,
+                    "posted_at":           "",
+                    "description_snippet": "",
                 })
             except Exception:
                 continue
 
+        if fetch_descriptions:
+            # Sequential, one extra page load per job — see module docstring.
+            # Runs inside this same try block (and same ctx) so it completes
+            # before ctx.close() in the finally below.
+            for job in jobs:
+                if job["apply_url"]:
+                    job["description_snippet"] = _fetch_job_description_snippet(ctx, job["apply_url"])
+
     except PWTimeout:
         print(f"[career_scraper] Timeout loading {careers_url}")
     except Exception as e:
-        print(f"[career_scraper] Error scraping {careers_url}: {e}")
+        print(f"[career_scraper] Error: {e}")
     finally:
-        watchdog.cancel()
-        _force_close(ctx)  # no-op if the watchdog already closed it
+        ctx.close()  # closes the context/page; browser itself stays alive for reuse
 
     return jobs
-
-
-def _force_close(ctx) -> None:
-    try:
-        ctx.close()
-    except Exception:
-        pass  # already closed (by us or by the watchdog) — fine either way
 
 
 def find_careers_url_via_playwright(base_url: str, browser=None) -> Optional[str]:
@@ -217,67 +244,15 @@ JOB_LINK_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
-# NOISE FIX (2026-08-17): the broad `a[href]` fallback (used when no
-# structured LISTING_SELECTORS match) was letting through generic nav
-# chrome whose href/text happens to contain a job keyword -- "Learn
-# more", "Apply for a job", "Featured Offices" -- because NOISE_WORDS
-# only covered single navigation words, not these multi-word phrases.
-# Extended with the exact junk phrases observed in production.
 NOISE_WORDS = re.compile(
     r"^(home|about|contact|blog|news|press|team|product|pricing|sign|log|"
-    r"privacy|terms|cookie|back|next|prev|all jobs?|view all|see all|more|"
-    r"learn more|read more|find out more|apply for a job|apply now|"
-    r"featured offices|our offices|our locations|explore careers|"
-    r"explore opportunities|browse jobs|browse all jobs|search jobs|"
-    r"view all jobs|see openings|see all openings|find jobs|join our team|"
-    r"join us|get started|start here|life at .+)$",
+    r"privacy|terms|cookie|back|next|prev|all jobs?|view all|see all|more)$",
     re.IGNORECASE,
 )
 
-# A location/region picker (common on Workday, ServiceNow, and similar
-# enterprise career sites) lists countries as clickable links -- these
-# match JOB_LINK_KEYWORDS via their href (e.g. /careers/germany) but
-# the link text is just a country name, not a job title. Reject any
-# link whose full text is (only) a country/region name.
-COUNTRY_NAMES = {
-    "afghanistan", "albania", "algeria", "andorra", "angola", "argentina",
-    "armenia", "australia", "austria", "azerbaijan", "bahamas", "bahrain",
-    "bangladesh", "barbados", "belarus", "belgium", "belize", "benin",
-    "bhutan", "bolivia", "bosnia", "bosnia and herzegovina", "botswana",
-    "brazil", "brunei", "bulgaria", "burkina faso", "burundi", "cambodia",
-    "cameroon", "canada", "chad", "chile", "china", "colombia", "congo",
-    "costa rica", "croatia", "cuba", "cyprus", "czechia", "czech republic",
-    "denmark", "djibouti", "dominican republic", "ecuador", "egypt",
-    "el salvador", "estonia", "eswatini", "ethiopia", "fiji", "finland",
-    "france", "gabon", "gambia", "georgia", "germany", "ghana", "greece",
-    "guatemala", "guinea", "haiti", "honduras", "hong kong", "hungary",
-    "iceland", "india", "indonesia", "iran", "iraq", "ireland", "israel",
-    "italy", "jamaica", "japan", "jordan", "kazakhstan", "kenya", "korea",
-    "south korea", "north korea", "kosovo", "kuwait", "kyrgyzstan", "laos",
-    "latvia", "lebanon", "lesotho", "liberia", "libya", "liechtenstein",
-    "lithuania", "luxembourg", "macau", "macedonia", "north macedonia",
-    "madagascar", "malawi", "malaysia", "maldives", "mali", "malta",
-    "mauritania", "mauritius", "mexico", "moldova", "monaco", "mongolia",
-    "montenegro", "morocco", "mozambique", "myanmar", "namibia", "nepal",
-    "netherlands", "new zealand", "nicaragua", "niger", "nigeria",
-    "norway", "oman", "pakistan", "panama", "papua new guinea",
-    "paraguay", "peru", "philippines", "poland", "portugal", "qatar",
-    "romania", "russia", "rwanda", "saudi arabia", "senegal", "serbia",
-    "singapore", "slovakia", "slovenia", "somalia", "south africa",
-    "spain", "sri lanka", "sudan", "sweden", "switzerland", "syria",
-    "taiwan", "tajikistan", "tanzania", "thailand", "togo",
-    "trinidad and tobago", "tunisia", "turkey", "turkmenistan", "uganda",
-    "ukraine", "united arab emirates", "uae", "united kingdom", "uk",
-    "united states", "usa", "us", "united states of america", "uruguay",
-    "uzbekistan", "venezuela", "vietnam", "yemen", "zambia", "zimbabwe",
-}
-
 
 def _looks_like_job_link(href: str, text: str) -> bool:
-    normalized = text.strip().lower()
     if NOISE_WORDS.match(text.strip()):
-        return False
-    if normalized in COUNTRY_NAMES:
         return False
     if len(text) < 5 or len(text) > 150:
         return False

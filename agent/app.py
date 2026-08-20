@@ -21,7 +21,7 @@ from agent.ingestion_orchestrator import run as run_ingestion
 OUTPUT_DIR = tempfile.mkdtemp(prefix="sjh_ingestion_")
 
 
-def run_agent(company_csv, max_workers, limit, progress=gr.Progress()):
+def run_agent(company_csv, max_workers, limit, fetch_descriptions, progress=gr.Progress()):
     if company_csv is None:
         return None, None, "⚠️ Upload a company CSV first.", pd.DataFrame()
 
@@ -34,7 +34,10 @@ def run_agent(company_csv, max_workers, limit, progress=gr.Progress()):
         progress(pct, desc=msg)
 
     start = time.time()
-    summary = run_ingestion(source, sink, max_workers=int(max_workers), progress_callback=cb)
+    summary = run_ingestion(
+        source, sink, max_workers=int(max_workers), progress_callback=cb,
+        fetch_descriptions=bool(fetch_descriptions),
+    )
     elapsed = time.time() - start
 
     # Write the timing log alongside the jobs CSV
@@ -78,6 +81,14 @@ with gr.Blocks(title="SJH.com Ingestion Agent (Proof of Concept)") as demo:
                 label="Limit (optional)", value=None, precision=0,
                 info="Only process the first N companies — useful for a quick smoke test before a full run.",
             )
+            fetch_descriptions_input = gr.Checkbox(
+                label="Capture description snippets", value=True,
+                info="Adds a description_snippet field (first 1000 chars of cleaned job-description text) so "
+                     "title-only searches like 'SAP S4HANA' can also match description content. Free for "
+                     "Greenhouse/Lever; adds 1 extra request per job for Workable; adds 1 extra page load per "
+                     "job for career-page-scrape fallback companies. Uncheck for the original title/link-only "
+                     "speed and cost.",
+            )
             run_btn = gr.Button("🚀 Run Ingestion", variant="primary", size="lg")
 
         with gr.Column(scale=2):
@@ -88,7 +99,7 @@ with gr.Blocks(title="SJH.com Ingestion Agent (Proof of Concept)") as demo:
 
     run_btn.click(
         fn=run_agent,
-        inputs=[company_csv_input, max_workers_input, limit_input],
+        inputs=[company_csv_input, max_workers_input, limit_input, fetch_descriptions_input],
         outputs=[jobs_file, timing_file, status_md, preview_table],
     )
 
