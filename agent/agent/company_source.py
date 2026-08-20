@@ -1,11 +1,15 @@
 """
 Company Source — where the list of companies to scrape comes from.
 
-This is the swap point called out in the SJH.com proof-of-concept plan:
-today it's a CSV file (the same Organization Name / Homepage URL / Last
-Funding Type / Last Funding Amount / Last Funding Date format used in
-MyJobHunt's company lists). Later, this becomes a MySQL query. Nothing
-else in the ingestion pipeline needs to change when that swap happens —
+Two real sources today:
+  - CSVCompanySource: reads the Organization Name / Homepage URL / Last
+    Funding Type / Last Funding Amount / Last Funding Date CSV format.
+    Used by seed_companies.py and for local smoke tests
+    (run_ingestion.py) — never by the Railway cron job.
+  - PostgresCompanySource: reads from the `companies` table (seeded by
+    seed_companies.py). This is what run_ingestion_db.py uses in
+    production.
+
 ingestion_orchestrator.py only ever calls `.load()` and gets back the
 same list[dict] shape either way.
 
@@ -14,12 +18,13 @@ Normalized company dict shape:
     "company_name":   str,
     "website":        str,
     "funding_round":  str,   # "Series A" / "Series B"
-    "funding_amount":  str,   # e.g. "$25,000,000"
+    "funding_amount": str,   # e.g. "$25,000,000"
     "funding_date":   str,   # ISO YYYY-MM-DD
   }
 """
 
 import csv
+import datetime
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -61,24 +66,61 @@ class CSVCompanySource(CompanySource):
         return companies
 
 
-class MySQLCompanySource(CompanySource):
+class PostgresCompanySource(CompanySource):
     """
-    PLANNED — not yet implemented. Will query the `companies` table
-    instead of reading a CSV. Left as a stub so the interface is visible
-    now and the swap later is a one-file change, not a redesign.
+    Reads the company list from the Postgres `companies` table instead
+    of a CSV. This is what run_ingestion_db.py uses on Railway.
 
-    Expected eventual shape:
-        SELECT company_name, website, funding_round, funding_amount, funding_date
-        FROM companies
-        WHERE <scrape-cadence filter, e.g. last_scraped_at IS NULL OR last_scraped_at < ...>
+    Table (as written by seed_companies.py):
+        companies(name, website, funding_stage, funding_amount,
+                   funding_date, company_type)
+        UNIQUE constraint on `name` (upserted by seed_companies.py).
+
+    `limit`, when given, only loads the first N companies (ordered by
+    name) — same purpose as CSVCompanySource's limit, for smoke tests
+    against a subset before a full run.
     """
 
-    def __init__(self, connection, query: Optional[str] = None):
+    def __init__(self, connection, limit: Optional[int] = None):
         self.connection = connection
-        self.query = query
+        self.limit = limit
 
     def load(self) -> list[dict]:
-        raise NotImplementedError(
-            "MySQLCompanySource is a planned stub — SJH.com will implement this "
-            "once the company DB schema is finalized. Use CSVCompanySource for now."
-        )
+        query = """
+            SELECT name, website, funding_stage, funding_amount, funding_date
+            FROM companies
+            ORDER BY name
+        """
+        params: tuple = ()
+        if self.limit:
+            query += " LIMIT %s"
+            params = (self.limit,)
+
+        cur = self.connection.cursor()
+        try:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+
+        companies = []
+        for name, website, funding_stage, funding_amount, funding_date in rows:
+            companies.append({
+                "company_name":  name or "",
+                "website":       website or "",
+                "funding_round": funding_stage or "",
+                "funding_amount": funding_amount or "",
+                "funding_date":  _to_iso_str(funding_date),
+            })
+        return companies
+
+
+def _to_iso_str(value) -> str:
+    """funding_date may come back as a date/datetime object depending
+    on the column type — normalize it to the ISO string shape every
+    other CompanySource returns, so downstream code never has to care."""
+    if value is None:
+        return ""
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    return str(value)
