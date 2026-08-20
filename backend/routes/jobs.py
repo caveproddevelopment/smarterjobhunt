@@ -60,12 +60,17 @@ def _description_boost_expr(terms):
 
     Returns (sql_expr, params). sql_expr is a numeric 0-100 CASE-sum, or
     None (no params, nothing to score) when there are no terms -- e.g. an
-    empty/no-title search. Deliberately NOT the string "0": a bare integer
-    literal dropped into an ORDER BY clause is parsed by Postgres as a
-    positional column reference ("ORDER BY 0" -> "position 0 is not in
-    select list"), not as a value, so callers must substitute their own
-    real SQL placeholder (see order_by_boost in list_jobs) rather than
-    reusing this return value directly as SQL text.
+    empty/no-title search. Deliberately NOT a bare literal like "0": any
+    plain constant dropped straight into an ORDER BY clause is treated by
+    Postgres as an attempted positional column reference (SQL92 rule) and
+    errors unless it's a valid integer position -- confirmed against a
+    live Postgres 16 instance, where `ORDER BY 0` fails as "position 0 is
+    not in select list" and even `ORDER BY 0.0` fails as "non-integer
+    constant in ORDER BY". So callers must substitute a real expression of
+    their own for the "nothing to score" case (see order_by_boost in
+    list_jobs, which casts a literal via `0::numeric` so it's no longer a
+    bare constant) rather than reusing this return value directly as SQL
+    text.
     Note sql_expr, when not None, is plain SQL text reused verbatim at two
     call sites in the query below -- each occurrence needs its own copy of
     params spliced in at the matching position, since psycopg2 params are
@@ -214,14 +219,18 @@ def list_jobs():
     where_clause = " AND ".join(where) if where else "true"
 
     # ORDER BY needs a real SQL expression on every request, including
-    # empty/no-title searches where desc_score_expr is None. Substitute a
-    # float literal (0.0), not the bare integer 0 -- Postgres parses a
-    # plain integer constant in ORDER BY as a positional column reference
-    # ("ORDER BY 0" errors as "position 0 is not in select list"), but a
-    # float literal doesn't hit that special-case parsing and just sorts
-    # as a no-op constant, same as every other row would get. No params
-    # needed for this literal either way.
-    order_by_boost = desc_score_expr if desc_score_expr is not None else "0.0"
+    # empty/no-title searches where desc_score_expr is None. This can't be
+    # a bare numeric literal of ANY kind -- Postgres's SQL92 ORDER BY rule
+    # treats every plain constant (not just integers) as an attempted
+    # positional column reference, and errors if it isn't a valid integer
+    # position: `ORDER BY 0` -> "position 0 is not in select list", and
+    # `ORDER BY 0.0` -> "non-integer constant in ORDER BY" (confirmed
+    # against a live Postgres 16 instance). Casting it (`0::numeric`) makes
+    # it a real expression rather than a bare constant, so it's never
+    # special-cased, and it sorts as an inert placeholder same as any other
+    # tie-breaker column would. No params needed for this literal either
+    # way.
+    order_by_boost = desc_score_expr if desc_score_expr is not None else "0::numeric"
 
     count_query = f"""
         SELECT count(*)
