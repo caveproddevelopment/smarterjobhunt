@@ -48,7 +48,7 @@ def _description_boost_expr(terms):
       1. In the WHERE clause, OR'd alongside the title/variant checks, as a
          fallback -- if a job's title doesn't match the search at all, it
          can still be included when the typed title's words show up in its
-         description at >=50% weighted coverage.
+         description at 100% weighted coverage.
       2. In ORDER BY, to rank jobs with higher description-word overlap
          above otherwise-equal jobs. This half never excludes anything by
          itself -- a job already included via a title match keeps its slot
@@ -173,12 +173,12 @@ def list_jobs():
 
         # Fallback: only matters for jobs that missed every check above. If
         # the typed title's words turn up in the job's DESCRIPTION at a
-        # weighted coverage of >=50%, include it too. OR'd into the same
+        # complete coverage of 100%, include it too. OR'd into the same
         # group as the title checks, so a job that already matched on title
         # is completely unaffected -- this can only ever add jobs, never
         # remove or reorder them within this clause.
         if desc_score_expr:
-            title_matches.append(f"(({desc_score_expr}) >= 50)")
+            title_matches.append(f"(({desc_score_expr}) >= 100)")
             params.extend(desc_score_params)
 
         where.append("(" + " OR ".join(title_matches) + ")")
