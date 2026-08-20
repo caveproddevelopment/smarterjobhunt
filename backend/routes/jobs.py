@@ -40,6 +40,52 @@ def _word_boundary_pattern(term):
     return r"\y" + re.escape(term) + r"\y"
 
 
+def _description_boost_expr(terms):
+    """Same per-word scoring shape as the title word-overlap gate below, but
+    against j.raw_text (the scraped job description) instead of j.title.
+
+    Used TWICE by the caller from the same pair of (sql_expr, params):
+      1. In the WHERE clause, OR'd alongside the title/variant checks, as a
+         fallback -- if a job's title doesn't match the search at all, it
+         can still be included when the typed title's words show up in its
+         description at >=50% weighted coverage.
+      2. In ORDER BY, to rank jobs with higher description-word overlap
+         above otherwise-equal jobs. This half never excludes anything by
+         itself -- a job already included via a title match keeps its slot
+         even if its description score is 0, it just sorts lower.
+
+    Deliberately scores against the typed `title`'s individual words only,
+    not the 15 title variants -- keeps this easy to reason about. Could be
+    extended to also check variant phrases in raw_text later if useful.
+
+    Returns (sql_expr, params). sql_expr is a numeric 0-100 CASE-sum, or
+    the literal "0" (no params, nothing to score) when there are no terms.
+    Note sql_expr is plain SQL text reused verbatim at two call sites in the
+    query below -- each occurrence needs its own copy of params spliced in
+    at the matching position, since psycopg2 params are positional.
+
+    Perf note: this is a regex scan of raw_text, and as of the WHERE-clause
+    fallback above it can now run across every j.is_active row in scope
+    (not just ones that already passed a title match), once per ORDER BY
+    evaluation. Fine at current scale (hundreds of jobs); if the jobs table
+    grows into the tens of thousands, revisit with a tsvector + GIN index
+    instead of a live regex scan -- same caution the ingestion agent's
+    job_sink.py already flagged for this field back when it was still a
+    MySQL FULLTEXT-index note.
+    """
+    if not terms:
+        return "0", []
+    percent_per_term = 100.0 / len(terms)
+    score_terms = []
+    params = []
+    for term in terms:
+        score_terms.append(
+            f"(CASE WHEN j.raw_text ~* %s THEN {percent_per_term} ELSE 0 END)"
+        )
+        params.append(_word_boundary_pattern(term))
+    return "(" + " + ".join(score_terms) + ")", params
+
+
 @bp.get("/jobs")
 @optional_auth
 def list_jobs():
@@ -56,6 +102,15 @@ def list_jobs():
     where = []
     params = []
 
+    terms = _tokenize_title(title) if title else []
+
+    # Computed once, up front, so it's available both for the WHERE-clause
+    # fallback below (title didn't match -> try the description instead)
+    # and again later for ORDER BY. See _description_boost_expr's docstring
+    # for why the same (expr, params) pair gets spliced into the final SQL
+    # at two separate positions.
+    desc_score_expr, desc_score_params = _description_boost_expr(terms)
+
     # "Track Applications" (Applied / Rejected / All) is a history view of
     # what the user has marked, not a normal browse -- a job they applied
     # to may have gone inactive since, and they still want it to show up,
@@ -69,16 +124,23 @@ def list_jobs():
     # variants count is fixed, not user-selectable).
     #
     # A job that matches none of those exact phrases still gets included if
-    # a majority of the *typed* title's individual words appear in it (each
-    # word weighted 100/word-count, summed, included if the total is >50%).
-    # e.g. searching "Senior Project Manager" against a job titled "Project
-    # Manager" scores 66% and is shown even though neither the exact title
-    # nor any of the 15 variants matched it as a phrase. This is folded into
+    # at least half of the *typed* title's individual words appear in it
+    # (each word weighted 100/word-count, summed, included if the total is
+    # >=50%). e.g. searching "Senior Project Manager" against a job titled
+    # "Project Manager" scores 66% and is shown even though neither the
+    # exact title nor any of the 15 variants matched it as a phrase. This
+    # >=50 threshold means a 2-word search needs only one word present to
+    # qualify (50% >= 50%). This is folded into
     # the same OR group as the exact/variant checks above -- "match A OR
     # match B" gives the identical result as "if A: show, elif B: show".
     # Word terms are matched on a word boundary rather than a bare
     # substring, so a short word like "PM" can't match inside an unrelated
     # word the way ILIKE '%PM%' would.
+    #
+    # Threshold is '>= 50' (not a strict '>'), so with exactly 2 typed
+    # terms -- each worth exactly 50% -- a single matching word out of two
+    # is enough to clear this check on its own. Kept consistent with the
+    # description fallback just below, which uses the same >=50 threshold.
     if title or variant_titles:
         title_matches = []
         for candidate in [title, *variant_titles]:
@@ -86,18 +148,26 @@ def list_jobs():
                 title_matches.append("j.title ILIKE %s")
                 params.append(f"%{candidate}%")
 
-        if title:
-            terms = _tokenize_title(title)
-            if len(terms) > 1:
-                percent_per_term = 100.0 / len(terms)
-                score_terms = []
-                for term in terms:
-                    score_terms.append(
-                        f"(CASE WHEN j.title ~* %s THEN {percent_per_term} ELSE 0 END)"
-                    )
-                    params.append(_word_boundary_pattern(term))
-                score_expr = " + ".join(score_terms)
-                title_matches.append(f"(({score_expr}) > 50)")
+        if len(terms) > 1:
+            percent_per_term = 100.0 / len(terms)
+            score_terms = []
+            for term in terms:
+                score_terms.append(
+                    f"(CASE WHEN j.title ~* %s THEN {percent_per_term} ELSE 0 END)"
+                )
+                params.append(_word_boundary_pattern(term))
+            score_expr = " + ".join(score_terms)
+            title_matches.append(f"(({score_expr}) >= 50)")
+
+        # Fallback: only matters for jobs that missed every check above. If
+        # the typed title's words turn up in the job's DESCRIPTION at a
+        # weighted coverage of >=50%, include it too. OR'd into the same
+        # group as the title checks, so a job that already matched on title
+        # is completely unaffected -- this can only ever add jobs, never
+        # remove or reorder them within this clause.
+        if desc_score_expr != "0":
+            title_matches.append(f"(({desc_score_expr}) >= 50)")
+            params.extend(desc_score_params)
 
         where.append("(" + " OR ".join(title_matches) + ")")
 
@@ -172,10 +242,10 @@ def list_jobs():
         LEFT JOIN job_matches m ON m.job_id = j.id AND m.user_id = %s
         LEFT JOIN user_job_status s ON s.job_id = j.id AND s.user_id = %s
         WHERE {where_clause}
-        ORDER BY m.match_percent DESC NULLS LAST, j.date_posted DESC
+        ORDER BY m.match_percent DESC NULLS LAST, {desc_score_expr} DESC, j.date_posted DESC
         LIMIT %s OFFSET %s
     """
-    full_params = [g.user_id, g.user_id, *params, limit, offset]
+    full_params = [g.user_id, g.user_id, *params, *desc_score_params, limit, offset]
 
     cur.execute(query, full_params)
     jobs = cur.fetchall()
