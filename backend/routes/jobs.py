@@ -59,10 +59,17 @@ def _description_boost_expr(terms):
     extended to also check variant phrases in raw_text later if useful.
 
     Returns (sql_expr, params). sql_expr is a numeric 0-100 CASE-sum, or
-    the literal "0" (no params, nothing to score) when there are no terms.
-    Note sql_expr is plain SQL text reused verbatim at two call sites in the
-    query below -- each occurrence needs its own copy of params spliced in
-    at the matching position, since psycopg2 params are positional.
+    None (no params, nothing to score) when there are no terms -- e.g. an
+    empty/no-title search. Deliberately NOT the string "0": a bare integer
+    literal dropped into an ORDER BY clause is parsed by Postgres as a
+    positional column reference ("ORDER BY 0" -> "position 0 is not in
+    select list"), not as a value, so callers must substitute their own
+    real SQL placeholder (see order_by_boost in list_jobs) rather than
+    reusing this return value directly as SQL text.
+    Note sql_expr, when not None, is plain SQL text reused verbatim at two
+    call sites in the query below -- each occurrence needs its own copy of
+    params spliced in at the matching position, since psycopg2 params are
+    positional.
 
     Perf note: this is a regex scan of raw_text, and as of the WHERE-clause
     fallback above it can now run across every j.is_active row in scope
@@ -74,7 +81,7 @@ def _description_boost_expr(terms):
     MySQL FULLTEXT-index note.
     """
     if not terms:
-        return "0", []
+        return None, []
     percent_per_term = 100.0 / len(terms)
     score_terms = []
     params = []
@@ -165,7 +172,7 @@ def list_jobs():
         # group as the title checks, so a job that already matched on title
         # is completely unaffected -- this can only ever add jobs, never
         # remove or reorder them within this clause.
-        if desc_score_expr != "0":
+        if desc_score_expr:
             title_matches.append(f"(({desc_score_expr}) >= 50)")
             params.extend(desc_score_params)
 
@@ -206,6 +213,16 @@ def list_jobs():
 
     where_clause = " AND ".join(where) if where else "true"
 
+    # ORDER BY needs a real SQL expression on every request, including
+    # empty/no-title searches where desc_score_expr is None. Substitute a
+    # float literal (0.0), not the bare integer 0 -- Postgres parses a
+    # plain integer constant in ORDER BY as a positional column reference
+    # ("ORDER BY 0" errors as "position 0 is not in select list"), but a
+    # float literal doesn't hit that special-case parsing and just sorts
+    # as a no-op constant, same as every other row would get. No params
+    # needed for this literal either way.
+    order_by_boost = desc_score_expr if desc_score_expr is not None else "0.0"
+
     count_query = f"""
         SELECT count(*)
         FROM jobs j
@@ -242,7 +259,7 @@ def list_jobs():
         LEFT JOIN job_matches m ON m.job_id = j.id AND m.user_id = %s
         LEFT JOIN user_job_status s ON s.job_id = j.id AND s.user_id = %s
         WHERE {where_clause}
-        ORDER BY m.match_percent DESC NULLS LAST, {desc_score_expr} DESC, j.date_posted DESC
+        ORDER BY m.match_percent DESC NULLS LAST, {order_by_boost} DESC, j.date_posted DESC
         LIMIT %s OFFSET %s
     """
     full_params = [g.user_id, g.user_id, *params, *desc_score_params, limit, offset]
