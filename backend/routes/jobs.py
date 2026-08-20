@@ -44,7 +44,8 @@ def _description_boost_expr(terms):
     """Same per-word scoring shape as the title word-overlap gate below, but
     against j.raw_text (the scraped job description) instead of j.title.
 
-    Used TWICE by the caller from the same pair of (sql_expr, params):
+    Called multiple times by list_jobs, each with its own copy of the
+    returned params spliced into full_params at the matching position:
       1. In the WHERE clause, OR'd alongside the title/variant checks, as a
          fallback -- if a job's title doesn't match the search at all, it
          can still be included when the typed title's words show up in its
@@ -53,6 +54,8 @@ def _description_boost_expr(terms):
          above otherwise-equal jobs. This half never excludes anything by
          itself -- a job already included via a title match keeps its slot
          even if its description score is 0, it just sorts lower.
+      3. Inside _search_match_percent_expr, blended with the title score
+         into the search_match_percent column shown on each job card.
 
     Deliberately scores against the typed `title`'s individual words only,
     not the 15 title variants -- keeps this easy to reason about. Could be
@@ -98,6 +101,59 @@ def _description_boost_expr(terms):
     return "(" + " + ".join(score_terms) + ")", params
 
 
+def _title_score_expr(terms):
+    """0-100 weighted word-overlap score of the search terms against a
+    job's title -- same per-word CASE-sum shape as _description_boost_expr,
+    just against j.title instead of j.raw_text. Kept as its own standalone
+    function (rather than reusing the inline score_terms block in the
+    title_matches WHERE-clause builder below) so building this display-only
+    percentage can never perturb that block's existing filtering behavior.
+
+    Returns (sql_expr, params), or (None, []) when there are no terms.
+    """
+    if not terms:
+        return None, []
+    percent_per_term = 100.0 / len(terms)
+    score_terms = []
+    params = []
+    for term in terms:
+        score_terms.append(
+            f"(CASE WHEN j.title ~* %s THEN {percent_per_term} ELSE 0 END)"
+        )
+        params.append(_word_boundary_pattern(term))
+    return "(" + " + ".join(score_terms) + ")", params
+
+
+# Weights for the job-card "search match %": how much of the combined score
+# comes from the title vs. the description. Title counts for more since an
+# exact/near title match is a stronger signal than the search words merely
+# appearing somewhere in the description.
+TITLE_MATCH_WEIGHT = 0.7
+DESCRIPTION_MATCH_WEIGHT = 0.3
+
+
+def _search_match_percent_expr(terms):
+    """Combined 0-100 "how well does this job match what was typed" score,
+    blending the title word-overlap score and the description word-overlap
+    score with the weights above. This is the number shown on each job card
+    (via MatchRing) -- distinct from job_matches.match_percent, which is a
+    separate per-user AI-computed score against a resume, not against the
+    currently typed search title.
+
+    Returns (sql_expr, params), or (None, []) when there's no title typed at
+    all (nothing to score against, so the card shows no ring).
+    """
+    title_expr, title_params = _title_score_expr(terms)
+    desc_expr, desc_params = _description_boost_expr(terms)
+    if title_expr is None:
+        return None, []
+    combined = (
+        f"ROUND(({TITLE_MATCH_WEIGHT} * {title_expr}) "
+        f"+ ({DESCRIPTION_MATCH_WEIGHT} * {desc_expr}))::int"
+    )
+    return combined, [*title_params, *desc_params]
+
+
 @bp.get("/jobs")
 @optional_auth
 def list_jobs():
@@ -122,6 +178,13 @@ def list_jobs():
     # for why the same (expr, params) pair gets spliced into the final SQL
     # at two separate positions.
     desc_score_expr, desc_score_params = _description_boost_expr(terms)
+
+    # Same terms, used for the job-card match-percent column in SELECT
+    # below (title + description blended). Computed up front, next to
+    # desc_score_expr, for the same reason: its params need to land in
+    # full_params in the exact position this expression's %s placeholders
+    # end up appearing in the final query text (see full_params below).
+    search_match_expr, search_match_params = _search_match_percent_expr(terms)
 
     # "Track Applications" (Applied / Rejected / All) is a history view of
     # what the user has marked, not a normal browse -- a job they applied
@@ -261,6 +324,7 @@ def list_jobs():
                 WHERE j2.company_id = c.id AND j2.is_active AND j2.id != j.id
             ) AS other_jobs_at_company,
             m.match_percent AS match,
+            {search_match_expr if search_match_expr is not None else 'NULL'} AS search_match_percent,
             s.status,
             s.reason_rejected
         FROM jobs j
@@ -271,7 +335,15 @@ def list_jobs():
         ORDER BY m.match_percent DESC NULLS LAST, {order_by_boost} DESC, j.date_posted DESC
         LIMIT %s OFFSET %s
     """
-    full_params = [g.user_id, g.user_id, *params, *desc_score_params, limit, offset]
+    full_params = [
+        *search_match_params,
+        g.user_id,
+        g.user_id,
+        *params,
+        *desc_score_params,
+        limit,
+        offset,
+    ]
 
     cur.execute(query, full_params)
     jobs = cur.fetchall()

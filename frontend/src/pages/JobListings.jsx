@@ -14,7 +14,6 @@ import {
   deleteSavedSearch,
   setJobStatus,
   fetchTitleVariants,
-  fetchVariantCounts,
   fetchCompanyTypeCounts,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -70,15 +69,16 @@ export default function JobListings() {
   const [savingDefaults, setSavingDefaults] = useState(false)
   const [titleVariants, setTitleVariants] = useState([])
   const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
-  const [variantCounts, setVariantCounts] = useState({})
-  const [variantCountsLoading, setVariantCountsLoading] = useState(false)
   // Total active jobs in each of the three Company Database options --
   // { funded, fortune500, both } -- unfiltered (not scoped to title,
   // postedDays, or anything else), fetched once on mount.
   const [companyTypeCounts, setCompanyTypeCounts] = useState({})
   const [companyTypeCountsLoading, setCompanyTypeCountsLoading] = useState(false)
-  // Which "Also matching" pill (if any) the listing below is currently
-  // scoped to. null means the normal combined title+variants view.
+  // Which title-variant view (if any) the listing below is currently scoped
+  // to. There's no UI to pick one directly anymore (see match % on job
+  // cards instead), but a saved bookmark from before that change can still
+  // restore a variant-scoped view via handleApplySearch, so this stays.
+  // null means the normal combined title+variants view.
   const [selectedVariant, setSelectedVariant] = useState(null)
   // Set when "See them all" is clicked on a job card — scopes the listing
   // to every job at that one company, ignoring title/variant/postedDays
@@ -89,9 +89,9 @@ export default function JobListings() {
   // ALL searches, ignoring every other filter. Mutually exclusive with
   // selectedVariant and selectedCompany.
   const [selectedStatus, setSelectedStatus] = useState(null)
-  // Tracks the title+postedDays combo the current titleVariants/variantCounts
-  // were fetched for, so toggling selectedVariant alone doesn't re-trigger
-  // those fetches (and flicker the pill numbers) when nothing else changed.
+  // Tracks the title+postedDays combo the current titleVariants were
+  // fetched for, so toggling selectedVariant alone doesn't re-trigger that
+  // fetch when nothing else actually changed.
   const variantsKeyRef = useRef(null)
 
   useEffect(() => {
@@ -101,10 +101,9 @@ export default function JobListings() {
     setBookmarkError(null)
 
     async function run() {
-      // Only re-derive titleVariants/variantCounts when the title or
-      // posted-days filter actually changed. Toggling selectedVariant alone
-      // (clicking a pill / "Return to Full List") reuses what's already
-      // loaded instead of re-fetching and flickering the pill numbers.
+      // Only re-fetch titleVariants when the title or posted-days filter
+      // actually changed. Toggling selectedVariant alone (e.g. "Return to
+      // Full List") reuses what's already loaded instead of re-fetching.
       const variantsKey = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${appliedFilters.companyType}`
       const filtersChanged = variantsKeyRef.current !== variantsKey
 
@@ -123,33 +122,6 @@ export default function JobListings() {
         }
         if (cancelled) return
         setTitleVariants(variants)
-        // Clear stale counts from the previous title right away, so a pill
-        // never briefly shows a number left over from a different search.
-        setVariantCounts({})
-
-        // Per-variant counts drive which "Also matching" pills are
-        // clickable, and the base title itself rides along in the same
-        // request so the "Active filters" Title chip can show its own count
-        // pill too (and be drilled into) exactly like a variant pill.
-        // Fetched in the background so a slow count lookup never blocks the
-        // job list itself from rendering.
-        const countTargets = appliedFilters.title ? [appliedFilters.title, ...variants] : variants
-        if (countTargets.length > 0) {
-          setVariantCountsLoading(true)
-          fetchVariantCounts(countTargets, {
-            postedDays: appliedFilters.postedDays,
-            companyType: appliedFilters.companyType,
-          })
-            .then((counts) => {
-              if (!cancelled) setVariantCounts(counts)
-            })
-            .catch(() => {
-              if (!cancelled) setVariantCounts({})
-            })
-            .finally(() => {
-              if (!cancelled) setVariantCountsLoading(false)
-            })
-        }
         variantsKeyRef.current = variantsKey
       }
 
@@ -288,17 +260,6 @@ export default function JobListings() {
     setSelectedVariant(null)
     setSelectedCompany(null)
     setSelectedStatus(null)
-  }
-
-  // Clicking a clickable "Also matching" pill scopes the listing to ONLY
-  // that variant. Clicking the already-selected pill again is a shortcut
-  // back to the full list, same as the header's "Return to Full List".
-  function handleSelectVariant(variant) {
-    const count = variantCounts[variant]
-    if (!count) return
-    setSelectedCompany(null)
-    setSelectedStatus(null)
-    setSelectedVariant((prev) => (prev === variant ? null : variant))
   }
 
   // "See them all" on a job card scopes the listing to every job at that
@@ -478,17 +439,17 @@ export default function JobListings() {
                 {totalCount} match{totalCount === 1 ? '' : 'es'} for your current filters
               </p>
             )}
+            {!loading && appliedFilters.title && !selectedCompany && !selectedStatus && (
+              <p className="mt-1 text-xs text-ink-soft">
+                Match % is based on how closely each job's title and description match your search.
+              </p>
+            )}
           </div>
 
           <ActiveFiltersBar
             filters={appliedFilters}
             onChange={handleActiveFiltersChange}
-            titleVariants={titleVariants}
-            titleVariantsLoading={titleVariantsLoading}
-            variantCounts={variantCounts}
-            variantCountsLoading={variantCountsLoading}
             selectedVariant={selectedVariant}
-            onSelectVariant={handleSelectVariant}
             selectedCompany={selectedCompany}
             selectedStatus={selectedStatus}
             onReturnToFullList={handleReturnToFullList}

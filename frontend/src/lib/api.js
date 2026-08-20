@@ -20,6 +20,12 @@ function mapJob(row) {
     companyId: row.company_id,
     status: row.status,
     reasonRejected: row.reason_rejected,
+    // 0-100 "how well does this match what you searched" score, blending
+    // title and description word-overlap against the typed job title. null
+    // when there was no title search to score against (e.g. browsing "All
+    // jobs at X" or Track Applications), in which case the card shows no
+    // ring.
+    matchPercent: row.search_match_percent ?? null,
     // Prefer the specific posting URL; fall back to the company's site if
     // this posting doesn't have one on file (some career-page scrapes miss
     // a per-job link). Null means we genuinely have nowhere to send them.
@@ -131,27 +137,6 @@ export async function fetchTitleVariants(title) {
   if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to load title variants (${res.status})`))
   const data = await res.json()
   return data.variants
-}
-
-// How many active jobs match each variant title on its own (never OR'd
-// together) -- e.g. { "Product Owner": 4, "Senior Product Manager": 0 }.
-// Drives which "Also matching" pills are clickable.
-export async function fetchVariantCounts(variantTitles, { postedDays, companyType } = {}) {
-  if (!variantTitles || variantTitles.length === 0) return {}
-
-  const params = new URLSearchParams()
-  for (const variantTitle of variantTitles) {
-    params.append('variant_title', variantTitle)
-  }
-  if (postedDays) params.set('posted_days', postedDays)
-  if (companyType && companyType !== 'both') params.set('company_type', companyType)
-
-  const res = await fetch(`${API_URL}/api/jobs/variant-counts?${params.toString()}`, {
-    headers: authHeaders(),
-  })
-  if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to load variant counts (${res.status})`))
-  const data = await res.json()
-  return data.counts
 }
 
 // Total active jobs in each company database, unfiltered -- not scoped to
