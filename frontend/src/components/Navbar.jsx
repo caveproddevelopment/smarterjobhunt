@@ -23,7 +23,7 @@ export default function Navbar() {
         <Link to="/dashboard" className="flex items-center gap-3">
           <img src={logo} alt="SmarterJobHunt" className="h-10 w-10" />
           <span className="font-display text-lg font-semibold tracking-tight text-ink">
-            SmarterJobHunt
+            JobBegger
           </span>
         </Link>
 
