@@ -17,6 +17,7 @@
 export const COMPANY_TYPES = [
   { value: 'funded', label: 'Funded Startups' },
   { value: 'fortune500', label: 'Fortune 500' },
+  { value: 'indianmajor', label: 'Major Indian Companies' },
 ]
 
 export const DEFAULT_COMPANY_TYPE = 'funded'
