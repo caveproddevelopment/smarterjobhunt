@@ -3,9 +3,9 @@ import logo from '../assets/logo.jpg'
 import { useAuth } from '../lib/auth'
 
 const links = [
-  { label: 'What is this?', href: '#what-is-this' },
-  { label: 'Pricing', href: '#pricing' },
-  { label: 'About us', href: '#about' },
+  { label: 'What is this?', to: '/what-is-this' },
+  { label: 'Pricing', to: '/pricing' },
+  { label: 'About us', to: '/about' },
 ]
 
 export default function Navbar() {
@@ -29,13 +29,13 @@ export default function Navbar() {
 
         <nav className="hidden items-center gap-8 md:flex">
           {links.map((link) => (
-            <a
+            <Link
               key={link.label}
-              href={link.href}
+              to={link.to}
               className="text-sm font-medium text-ink-soft transition-colors hover:text-ink"
             >
               {link.label}
-            </a>
+            </Link>
           ))}
           {user ? (
             <div className="flex items-center gap-4">
