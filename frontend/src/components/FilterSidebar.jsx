@@ -117,6 +117,15 @@ export default function FilterSidebar({
               <input
                 type="radio"
                 name="status-filter"
+                checked={selectedStatus === 'neither'}
+                onChange={() => onSelectStatus('neither')}
+              />
+              Neither
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-ink">
+              <input
+                type="radio"
+                name="status-filter"
                 checked={selectedStatus == null}
                 onChange={() => onSelectStatus(null)}
               />

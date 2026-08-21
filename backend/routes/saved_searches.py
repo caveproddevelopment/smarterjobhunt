@@ -7,7 +7,7 @@ from db.connection import get_cursor
 bp = Blueprint("saved_searches", __name__, url_prefix="/api/saved-searches")
 
 VALID_VIEW_TYPES = {"search", "variant", "company", "status"}
-VALID_STATUS_FILTERS = {"applied", "rejected"}
+VALID_STATUS_FILTERS = {"applied", "rejected", "neither"}
 
 
 @bp.get("")

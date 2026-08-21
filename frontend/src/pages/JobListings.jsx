@@ -32,7 +32,9 @@ function buildBookmarkName(view) {
   const days = view.days ? String(view.days) : ''
   const suffix = days ? ` · last ${days} day${days === '1' ? '' : 's'}` : ''
   if (view.viewType === 'status') {
-    return view.statusFilter === 'applied' ? 'Applied Jobs' : 'Rejected Jobs'
+    if (view.statusFilter === 'applied') return 'Applied Jobs'
+    if (view.statusFilter === 'rejected') return 'Rejected Jobs'
+    return 'Neither Jobs'
   }
   if (view.viewType === 'company') {
     return `All jobs at ${view.companyName}`

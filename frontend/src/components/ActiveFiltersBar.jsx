@@ -5,6 +5,7 @@ const DEFAULT_FILTERS = { title: '', postedDays: '', companyType: DEFAULT_COMPAN
 const STATUS_LABELS = {
   applied: 'Applied Jobs',
   rejected: 'Rejected Jobs',
+  neither: 'Neither Jobs',
   tracked: 'Applied + Rejected Jobs',
 }
 

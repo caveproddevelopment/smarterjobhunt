@@ -312,6 +312,13 @@ def list_jobs():
         where.append("s.status = 'applied'")
     elif status_filter == "rejected":
         where.append("s.status = 'rejected'")
+    elif status_filter == "neither":
+        # Unlike the other branches, "IS NULL" is true for every row once the
+        # LEFT JOIN can't match anything (logged-out g.user_id is None) --
+        # the opposite of what applied/rejected/tracked naturally fall back
+        # to. Guard explicitly so a logged-out caller still gets zero rows,
+        # matching the Track Applications section being hidden until login.
+        where.append("s.status IS NULL" if g.user_id is not None else "false")
     elif status_filter == "tracked":
         where.append("s.status IS NOT NULL")
 

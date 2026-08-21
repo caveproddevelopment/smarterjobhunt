@@ -20,6 +20,34 @@ CREATE TABLE IF NOT EXISTS companies (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- company_type: which curated list a company belongs to. This is the
+-- second "company DB" -- Fortune 500 / large public companies -- living
+-- alongside the original list of ~500 venture-funded companies, in the
+-- same table (one row per company either way, `name` stays globally
+-- UNIQUE). Existing rows default to 'funded' so this is backward
+-- compatible with the DB as it stands today.
+--
+-- The scraping agent is the source of truth for this value: whichever
+-- list it's currently working through, it should set company_type
+-- accordingly on insert/upsert, e.g.:
+--   INSERT INTO companies (name, website, funding_stage, company_type)
+--   VALUES (%s, %s, 'public', 'fortune500')
+--   ON CONFLICT (name) DO UPDATE SET company_type = EXCLUDED.company_type;
+-- Fortune 500 companies are almost always 'public' under funding_stage
+-- too, but company_type is the field that actually drives the list
+-- toggle below -- funding_stage keeps its original meaning otherwise.
+--
+-- Kept in sync BY HAND with two other places when a database is added:
+--   - COMPANY_TYPES in backend/routes/jobs.py
+--   - COMPANY_TYPES in frontend/src/lib/companyTypes.js
+-- (the saved_searches.company_type CHECK further below additionally
+-- allows 'both', since that column also has to represent "no restriction"
+-- as a bookmarkable/filterable value, which a company itself can't be.)
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS company_type TEXT NOT NULL DEFAULT 'funded'
+    CHECK (company_type IN ('funded', 'fortune500'));
+
+CREATE INDEX IF NOT EXISTS idx_companies_company_type ON companies (company_type);
+
 -- ---------------------------------------------------------------------------
 -- jobs: one row per posting; this is what the scraping agent will populate
 -- ---------------------------------------------------------------------------
@@ -52,7 +80,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_dedup
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
     id             SERIAL PRIMARY KEY,
-    username       TEXT NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9_]{3,20}$'),
+    full_name      TEXT NOT NULL
+                   CHECK (full_name ~ '^[A-Za-z]+( [A-Za-z]+)*$' AND char_length(full_name) BETWEEN 2 AND 50),
     email          TEXT NOT NULL UNIQUE,
     password_hash  TEXT NOT NULL,
     is_verified    BOOLEAN NOT NULL DEFAULT false,
@@ -64,25 +93,90 @@ CREATE TABLE IF NOT EXISTS users (
 -- against a DB created before email verification existed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false;
 
--- Safe to re-run: adds the column if this schema.sql is being re-applied
--- against a DB created before usernames existed. Added nullable — unlike
--- is_verified, there's no sane default for existing rows. If you already
--- have users in prod, backfill usernames first, THEN run:
---   ALTER TABLE users ALTER COLUMN username SET NOT NULL;
---   ALTER TABLE users ADD CONSTRAINT users_username_key UNIQUE (username);
---   ALTER TABLE users ADD CONSTRAINT users_username_check
---       CHECK (username ~ '^[a-z0-9_]{3,20}$');
-ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+-- Holds a requested new email address from the profile page until the user
+-- clicks the confirmation link sent to it -- `email` itself only changes at
+-- that point (see /api/auth/me PUT and /api/auth/confirm-email/<token> in
+-- routes/auth.py). NULL means no change is pending. Deliberately NOT
+-- UNIQUE: it's unconfirmed, so two different accounts could transiently
+-- have the same address pending -- only `email` needs to stay unique, and
+-- that's enforced when the change is confirmed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email TEXT;
+
+-- Google Sign-In: password_hash becomes optional (accounts created via
+-- Google have none), google_id stores the Google account's stable "sub"
+-- identifier so a repeat Google login (or a password account later linking
+-- Google) can be matched. Safe to re-run against a DB created before this
+-- existed.
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_has_auth_method;
+ALTER TABLE users ADD CONSTRAINT users_has_auth_method
+    CHECK (password_hash IS NOT NULL OR google_id IS NOT NULL);
+
+-- Renamed from `username` to `full_name`: full names allow spaces, aren't
+-- unique (people can share a name), and don't fit the old handle-style
+-- character set. If this schema.sql is being re-applied against a DB that
+-- still has the old `username` column, rename it in place so existing data
+-- isn't lost.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'username'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'full_name'
+    ) THEN
+        ALTER TABLE users RENAME COLUMN username TO full_name;
+    END IF;
+END $$;
+
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_key;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_check;
+
+-- Added nullable — unlike is_verified, there's no sane default for
+-- existing rows. If you already have users in prod, backfill full_name
+-- first, THEN run:
+--   ALTER TABLE users ALTER COLUMN full_name SET NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_full_name_check;
+ALTER TABLE users ADD CONSTRAINT users_full_name_check
+    CHECK (full_name ~ '^[A-Za-z]+( [A-Za-z]+)*$' AND char_length(full_name) BETWEEN 2 AND 50);
 
 -- Default filters: what a user sees pre-filled on Job Listings after the
 -- first-login popup. has_set_default_filters flips to true the first time
 -- they save OR skip the popup, so it only ever shows once.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS default_job_title TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS default_variants SMALLINT NOT NULL DEFAULT 10;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS default_variants SMALLINT NOT NULL DEFAULT 15;
+
+-- Variants count is no longer user-adjustable -- permanently 15. Backfill
+-- any rows written back when the default (and the UI selector) was 10/5.
+UPDATE users SET default_variants = 15 WHERE default_variants <> 15;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS default_posted_within_days INTEGER;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS default_funding_filter TEXT NOT NULL DEFAULT 'both'
     CHECK (default_funding_filter IN ('both', 'a', 'b'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS has_set_default_filters BOOLEAN NOT NULL DEFAULT false;
+
+-- Plan tier for the profile page's billing section. 'plan' is the simple
+-- free/pro gate the rest of the app reads; it's derived from (and kept in
+-- sync with) the Stripe columns below by the billing webhook.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free'
+    CHECK (plan IN ('free', 'pro'));
+
+-- Stripe subscription billing (weekly/monthly plans). subscription_status
+-- mirrors Stripe's own status string (active, trialing, past_due, canceled,
+-- unpaid, incomplete, incomplete_expired, paused) — left unconstrained since
+-- Stripe can add new values. billing_interval is 'week' or 'month', matching
+-- the Stripe Price's recurring.interval for whichever plan the user is on.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_interval TEXT
+    CHECK (billing_interval IN ('week', 'month'));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_users_stripe_customer_id ON users (stripe_customer_id)
+    WHERE stripe_customer_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- job_matches: per-user match % against a job (computed by the AI agent later;
@@ -118,7 +212,7 @@ CREATE TABLE IF NOT EXISTS saved_searches (
     user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name                TEXT NOT NULL,
     job_title            TEXT,
-    variants            SMALLINT NOT NULL DEFAULT 10,
+    variants            SMALLINT NOT NULL DEFAULT 15,
     posted_within_days  INTEGER,
     funding_filter      TEXT NOT NULL DEFAULT 'both'
                         CHECK (funding_filter IN ('both', 'a', 'b')),
@@ -126,6 +220,102 @@ CREATE TABLE IF NOT EXISTS saved_searches (
     UNIQUE (user_id, name)
 );
 
+-- Backfill existing saved searches created while variants was still 5/10/15-selectable.
+UPDATE saved_searches SET variants = 15 WHERE variants <> 15;
+
+-- Generalized bookmarking: a saved search can now point at any of the
+-- Job Listings page's scoped views, not just a plain title+days search --
+-- a drilled-into title variant, a single company's "See them all" list, or
+-- an Applied/Rejected tracking view. view_type says which shape applies;
+-- job_title/variants/posted_within_days/funding_filter keep their existing
+-- meaning for 'search' (and job_title + posted_within_days double up for
+-- 'variant', see variant_title below); the other columns stay NULL for
+-- whichever shapes don't use them. Safe to re-run against a DB created
+-- before this existed.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS view_type TEXT NOT NULL DEFAULT 'search'
+    CHECK (view_type IN ('search', 'variant', 'company', 'status'));
+-- Mirrors the jobs.company_type filter (Both / Funded Startups / Fortune
+-- 500) for the 'search' and 'variant' view types, so re-applying one of
+-- those bookmarks restores the exact same Company Database dropdown value
+-- it was saved under, not just whatever the sidebar currently has selected.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS company_type TEXT NOT NULL DEFAULT 'both'
+    CHECK (company_type IN ('both', 'funded', 'fortune500'));
+-- 'variant': which "Also matching" pill was drilled into. job_title above
+-- still holds the ORIGINAL search title this variant was found under, so
+-- "Return to Full List" after re-applying the bookmark lands back on that
+-- search rather than an empty title box.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS variant_title TEXT;
+-- 'company': which company's "See them all" list this points at. Cascades
+-- with the company row itself -- if a company is ever removed, any
+-- bookmarks pointing at it go with it rather than linking nowhere.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS company_id INTEGER
+    REFERENCES companies(id) ON DELETE CASCADE;
+-- 'status': which Track Applications radio (Applied or Rejected) this
+-- points at. "All" isn't bookmarkable since it's just the absence of a
+-- status filter -- the same as any other view with tracking off.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS status_filter TEXT
+    CHECK (status_filter IN ('applied', 'rejected'));
+
+-- The original UNIQUE (user_id, name) treated the display NAME as the
+-- definition of "already bookmarked" -- but `name` is just a human-readable
+-- label built by buildBookmarkName() on the frontend, and was never
+-- guaranteed to be distinct per view. Concretely: bookmarking "product
+-- manager" under Funded Startups, then bookmarking "product manager" again
+-- under Fortune 500, produced the identical name and got rejected as a
+-- duplicate even though they're two different views (different
+-- company_type). Replace it with a constraint on the fields that actually
+-- define a unique view -- the same fields JobListings.jsx's
+-- `bookmarkedSearch` finder already uses to decide whether the CURRENT view
+-- is already bookmarked -- so the database's definition of "duplicate"
+-- matches the app's. COALESCE the nullable columns to sentinel values
+-- first: Postgres treats NULL <> NULL in unique indexes, so without this,
+-- two truly-identical rows that both happen to have NULL in the same
+-- column (e.g. two 'company' bookmarks, which never set job_title) would
+-- NOT be caught as duplicates.
+ALTER TABLE saved_searches DROP CONSTRAINT IF EXISTS saved_searches_user_id_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_saved_searches_view ON saved_searches (
+    user_id,
+    view_type,
+    COALESCE(job_title, ''),
+    COALESCE(variant_title, ''),
+    COALESCE(posted_within_days, -1),
+    company_type,
+    COALESCE(status_filter, ''),
+    COALESCE(company_id, -1)
+);
+
 CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON saved_searches (user_id);
+CREATE INDEX IF NOT EXISTS idx_saved_searches_company_id ON saved_searches (company_id)
+    WHERE company_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_user_job_status_user_id ON user_job_status (user_id);
 CREATE INDEX IF NOT EXISTS idx_job_matches_user_id ON job_matches (user_id);
+
+-- ---------------------------------------------------------------------------
+-- job_title_variants: cache of the closest real job titles already in the
+-- `jobs` table for a searched title (via pg_trgm similarity), e.g. searching
+-- "PM" surfaces "Product Manager", "Program Manager", etc. Shared across all
+-- users -- normalized_title is the lowercased/trimmed lookup key so a repeat
+-- search for the same title (any casing/spacing, by anyone) hits the cache
+-- instead of re-running the similarity query.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS job_title_variants (
+    id                SERIAL PRIMARY KEY,
+    job_title         TEXT NOT NULL,        -- as originally searched, for display
+    normalized_title  TEXT NOT NULL UNIQUE, -- lower(trim(job_title)), for lookup
+    variants          JSONB NOT NULL,       -- ordered array of strings, most relevant first
+    generated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
+-- 'neither': a 4th Track Applications radio alongside Applied/Rejected/All --
+-- jobs the user hasn't marked either way (s.status IS NULL in jobs.py, see
+-- that file). Nothing is ever stored as 'neither' on user_job_status itself
+-- (it's derived, not a settable per-job status), so only the bookmarkable
+-- filter needs its CHECK constraint widened. It was declared inline (not
+-- given an explicit name), so Postgres fell back to its default
+-- <table>_<column>_check naming -- that's the name dropped below before
+-- re-adding the widened version. Safe to re-run.
+-- ---------------------------------------------------------------------------
+ALTER TABLE saved_searches DROP CONSTRAINT IF EXISTS saved_searches_status_filter_check;
+ALTER TABLE saved_searches ADD CONSTRAINT saved_searches_status_filter_check
+    CHECK (status_filter IN ('applied', 'rejected', 'neither'));
