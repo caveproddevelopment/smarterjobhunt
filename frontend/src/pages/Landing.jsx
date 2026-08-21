@@ -8,7 +8,7 @@ const reviews = [
     quote:
       "I stopped keeping a spreadsheet. Every role from every seed-stage company I care about just shows up, ranked.",
     name: 'Priya N.',
-    role: 'Product Manager, applied via JobBegger',
+    role: 'Product Manager, applied via JobBeggar',
   },
   {
     quote:
@@ -46,7 +46,7 @@ export default function Landing() {
           >
             <div>
               <p className="max-w-md text-base leading-relaxed text-ink-soft">
-                JobBegger pulls fresh roles from seed-to-Series-B startups into one
+                JobBeggar pulls fresh roles from seed-to-Series-B startups into one
                 list, scores each one against your resume, and remembers who you've
                 applied to — so you don't have to keep a spreadsheet or fifty open tabs.
               </p>

@@ -21,9 +21,9 @@ export default function Navbar() {
     <header className="w-full">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <Link to="/dashboard" className="flex items-center gap-3">
-          <img src={logo} alt="JobBegger" className="h-10 w-10" />
+          <img src={logo} alt="JobBeggar" className="h-10 w-10" />
           <span className="font-display text-lg font-semibold tracking-tight text-ink">
-            JobBegger
+            JobBeggar
           </span>
         </Link>
 
