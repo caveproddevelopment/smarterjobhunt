@@ -103,15 +103,16 @@ export default function ActiveFiltersBar({
       clear: () => onChange({ ...filters, postedDays: '' }),
     })
   }
-  // "both" is the true "no restriction" state for this filter -- funded and
-  // fortune500 are both real, active restrictions and should show a chip
-  // just like each other, even though funded also happens to be the
-  // preselected default in the sidebar radios.
-  if (filters.companyType && filters.companyType !== 'both') {
+  // Unlike title/postedDays, this one is a required radio -- there's no
+  // "unset" state to fall back to, "both" is just as much an explicit
+  // choice as funded or fortune500 (it means "search across both
+  // databases", not "no database filter applied"). So it always shows a
+  // chip, and its × resets to the sidebar's default rather than to "both".
+  if (filters.companyType) {
     chips.push({
       key: 'companyType',
       label: COMPANY_TYPE_LABELS[filters.companyType] || filters.companyType,
-      clear: () => onChange({ ...filters, companyType: 'both' }),
+      clear: () => onChange({ ...filters, companyType: DEFAULT_COMPANY_TYPE }),
     })
   }
 
