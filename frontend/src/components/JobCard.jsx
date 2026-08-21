@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import ExternalRedirectModal from './ExternalRedirectModal'
-import MatchRing from './MatchRing'
 
 const rejectReasons = [
   'Compensation mismatch',
@@ -66,7 +65,12 @@ export default function JobCard({
 
       <div className="flex-1">
         <h3 className="text-base font-semibold text-ink">{job.title}</h3>
-        <p className="mt-1 text-sm text-ink">Posted on {formattedDate}</p>
+        <p className="mt-1 text-sm text-ink">
+          Posted on {formattedDate}
+          {typeof job.matchPercent === 'number' && (
+            <span className="text-ink-soft"> · Match: {job.matchPercent}%</span>
+          )}
+        </p>
 
         {isSubscribed ? (
           <>
@@ -108,17 +112,6 @@ export default function JobCard({
       </div>
 
       <div className="flex flex-col items-start gap-2 sm:items-end">
-        {typeof job.matchPercent === 'number' && (
-          <div
-            className="flex flex-col items-center gap-1"
-            title="How closely this job's title and description match your search"
-          >
-            <MatchRing percent={job.matchPercent} size={48} />
-            <span className="text-[10px] font-medium uppercase tracking-wide text-ink-soft">
-              Match
-            </span>
-          </div>
-        )}
         {!job.applyUrl ? (
           <button
             type="button"
