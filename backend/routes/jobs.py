@@ -328,45 +328,60 @@ def list_jobs():
     cur.execute(count_query, [g.user_id, *params])
     total_count = cur.fetchone()["count"]
 
+    # NOTE: the inner SELECT is wrapped in a derived table ("results") on
+    # purpose. Postgres only resolves a SELECT-list alias (is_perfect_match,
+    # search_match_percent) as a bare top-level ORDER BY item -- e.g. plain
+    # `is_perfect_match DESC` works fine. But the moment that alias sits
+    # inside a larger expression, like the CASE statements below, Postgres
+    # stops treating it as an alias and tries to resolve it as a real input
+    # column on jobs/companies/job_matches/user_job_status instead, which
+    # doesn't exist -> UndefinedColumn. Wrapping in a subquery makes
+    # is_perfect_match/search_match_percent/match/date_posted genuine output
+    # columns of "results", so the outer ORDER BY can reference them freely
+    # inside CASE expressions. Purely a SQL-text restructure -- doesn't
+    # change the params list or their order at all.
     query = f"""
-        SELECT
-            j.id,
-            j.title,
-            j.department,
-            j.location,
-            j.date_posted,
-            j.source_url,
-            c.id AS company_id,
-            c.name AS company,
-            c.website AS company_website,
-            c.funding_stage AS funding,
-            c.company_type AS company_type,
-            (
-                SELECT count(*) FROM jobs j2
-                WHERE j2.company_id = c.id AND j2.is_active AND j2.id != j.id
-            ) AS other_jobs_at_company,
-            m.match_percent AS match,
-            {search_match_expr if search_match_expr is not None else 'NULL'} AS search_match_percent,
-            {top_tier_expr} AS is_perfect_match,
-            s.status,
-            s.reason_rejected
-        FROM jobs j
-        JOIN companies c ON c.id = j.company_id
-        LEFT JOIN job_matches m ON m.job_id = j.id AND m.user_id = %s
-        LEFT JOIN user_job_status s ON s.job_id = j.id AND s.user_id = %s
-        WHERE {where_clause}
+        SELECT * FROM (
+            SELECT
+                j.id,
+                j.title,
+                j.department,
+                j.location,
+                j.date_posted,
+                j.source_url,
+                c.id AS company_id,
+                c.name AS company,
+                c.website AS company_website,
+                c.funding_stage AS funding,
+                c.company_type AS company_type,
+                (
+                    SELECT count(*) FROM jobs j2
+                    WHERE j2.company_id = c.id AND j2.is_active AND j2.id != j.id
+                ) AS other_jobs_at_company,
+                m.match_percent AS match,
+                {search_match_expr if search_match_expr is not None else 'NULL'} AS search_match_percent,
+                {top_tier_expr} AS is_perfect_match,
+                s.status,
+                s.reason_rejected
+            FROM jobs j
+            JOIN companies c ON c.id = j.company_id
+            LEFT JOIN job_matches m ON m.job_id = j.id AND m.user_id = %s
+            LEFT JOIN user_job_status s ON s.job_id = j.id AND s.user_id = %s
+            WHERE {where_clause}
+        ) AS results
         ORDER BY
-            m.match_percent DESC NULLS LAST,
+            match DESC NULLS LAST,
             is_perfect_match DESC,
-            CASE WHEN is_perfect_match THEN j.date_posted END DESC NULLS LAST,
+            CASE WHEN is_perfect_match THEN date_posted END DESC NULLS LAST,
             CASE WHEN NOT is_perfect_match THEN search_match_percent END DESC NULLS LAST,
-            j.date_posted DESC
+            date_posted DESC
         LIMIT %s OFFSET %s
     """
     # Order must match the placeholders left-to-right in the text above:
     # search_match_percent's params, then is_perfect_match's, then the two
     # join conditions, then the WHERE clause's own params (gate + the
-    # simple filters appended after it), then LIMIT/OFFSET.
+    # simple filters appended after it), then LIMIT/OFFSET. Unchanged by
+    # the subquery wrap above -- no new placeholders were introduced.
     full_params = [
         *search_match_params,
         *top_tier_params,
