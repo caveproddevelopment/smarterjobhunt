@@ -22,6 +22,15 @@ FUNDING_FILTER_MAP = {"a": "series_a", "b": "series_b"}  # 'both' applies no fil
 # quietly doing nothing instead of a visible failure.
 COMPANY_TYPES = {"funded", "fortune500"}
 
+# A job card needs at least a department OR a location to be worth showing.
+# Scraped rows sometimes store an empty string ('') rather than a true SQL
+# NULL for a missing field, so NULLIF(col, '') normalizes both cases to NULL
+# before the IS NOT NULL check -- '' and NULL are treated identically here.
+# Reused verbatim in three places (list_jobs, company_jobs, and
+# company_type_counts) so the sidebar counts and both job-listing endpoints
+# always agree on which jobs are "displayable".
+HAS_DEPT_OR_LOCATION = "(NULLIF(j.department, '') IS NOT NULL OR NULLIF(j.location, '') IS NOT NULL)"
+
 
 def _tokenize_title(title):
     """Split a search title into whitespace-separated terms for word-overlap
@@ -41,53 +50,6 @@ def _word_boundary_pattern(term):
 
 
 def _description_boost_expr(terms):
-    """Same per-word scoring shape as the title word-overlap gate below, but
-    against j.raw_text (the scraped job description) instead of j.title.
-
-    Called multiple times by list_jobs, each with its own copy of the
-    returned params spliced into full_params at the matching position:
-      1. In the WHERE clause, OR'd alongside the title/variant checks, as a
-         fallback -- if a job's title doesn't match the search at all, it
-         can still be included when the typed title's words show up in its
-         description at 100% weighted coverage.
-      2. In ORDER BY, to rank jobs with higher description-word overlap
-         above otherwise-equal jobs. This half never excludes anything by
-         itself -- a job already included via a title match keeps its slot
-         even if its description score is 0, it just sorts lower.
-      3. Inside _combine_match_percent, blended with the title score into
-         the search_match_percent column shown on each job card.
-
-    Deliberately scores against the typed `title`'s individual words only,
-    not the 15 title variants -- keeps this easy to reason about. Could be
-    extended to also check variant phrases in raw_text later if useful.
-
-    Returns (sql_expr, params). sql_expr is a numeric 0-100 CASE-sum, or
-    None (no params, nothing to score) when there are no terms -- e.g. an
-    empty/no-title search. Deliberately NOT a bare literal like "0": any
-    plain constant dropped straight into an ORDER BY clause is treated by
-    Postgres as an attempted positional column reference (SQL92 rule) and
-    errors unless it's a valid integer position -- confirmed against a
-    live Postgres 16 instance, where `ORDER BY 0` fails as "position 0 is
-    not in select list" and even `ORDER BY 0.0` fails as "non-integer
-    constant in ORDER BY". So callers must substitute a real expression of
-    their own for the "nothing to score" case (see order_by_boost in
-    list_jobs, which casts a literal via `0::numeric` so it's no longer a
-    bare constant) rather than reusing this return value directly as SQL
-    text.
-    Note sql_expr, when not None, is plain SQL text reused verbatim at two
-    call sites in the query below -- each occurrence needs its own copy of
-    params spliced in at the matching position, since psycopg2 params are
-    positional.
-
-    Perf note: this is a regex scan of raw_text, and as of the WHERE-clause
-    fallback above it can now run across every j.is_active row in scope
-    (not just ones that already passed a title match), once per ORDER BY
-    evaluation. Fine at current scale (hundreds of jobs); if the jobs table
-    grows into the tens of thousands, revisit with a tsvector + GIN index
-    instead of a live regex scan -- same caution the ingestion agent's
-    job_sink.py already flagged for this field back when it was still a
-    MySQL FULLTEXT-index note.
-    """
     if not terms:
         return None, []
     percent_per_term = 100.0 / len(terms)
@@ -102,21 +64,6 @@ def _description_boost_expr(terms):
 
 
 def _title_score_expr(terms):
-    """0-100 weighted word-overlap score of the search terms against a
-    job's title -- same per-word CASE-sum shape as _description_boost_expr,
-    just against j.title instead of j.raw_text.
-
-    Computed once by list_jobs and reused at both places that need it,
-    the same pattern _description_boost_expr uses:
-      1. In the WHERE clause's title_matches OR-group, gating whether a
-         job qualifies via title word-overlap (score > 0 -- any word
-         matched at all, however many terms were typed).
-      2. Inside _combine_match_percent, as the primary source of the
-         search_match_percent column shown on each job card -- the same
-         score used to decide a title match, not a separate calculation.
-
-    Returns (sql_expr, params), or (None, []) when there are no terms.
-    """
     if not terms:
         return None, []
     percent_per_term = 100.0 / len(terms)
@@ -131,29 +78,12 @@ def _title_score_expr(terms):
 
 
 def _combine_match_percent(title_expr, title_params, desc_expr, desc_params):
-    """The 0-100 "match %" shown on each job card: title word-overlap score
-    if the title matched at all (any word), otherwise the description
-    word-overlap score as a fallback. Not a blend of the two -- whichever
-    one actually decided the job's inclusion is the one displayed, so the
-    number on the card always matches the reason the job showed up.
-
-    title_expr/desc_expr are the exact same expressions the WHERE clause
-    below uses to filter (title score > 0, or description score >= 50 as a
-    fallback), so this is the identical calculation, not a separate one.
-
-    Returns (sql_expr, params), or (None, []) when there's no title typed at
-    all (title_expr is None -- nothing to score against, so the card shows
-    no match %).
-    """
     if title_expr is None:
         return None, []
     combined = (
         f"ROUND(CASE WHEN ({title_expr}) > 0 "
         f"THEN ({title_expr}) ELSE ({desc_expr}) END)::int"
     )
-    # title_expr's placeholders appear twice in the text above (once in the
-    # WHEN condition, once in the THEN branch), so title_params needs to be
-    # spliced in twice to match -- desc_params appears once, in ELSE.
     return combined, [*title_params, *title_params, *desc_params]
 
 
@@ -175,57 +105,22 @@ def list_jobs():
 
     terms = _tokenize_title(title) if title else []
 
-    # Computed once, up front, so it's available both for the WHERE-clause
-    # fallback below (title didn't match -> try the description instead)
-    # and again later for ORDER BY. See _description_boost_expr's docstring
-    # for why the same (expr, params) pair gets spliced into the final SQL
-    # at two separate positions.
     desc_score_expr, desc_score_params = _description_boost_expr(terms)
-
-    # Same word-overlap scoring the title-match OR-clause below uses --
-    # computed once here so both that filter and the match-percent column
-    # share this single calculation instead of each building their own copy
-    # of it.
     title_score_expr, title_score_params = _title_score_expr(terms)
-
-    # search_match_percent (shown on each job card) is title_score_expr if
-    # it's > 0, else desc_score_expr as a fallback -- the identical two
-    # numbers the WHERE clause below uses to find a title match, not a
-    # separately-computed score.
     search_match_expr, search_match_params = _combine_match_percent(
         title_score_expr, title_score_params, desc_score_expr, desc_score_params
     )
 
-    # "Track Applications" (Applied / Rejected / All) is a history view of
-    # what the user has marked, not a normal browse -- a job they applied
-    # to may have gone inactive since, and they still want it to show up,
-    # so is_active is skipped entirely whenever this mode is on.
     if status_filter not in {"applied", "rejected", "tracked"}:
         where.append("j.is_active = true")
 
-    # Title + its variants are OR'd together as one group (any of them can
-    # match), then AND'd with the other filters below. The frontend always
-    # sends up to the full 15 cached/generated variants for the title (the
-    # variants count is fixed, not user-selectable).
-    #
-    # A job that matches none of those exact phrases still gets included if
-    # ANY of the *typed* title's individual words appear in it (each word
-    # weighted 100/word-count, summed -- included as soon as that total is
-    # above 0). e.g. searching "Senior Project Manager" against a job
-    # titled "Project Manager" scores 66% and is shown even though neither
-    # the exact title nor any of the 15 variants matched it as a phrase; a
-    # job titled "Manager, Retail Ops" still scores 33% (one of three words)
-    # and is shown too. This is folded into the same OR group as the
-    # exact/variant checks above -- "match A OR match B" gives the
-    # identical result as "if A: show, elif B: show". Word terms are
-    # matched on a word boundary rather than a bare substring, so a short
-    # word like "PM" can't match inside an unrelated word the way ILIKE
-    # '%PM%' would.
-    #
-    # search_match_percent (see _combine_match_percent) is exactly this
-    # score, so whatever percentage a job shows on its card is the same
-    # number that got it included here -- title score first, description
-    # fallback below only kicks in when the title scored 0.
+    # Data-quality guard: a job scraped with NEITHER a department nor a
+    # location is missing too much to render a useful card -- exclude it.
+    # A job with only one of the two still has something to show, so this
+    # only drops rows where both are missing (not either/or). Treats an
+    # empty string the same as a true NULL (see HAS_DEPT_OR_LOCATION).
+    where.append(HAS_DEPT_OR_LOCATION)
+
     if title or variant_titles:
         title_matches = []
         for candidate in [title, *variant_titles]:
@@ -237,15 +132,6 @@ def list_jobs():
             title_matches.append(f"(({title_score_expr}) > 0)")
             params.extend(title_score_params)
 
-        # Fallback: only matters for jobs whose title scored 0 above (no
-        # typed word appears in the title at all, and it didn't match a
-        # variant phrase either). If at least half of the typed title's
-        # words turn up in the job's DESCRIPTION instead, include it --
-        # below 50% description coverage, the job is left out entirely
-        # rather than shown with a low/misleading match %. OR'd into the
-        # same group as the title checks, so a job that already matched on
-        # title is completely unaffected -- this can only ever add jobs,
-        # never remove or reorder them within this clause.
         if desc_score_expr:
             title_matches.append(f"(({desc_score_expr}) >= 50)")
             params.extend(desc_score_params)
@@ -264,20 +150,10 @@ def list_jobs():
         where.append("c.company_type = %s")
         params.append(company_type)
 
-    # "See them all" on a job card: scope to exactly one company by id
-    # (never by name -- company names aren't guaranteed unique, id is).
-    # The frontend sends no title/variant/posted_days/company_type filters
-    # alongside this, so in practice it's the only clause besides is_active.
     if company_id:
         where.append("c.id = %s")
         params.append(int(company_id))
 
-    # Scopes to the current user's application-tracking history instead of
-    # the normal title-driven search. Checked against the fixed set above,
-    # never interpolated from raw input, so the f-string below stays safe.
-    # For a logged-out user g.user_id is None, the join below never matches
-    # anything, s.status comes back NULL for every row, and these clauses
-    # naturally filter down to zero results rather than erroring.
     if status_filter == "applied":
         where.append("s.status = 'applied'")
     elif status_filter == "rejected":
@@ -287,18 +163,6 @@ def list_jobs():
 
     where_clause = " AND ".join(where) if where else "true"
 
-    # ORDER BY needs a real SQL expression on every request, including
-    # empty/no-title searches where desc_score_expr is None. This can't be
-    # a bare numeric literal of ANY kind -- Postgres's SQL92 ORDER BY rule
-    # treats every plain constant (not just integers) as an attempted
-    # positional column reference, and errors if it isn't a valid integer
-    # position: `ORDER BY 0` -> "position 0 is not in select list", and
-    # `ORDER BY 0.0` -> "non-integer constant in ORDER BY" (confirmed
-    # against a live Postgres 16 instance). Casting it (`0::numeric`) makes
-    # it a real expression rather than a bare constant, so it's never
-    # special-cased, and it sorts as an inert placeholder same as any other
-    # tie-breaker column would. No params needed for this literal either
-    # way.
     order_by_boost = desc_score_expr if desc_score_expr is not None else "0::numeric"
 
     count_query = f"""
@@ -360,15 +224,6 @@ def list_jobs():
 @bp.get("/jobs/variant-counts")
 @optional_auth
 def variant_counts():
-    """How many active jobs match each of the given title variants, one at a
-    time -- e.g. {"Product Owner": 4, "Senior Product Manager": 0, ...}.
-    Powers the clickable "Also matching" pills: a variant with a count of 0
-    isn't worth letting someone click into. Each variant is counted on its
-    own (never OR'd with the others or with the main title), since a click
-    on a pill should show ONLY that variant's jobs. posted_days/funding are
-    accepted so the counts match whatever's currently applied everywhere
-    else on the page.
-    """
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
     funding = request.args.get("funding", "both").strip().lower()
@@ -377,10 +232,6 @@ def variant_counts():
     if not variant_titles:
         return jsonify({"counts": {}})
 
-    # Note the doubled %% -- these are literal wildcard characters sitting
-    # in the query text itself (not a bound parameter), and psycopg2 treats
-    # a bare % in the query as the start of a %s/%(name)s placeholder once
-    # any parameters are being passed, so it must be escaped.
     where = ["j.is_active = true", "j.title ILIKE '%%' || v.title || '%%'"]
     params = []
 
@@ -398,9 +249,6 @@ def variant_counts():
 
     where_clause = " AND ".join(where)
 
-    # A correlated subquery per unnested variant keeps each count
-    # independent (no cross-variant double counting) while still costing a
-    # single round trip to the DB for all 15 variants.
     query = f"""
         SELECT
             v.title AS variant_title,
@@ -426,19 +274,14 @@ def variant_counts():
 @bp.get("/jobs/company-type-counts")
 @optional_auth
 def company_type_counts():
-    """Total active jobs in each company database, e.g.
-    {"funded": 1025, "fortune500": 1500, "both": 2525}. Powers the counts
-    shown next to "Funded Startups" / "Fortune 500" / "Both" in the
-    sidebar. Deliberately unfiltered -- not scoped to title, posted_days,
-    or any other search filter, just the total size of each database.
-    """
     cur = get_cursor()
     cur.execute(
-        """
+        f"""
         SELECT c.company_type, count(*) AS job_count
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE j.is_active = true
+          AND {HAS_DEPT_OR_LOCATION}
         GROUP BY c.company_type
         """
     )
@@ -458,13 +301,14 @@ def company_type_counts():
 def company_jobs(company_id):
     cur = get_cursor()
     cur.execute(
-        """
+        f"""
         SELECT
             j.id, j.title, j.department, j.location, j.date_posted,
             m.match_percent AS match
         FROM jobs j
         LEFT JOIN job_matches m ON m.job_id = j.id AND m.user_id = %s
         WHERE j.company_id = %s AND j.is_active = true
+          AND {HAS_DEPT_OR_LOCATION}
         ORDER BY j.date_posted DESC
         """,
         (g.user_id, company_id),
