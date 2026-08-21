@@ -175,7 +175,7 @@ export default function ActiveFiltersBar({
         )}
         {renderBookmarkColumn(
           filters.title && (
-            <p className="mt-2 max-w-[220px] text-right text-xs text-ink-soft">
+            <p className="mt-2 whitespace-nowrap text-right text-xs text-ink-soft">
               Match % is based on how closely each job's title and description match your search.
             </p>
           )
