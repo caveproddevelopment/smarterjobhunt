@@ -93,6 +93,14 @@ export default function JobListings() {
   // fetched for, so toggling selectedVariant alone doesn't re-trigger that
   // fetch when nothing else actually changed.
   const variantsKeyRef = useRef(null)
+  // job.id -> DOM node for whichever job cards are currently rendered.
+  // Populated via a callback ref on each card's wrapper below; used by
+  // handleJumpToTitleMatch to scroll a specific card into view.
+  const jobCardRefs = useRef({})
+  // Briefly highlighted after "Jump to the best-matching job" so the
+  // person can actually spot which card it landed on.
+  const [highlightedJobId, setHighlightedJobId] = useState(null)
+  const highlightTimeoutRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -148,6 +156,7 @@ export default function JobListings() {
       try {
         const { jobs: results, totalCount: total } = await fetchJobs(jobParams)
         if (cancelled) return
+        jobCardRefs.current = {}
         setJobs(results)
         setTotalCount(total)
         setStatusByJob((prev) => {
@@ -281,6 +290,28 @@ export default function JobListings() {
     setSelectedVariant(null)
     setSelectedCompany(null)
     setSelectedStatus(value)
+  }
+
+  // Clicking the "Title" chip's label (not its ×) jumps to whichever job in
+  // the current list best matches what was typed, instead of clearing the
+  // filter: an exact title match if one exists, otherwise the job with the
+  // highest search-match %.
+  function handleJumpToTitleMatch() {
+    if (!jobs.length) return
+    const target = appliedFilters.title.trim().toLowerCase()
+    let best = jobs.find((job) => job.title.trim().toLowerCase() === target)
+    if (!best) {
+      for (const job of jobs) {
+        if (typeof job.matchPercent !== 'number') continue
+        if (!best || job.matchPercent > best.matchPercent) best = job
+      }
+    }
+    if (!best) return
+    const node = jobCardRefs.current[best.id]
+    node?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightedJobId(best.id)
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
+    highlightTimeoutRef.current = setTimeout(() => setHighlightedJobId(null), 1800)
   }
 
   function handleReturnToFullList() {
@@ -439,16 +470,12 @@ export default function JobListings() {
                 {totalCount} match{totalCount === 1 ? '' : 'es'} for your current filters
               </p>
             )}
-            {!loading && appliedFilters.title && !selectedCompany && !selectedStatus && (
-              <p className="mt-1 text-xs text-ink-soft">
-                Match % is based on how closely each job's title and description match your search.
-              </p>
-            )}
           </div>
 
           <ActiveFiltersBar
             filters={appliedFilters}
             onChange={handleActiveFiltersChange}
+            onJumpToTitleMatch={handleJumpToTitleMatch}
             selectedVariant={selectedVariant}
             selectedCompany={selectedCompany}
             selectedStatus={selectedStatus}
@@ -489,16 +516,27 @@ export default function JobListings() {
               ) : (
                 <div className="border border-line divide-y divide-line">
                   {jobs.map((job, index) => (
-                    <JobCard
+                    <div
                       key={job.id}
-                      job={job}
-                      status={getStatus(job.id)}
-                      onStatusChange={(status) => setStatus(job.id, status)}
-                      shaded={index % 2 === 1}
-                      canApply={canApply}
-                      onRequireSubscription={() => setShowSubscribeModal(true)}
-                      onSeeCompanyJobs={handleSeeCompanyJobs}
-                    />
+                      ref={(el) => {
+                        jobCardRefs.current[job.id] = el
+                      }}
+                      className={
+                        job.id === highlightedJobId
+                          ? 'ring-2 ring-inset ring-ember transition-shadow'
+                          : ''
+                      }
+                    >
+                      <JobCard
+                        job={job}
+                        status={getStatus(job.id)}
+                        onStatusChange={(status) => setStatus(job.id, status)}
+                        shaded={index % 2 === 1}
+                        canApply={canApply}
+                        onRequireSubscription={() => setShowSubscribeModal(true)}
+                        onSeeCompanyJobs={handleSeeCompanyJobs}
+                      />
+                    </div>
                   ))}
                 </div>
               )}
