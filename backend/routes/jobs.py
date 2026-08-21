@@ -54,8 +54,8 @@ def _description_boost_expr(terms):
          above otherwise-equal jobs. This half never excludes anything by
          itself -- a job already included via a title match keeps its slot
          even if its description score is 0, it just sorts lower.
-      3. Inside _search_match_percent_expr, blended with the title score
-         into the search_match_percent column shown on each job card.
+      3. Inside _combine_match_percent, blended with the title score into
+         the search_match_percent column shown on each job card.
 
     Deliberately scores against the typed `title`'s individual words only,
     not the 15 title variants -- keeps this easy to reason about. Could be
@@ -104,10 +104,16 @@ def _description_boost_expr(terms):
 def _title_score_expr(terms):
     """0-100 weighted word-overlap score of the search terms against a
     job's title -- same per-word CASE-sum shape as _description_boost_expr,
-    just against j.title instead of j.raw_text. Kept as its own standalone
-    function (rather than reusing the inline score_terms block in the
-    title_matches WHERE-clause builder below) so building this display-only
-    percentage can never perturb that block's existing filtering behavior.
+    just against j.title instead of j.raw_text.
+
+    Computed once by list_jobs and reused at both places that need it,
+    the same pattern _description_boost_expr uses:
+      1. In the WHERE clause's title_matches OR-group, gating whether a
+         job qualifies via title word-overlap (score > 0 -- any word
+         matched at all, however many terms were typed).
+      2. Inside _combine_match_percent, as the primary source of the
+         search_match_percent column shown on each job card -- the same
+         score used to decide a title match, not a separate calculation.
 
     Returns (sql_expr, params), or (None, []) when there are no terms.
     """
@@ -124,34 +130,31 @@ def _title_score_expr(terms):
     return "(" + " + ".join(score_terms) + ")", params
 
 
-# Weights for the job-card "search match %": how much of the combined score
-# comes from the title vs. the description. Title counts for more since an
-# exact/near title match is a stronger signal than the search words merely
-# appearing somewhere in the description.
-TITLE_MATCH_WEIGHT = 0.7
-DESCRIPTION_MATCH_WEIGHT = 0.3
+def _combine_match_percent(title_expr, title_params, desc_expr, desc_params):
+    """The 0-100 "match %" shown on each job card: title word-overlap score
+    if the title matched at all (any word), otherwise the description
+    word-overlap score as a fallback. Not a blend of the two -- whichever
+    one actually decided the job's inclusion is the one displayed, so the
+    number on the card always matches the reason the job showed up.
 
-
-def _search_match_percent_expr(terms):
-    """Combined 0-100 "how well does this job match what was typed" score,
-    blending the title word-overlap score and the description word-overlap
-    score with the weights above. This is the number shown on each job card
-    (via MatchRing) -- distinct from job_matches.match_percent, which is a
-    separate per-user AI-computed score against a resume, not against the
-    currently typed search title.
+    title_expr/desc_expr are the exact same expressions the WHERE clause
+    below uses to filter (title score > 0, or description score >= 50 as a
+    fallback), so this is the identical calculation, not a separate one.
 
     Returns (sql_expr, params), or (None, []) when there's no title typed at
-    all (nothing to score against, so the card shows no ring).
+    all (title_expr is None -- nothing to score against, so the card shows
+    no match %).
     """
-    title_expr, title_params = _title_score_expr(terms)
-    desc_expr, desc_params = _description_boost_expr(terms)
     if title_expr is None:
         return None, []
     combined = (
-        f"ROUND(({TITLE_MATCH_WEIGHT} * {title_expr}) "
-        f"+ ({DESCRIPTION_MATCH_WEIGHT} * {desc_expr}))::int"
+        f"ROUND(CASE WHEN ({title_expr}) > 0 "
+        f"THEN ({title_expr}) ELSE ({desc_expr}) END)::int"
     )
-    return combined, [*title_params, *desc_params]
+    # title_expr's placeholders appear twice in the text above (once in the
+    # WHEN condition, once in the THEN branch), so title_params needs to be
+    # spliced in twice to match -- desc_params appears once, in ELSE.
+    return combined, [*title_params, *title_params, *desc_params]
 
 
 @bp.get("/jobs")
@@ -179,12 +182,19 @@ def list_jobs():
     # at two separate positions.
     desc_score_expr, desc_score_params = _description_boost_expr(terms)
 
-    # Same terms, used for the job-card match-percent column in SELECT
-    # below (title + description blended). Computed up front, next to
-    # desc_score_expr, for the same reason: its params need to land in
-    # full_params in the exact position this expression's %s placeholders
-    # end up appearing in the final query text (see full_params below).
-    search_match_expr, search_match_params = _search_match_percent_expr(terms)
+    # Same word-overlap scoring the title-match OR-clause below uses --
+    # computed once here so both that filter and the match-percent column
+    # share this single calculation instead of each building their own copy
+    # of it.
+    title_score_expr, title_score_params = _title_score_expr(terms)
+
+    # search_match_percent (shown on each job card) is title_score_expr if
+    # it's > 0, else desc_score_expr as a fallback -- the identical two
+    # numbers the WHERE clause below uses to find a title match, not a
+    # separately-computed score.
+    search_match_expr, search_match_params = _combine_match_percent(
+        title_score_expr, title_score_params, desc_score_expr, desc_score_params
+    )
 
     # "Track Applications" (Applied / Rejected / All) is a history view of
     # what the user has marked, not a normal browse -- a job they applied
@@ -199,23 +209,23 @@ def list_jobs():
     # variants count is fixed, not user-selectable).
     #
     # A job that matches none of those exact phrases still gets included if
-    # at least half of the *typed* title's individual words appear in it
-    # (each word weighted 100/word-count, summed, included if the total is
-    # >=50%). e.g. searching "Senior Project Manager" against a job titled
-    # "Project Manager" scores 66% and is shown even though neither the
-    # exact title nor any of the 15 variants matched it as a phrase. This
-    # >=50 threshold means a 2-word search needs only one word present to
-    # qualify (50% >= 50%). This is folded into
-    # the same OR group as the exact/variant checks above -- "match A OR
-    # match B" gives the identical result as "if A: show, elif B: show".
-    # Word terms are matched on a word boundary rather than a bare
-    # substring, so a short word like "PM" can't match inside an unrelated
-    # word the way ILIKE '%PM%' would.
+    # ANY of the *typed* title's individual words appear in it (each word
+    # weighted 100/word-count, summed -- included as soon as that total is
+    # above 0). e.g. searching "Senior Project Manager" against a job
+    # titled "Project Manager" scores 66% and is shown even though neither
+    # the exact title nor any of the 15 variants matched it as a phrase; a
+    # job titled "Manager, Retail Ops" still scores 33% (one of three words)
+    # and is shown too. This is folded into the same OR group as the
+    # exact/variant checks above -- "match A OR match B" gives the
+    # identical result as "if A: show, elif B: show". Word terms are
+    # matched on a word boundary rather than a bare substring, so a short
+    # word like "PM" can't match inside an unrelated word the way ILIKE
+    # '%PM%' would.
     #
-    # Threshold is '>= 50' (not a strict '>'), so with exactly 2 typed
-    # terms -- each worth exactly 50% -- a single matching word out of two
-    # is enough to clear this check on its own. Kept consistent with the
-    # description fallback just below, which uses the same >=50 threshold.
+    # search_match_percent (see _combine_match_percent) is exactly this
+    # score, so whatever percentage a job shows on its card is the same
+    # number that got it included here -- title score first, description
+    # fallback below only kicks in when the title scored 0.
     if title or variant_titles:
         title_matches = []
         for candidate in [title, *variant_titles]:
@@ -223,25 +233,21 @@ def list_jobs():
                 title_matches.append("j.title ILIKE %s")
                 params.append(f"%{candidate}%")
 
-        if len(terms) > 1:
-            percent_per_term = 100.0 / len(terms)
-            score_terms = []
-            for term in terms:
-                score_terms.append(
-                    f"(CASE WHEN j.title ~* %s THEN {percent_per_term} ELSE 0 END)"
-                )
-                params.append(_word_boundary_pattern(term))
-            score_expr = " + ".join(score_terms)
-            title_matches.append(f"(({score_expr}) >= 50)")
+        if title_score_expr:
+            title_matches.append(f"(({title_score_expr}) > 0)")
+            params.extend(title_score_params)
 
-        # Fallback: only matters for jobs that missed every check above. If
-        # the typed title's words turn up in the job's DESCRIPTION at a
-        # complete coverage of 100%, include it too. OR'd into the same
-        # group as the title checks, so a job that already matched on title
-        # is completely unaffected -- this can only ever add jobs, never
-        # remove or reorder them within this clause.
+        # Fallback: only matters for jobs whose title scored 0 above (no
+        # typed word appears in the title at all, and it didn't match a
+        # variant phrase either). If at least half of the typed title's
+        # words turn up in the job's DESCRIPTION instead, include it --
+        # below 50% description coverage, the job is left out entirely
+        # rather than shown with a low/misleading match %. OR'd into the
+        # same group as the title checks, so a job that already matched on
+        # title is completely unaffected -- this can only ever add jobs,
+        # never remove or reorder them within this clause.
         if desc_score_expr:
-            title_matches.append(f"(({desc_score_expr}) >= 100)")
+            title_matches.append(f"(({desc_score_expr}) >= 50)")
             params.extend(desc_score_params)
 
         where.append("(" + " OR ".join(title_matches) + ")")
