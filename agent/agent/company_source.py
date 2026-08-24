@@ -28,6 +28,21 @@ import datetime
 from abc import ABC, abstractmethod
 from typing import Optional
 
+# Different company-list exports use slightly different column names for
+# the same field (e.g. india_companies_with_homepages.csv uses "Company
+# Homepage URL" instead of "Homepage URL"). Try each candidate in order
+# instead of hard-failing to blank on the first mismatch.
+_NAME_COLUMNS = ("Organization Name", "Company Name", "Name")
+_HOMEPAGE_COLUMNS = ("Homepage URL", "Company Homepage URL", "Website", "Website URL")
+
+
+def _first_present(row: dict, candidates: tuple[str, ...]) -> str:
+    for col in candidates:
+        val = row.get(col)
+        if val and val.strip():
+            return val.strip()
+    return ""
+
 
 class CompanySource(ABC):
     @abstractmethod
@@ -40,6 +55,9 @@ class CSVCompanySource(CompanySource):
     """Reads the company CSV format established for MyJobHunt / the
     100/200/500 batch-size test files:
     Organization Name, Homepage URL, Last Funding Type, Last Funding Amount, Last Funding Date
+
+    Also tolerates the header variants in _NAME_COLUMNS / _HOMEPAGE_COLUMNS
+    (e.g. india_companies_with_homepages.csv's "Company Homepage URL").
     """
 
     def __init__(self, path: str, limit: Optional[int] = None):
@@ -51,12 +69,12 @@ class CSVCompanySource(CompanySource):
         with open(self.path, newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                name = (row.get("Organization Name") or "").strip()
+                name = _first_present(row, _NAME_COLUMNS)
                 if not name:
                     continue  # skip blank rows
                 companies.append({
                     "company_name":  name,
-                    "website":       (row.get("Homepage URL") or "").strip(),
+                    "website":       _first_present(row, _HOMEPAGE_COLUMNS),
                     "funding_round": (row.get("Last Funding Type") or "").strip(),
                     "funding_amount": (row.get("Last Funding Amount") or "").strip(),
                     "funding_date":  (row.get("Last Funding Date") or "").strip(),
