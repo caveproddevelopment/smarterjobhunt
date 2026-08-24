@@ -129,6 +129,16 @@ export async function clearJobStatus(jobId) {
   }
 }
 
+export async function submitContactMessage({ name, email, subject, message, website }) {
+  const res = await fetch(`${API_URL}/api/contact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, subject, message, website }),
+  })
+  if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to send message (${res.status})`))
+  return res.json()
+}
+
 export async function fetchTitleVariants(title) {
   const params = new URLSearchParams({ title })
   const res = await fetch(`${API_URL}/api/title-variants?${params.toString()}`, {

@@ -3,7 +3,7 @@ from flask_cors import CORS
 
 from config import Config
 from db.connection import init_pool, register_teardown, get_cursor
-from routes import auth, billing, job_status, jobs, preferences, saved_searches, title_variants
+from routes import auth, billing, contact, job_status, jobs, preferences, saved_searches, title_variants
 
 
 def create_app():
@@ -16,6 +16,7 @@ def create_app():
     register_teardown(app)
 
     app.register_blueprint(auth.bp)
+    app.register_blueprint(contact.bp)
     app.register_blueprint(jobs.bp)
     app.register_blueprint(job_status.bp)
     app.register_blueprint(saved_searches.bp)

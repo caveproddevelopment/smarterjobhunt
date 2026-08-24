@@ -305,3 +305,23 @@ CREATE TABLE IF NOT EXISTS job_title_variants (
     variants          JSONB NOT NULL,       -- ordered array of strings, most relevant first
     generated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- ---------------------------------------------------------------------------
+-- contact_messages: submissions from the "Contact us" form on the About Us
+-- page (routes/contact.py). Stored regardless of whether the email
+-- notification goes out -- this table is the durable record; the email
+-- (via email_utils.send_contact_email, same Apps Script webhook as
+-- verification/reset) is just a heads-up on top of it.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS contact_messages (
+    id           SERIAL PRIMARY KEY,
+    name         TEXT NOT NULL,
+    email        TEXT NOT NULL,
+    subject      TEXT NOT NULL CHECK (subject IN (
+                     'general', 'bug', 'feedback', 'account', 'business', 'other'
+                 )),
+    message      TEXT NOT NULL,
+    emailed      BOOLEAN NOT NULL DEFAULT false,  -- true once the Apps Script send succeeded
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_messages_created_at ON contact_messages (created_at DESC);

@@ -61,6 +61,12 @@ class Config:
     # keeping this URL private, so treat it like a credential.
     APPS_SCRIPT_URL = os.environ.get("APPS_SCRIPT_URL")
 
+    # Where "Contact us" form submissions (About Us page) get emailed to.
+    # Uses the same Apps Script webhook above -- just a different `type` in
+    # the payload and a different recipient. If unset, submissions are still
+    # saved to contact_messages, just without a notification email going out.
+    CONTACT_TO_EMAIL = os.environ.get("CONTACT_TO_EMAIL")
+
     # Stripe billing. Weekly/monthly are separate Stripe Price objects — create
     # both (same Product, two recurring prices) in the Stripe Dashboard and
     # drop their IDs in here. STRIPE_WEBHOOK_SECRET comes from the webhook

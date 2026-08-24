@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import { submitContactMessage } from '../lib/api'
 
 export default function AboutUs() {
   const [formData, setFormData] = useState({
@@ -8,9 +9,11 @@ export default function AboutUs() {
     email: '',
     subject: '',
     message: '',
+    website: '', // honeypot -- stays empty for real users, see the hidden field below
   })
 
   const [status, setStatus] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -25,30 +28,22 @@ export default function AboutUs() {
     e.preventDefault()
 
     setStatus('sending')
+    setErrorMessage('')
 
     try {
-      // Replace this with your backend/API endpoint
-      const response = await fetch('/api/contact', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to send message')
-      }
+      await submitContactMessage(formData)
 
       setFormData({
         name: '',
         email: '',
         subject: '',
         message: '',
+        website: '',
       })
 
       setStatus('success')
     } catch (error) {
+      setErrorMessage(error.message)
       setStatus('error')
     }
   }
@@ -126,6 +121,22 @@ export default function AboutUs() {
             </p>
 
             <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+              {/* Honeypot -- hidden from real visitors, only a bot filling
+                  every field blindly will trip it. Server silently drops
+                  submissions where this is non-empty. */}
+              <div className="hidden" aria-hidden="true">
+                <label htmlFor="website">Leave this field blank</label>
+                <input
+                  id="website"
+                  name="website"
+                  type="text"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={formData.website}
+                  onChange={handleChange}
+                />
+              </div>
+
               <div className="grid gap-5 md:grid-cols-2">
                 <div>
                   <label
@@ -230,7 +241,7 @@ export default function AboutUs() {
 
               {status === 'error' && (
                 <p className="text-sm font-medium text-red-600">
-                  Something went wrong. Please try again.
+                  {errorMessage || 'Something went wrong. Please try again.'}
                 </p>
               )}
             </form>
