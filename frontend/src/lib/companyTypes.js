@@ -23,10 +23,10 @@ export const COMPANY_TYPES = [
 export const DEFAULT_COMPANY_TYPE = 'funded'
 
 // A search/bookmark's Company Database filter always additionally offers
-// "Both" (no restriction) on top of the real categories above -- unlike
-// those, "Both" isn't something a company itself can be, so it's added
+// "All" (no restriction) on top of the real categories above -- unlike
+// those, "All" isn't something a company itself can be, so it's added
 // here rather than being one of the COMPANY_TYPES entries.
-export const COMPANY_TYPE_FILTER_OPTIONS = [...COMPANY_TYPES, { value: 'both', label: 'Both' }]
+export const COMPANY_TYPE_FILTER_OPTIONS = [...COMPANY_TYPES, { value: 'all', label: 'All' }]
 
 export const COMPANY_TYPE_LABELS = Object.fromEntries(
   COMPANY_TYPE_FILTER_OPTIONS.map(({ value, label }) => [value, label])

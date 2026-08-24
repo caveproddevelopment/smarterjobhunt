@@ -39,7 +39,7 @@ function buildBookmarkName(view) {
   if (view.viewType === 'company') {
     return `All jobs at ${view.companyName}`
   }
-  const dbLabel = ` · ${COMPANY_TYPE_LABELS[view.companyType || 'both']}`
+  const dbLabel = ` · ${COMPANY_TYPE_LABELS[view.companyType || 'all']}`
   if (view.viewType === 'variant') {
     return `${view.variantTitle}${suffix}${dbLabel}`
   }
@@ -72,7 +72,7 @@ export default function JobListings() {
   const [titleVariants, setTitleVariants] = useState([])
   const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
   // Total active jobs in each of the three Company Database options --
-  // { funded, fortune500, both } -- unfiltered (not scoped to title,
+  // { funded, fortune500, indianmajor, all } -- unfiltered (not scoped to title,
   // postedDays, or anything else), fetched once on mount.
   const [companyTypeCounts, setCompanyTypeCounts] = useState({})
   const [companyTypeCountsLoading, setCompanyTypeCountsLoading] = useState(false)
@@ -143,9 +143,9 @@ export default function JobListings() {
       // entirely, no OR'ing with the other variants). With nothing
       // selected, it's the normal combined title + all-variants view.
       const jobParams = selectedStatus
-        ? { title: '', postedDays: '', companyType: 'both', status: selectedStatus }
+        ? { title: '', postedDays: '', companyType: 'all', status: selectedStatus }
         : selectedCompany
-          ? { title: '', postedDays: '', companyType: 'both', companyId: selectedCompany.id }
+          ? { title: '', postedDays: '', companyType: 'all', companyId: selectedCompany.id }
           : selectedVariant
             ? {
                 title: '',
@@ -376,7 +376,7 @@ export default function JobListings() {
       return search.company_id === currentView.companyId
     }
     const sameDays = String(search.posted_within_days || '') === String(currentView.days || '')
-    const sameCompanyType = (search.company_type || 'both') === (currentView.companyType || 'both')
+    const sameCompanyType = (search.company_type || 'all') === (currentView.companyType || 'all')
     if (currentView.viewType === 'variant') {
       return (search.variant_title || '') === currentView.variantTitle && sameDays && sameCompanyType
     }
@@ -429,7 +429,7 @@ export default function JobListings() {
     const applied = {
       title: search.job_title || '',
       postedDays: search.posted_within_days != null ? String(search.posted_within_days) : '',
-      companyType: search.company_type || 'both',
+      companyType: search.company_type || 'all',
     }
     setFilters(applied)
     setAppliedFilters(applied)

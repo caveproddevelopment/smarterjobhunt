@@ -27,7 +27,7 @@ def main():
     parser.add_argument(
         "--company-type",
         default="funded",
-        choices=["funded", "fortune500"],
+        choices=["funded", "fortune500", "indianmajor"],
         help="Value to tag every company in this CSV with (default: funded)",
     )
     args = parser.parse_args()
