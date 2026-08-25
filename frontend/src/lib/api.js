@@ -42,6 +42,7 @@ export async function fetchJobs(filters) {
   }
   if (filters.companyId) params.set('company_id', filters.companyId)
   if (filters.status) params.set('status', filters.status)
+  if (filters.remoteOnly) params.set('remote_only', '1')
   for (const variantTitle of filters.variantTitles || []) {
     params.append('variant_title', variantTitle)
   }

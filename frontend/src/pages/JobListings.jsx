@@ -56,6 +56,7 @@ export default function JobListings() {
     title: searchParams.get('title') || '',
     postedDays: '',
     companyType: DEFAULT_COMPANY_TYPE,
+    remoteOnly: false,
   })
   const [appliedFilters, setAppliedFilters] = useState(filters)
   const [savedSearches, setSavedSearches] = useState([])
@@ -143,14 +144,15 @@ export default function JobListings() {
       // entirely, no OR'ing with the other variants). With nothing
       // selected, it's the normal combined title + all-variants view.
       const jobParams = selectedStatus
-        ? { title: '', postedDays: '', companyType: 'all', status: selectedStatus }
+        ? { title: '', postedDays: '', companyType: 'all', remoteOnly: false, status: selectedStatus }
         : selectedCompany
-          ? { title: '', postedDays: '', companyType: 'all', companyId: selectedCompany.id }
+          ? { title: '', postedDays: '', companyType: 'all', remoteOnly: false, companyId: selectedCompany.id }
           : selectedVariant
             ? {
                 title: '',
                 postedDays: appliedFilters.postedDays,
                 companyType: appliedFilters.companyType,
+                remoteOnly: appliedFilters.remoteOnly,
                 variantTitles: [selectedVariant],
               }
             : { ...appliedFilters, variantTitles: variants }

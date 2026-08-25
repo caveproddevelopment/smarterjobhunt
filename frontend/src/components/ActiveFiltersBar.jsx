@@ -1,6 +1,11 @@
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 
-const DEFAULT_FILTERS = { title: '', postedDays: '', companyType: DEFAULT_COMPANY_TYPE }
+const DEFAULT_FILTERS = {
+  title: '',
+  postedDays: '',
+  companyType: DEFAULT_COMPANY_TYPE,
+  remoteOnly: false,
+}
 
 const STATUS_LABELS = {
   applied: 'Applied Jobs',
@@ -114,6 +119,13 @@ export default function ActiveFiltersBar({
       key: 'companyType',
       label: COMPANY_TYPE_LABELS[filters.companyType] || filters.companyType,
       clear: () => onChange({ ...filters, companyType: DEFAULT_COMPANY_TYPE }),
+    })
+  }
+  if (filters.remoteOnly) {
+    chips.push({
+      key: 'remoteOnly',
+      label: 'Remote',
+      clear: () => onChange({ ...filters, remoteOnly: false }),
     })
   }
 

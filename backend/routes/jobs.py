@@ -221,6 +221,7 @@ def list_jobs():
     company_type = request.args.get("company_type", "both").strip().lower()
     company_id = request.args.get("company_id", "").strip()
     status_filter = request.args.get("status", "").strip().lower()
+    remote_only = request.args.get("remote_only", "").strip().lower() in {"1", "true", "yes"}
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
 
@@ -293,6 +294,16 @@ def list_jobs():
     if company_type in COMPANY_TYPES:
         where.append("c.company_type = %s")
         params.append(company_type)
+
+    # "Remote" checkbox in the sidebar: word-boundary match (same \y
+    # helper the title/description scoring above uses) against title,
+    # location, and the full scraped description -- ANY of the three
+    # mentioning "remote" qualifies, so e.g. a job titled without it but
+    # whose location says "Remote (US)" still matches.
+    if remote_only:
+        remote_pattern = _word_boundary_pattern("remote")
+        where.append("(j.title ~* %s OR j.location ~* %s OR j.raw_text ~* %s)")
+        params.extend([remote_pattern, remote_pattern, remote_pattern])
 
     # "See them all" on a job card: scope to exactly one company by id
     # (never by name -- company names aren't guaranteed unique, id is).
