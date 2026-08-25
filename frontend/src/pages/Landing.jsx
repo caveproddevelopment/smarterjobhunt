@@ -26,6 +26,7 @@ const reviews = [
 
 export default function Landing() {
   const [query, setQuery] = useState('')
+  const [isPlaying, setIsPlaying] = useState(false)
   const navigate = useNavigate()
 
   function handleSearch(event) {
@@ -45,11 +46,25 @@ export default function Landing() {
             className="mx-auto grid max-w-6xl items-start gap-10 py-10 md:grid-cols-2 md:py-16"
           >
             <div>
-              <p className="max-w-md text-base leading-relaxed text-ink-soft">
-                JobBeggar pulls fresh roles from seed-to-Series-B startups into one
-                list, scores each one against your resume, and remembers who you've
-                applied to — so you don't have to keep a spreadsheet or fifty open tabs.
-              </p>
+              <div className="max-w-md space-y-3 text-base leading-relaxed text-ink-soft">
+                <p>Job boards suck.</p>
+                <p>
+                  They're full of reposts, expired listings, and jobs that
+                  don't exist anymore.
+                </p>
+                <p>JobBeggar.com skips the boards and goes straight to the company.</p>
+                <p>
+                  JobBeggar.com does a better job using variants of your job
+                  title to find all of the relevant jobs.
+                </p>
+                <p>
+                  And JobBeggar.com allows you to target specific types of
+                  companies like Funded startups, Fortune 500 and Major Indian
+                  companies.
+                </p>
+                <p>The interface is easy and intuitive.</p>
+                <p>You need a job. JobBeggar.com can help.</p>
+              </div>
 
               <form onSubmit={handleSearch} className="mt-10 max-w-md">
                 <label htmlFor="job-title" className="text-sm font-medium text-ink">
@@ -74,16 +89,31 @@ export default function Landing() {
               </form>
             </div>
 
-            <div className="aspect-video overflow-hidden rounded-2xl border border-line bg-mist md:aspect-auto md:h-full md:min-h-[360px]">
-              <video
-                controls
-                playsInline
-                preload="metadata"
-                className="h-full w-full object-cover"
-              >
-                <source src="/videos/walkthrough.mp4" type="video/mp4" />
-                Your browser doesn't support embedded video.
-              </video>
+            <div className="relative aspect-video overflow-hidden rounded-2xl border border-line bg-mist">
+              {isPlaying ? (
+                <video
+                  autoPlay
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="h-full w-full object-cover"
+                >
+                  <source src="/videos/walkthrough.mp4" type="video/mp4" />
+                  Your browser doesn't support embedded video.
+                </video>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsPlaying(true)}
+                  aria-label="Play walkthrough video"
+                  className="group flex h-full w-full flex-col items-center justify-center gap-3 bg-mist text-ink-soft"
+                >
+                  <span className="flex h-14 w-14 items-center justify-center rounded-full flame-gradient text-white shadow-lg transition-transform group-hover:scale-105">
+                    ▶
+                  </span>
+                  <span className="text-sm font-medium">Product walkthrough — 90 seconds</span>
+                </button>
+              )}
             </div>
           </section>
 
