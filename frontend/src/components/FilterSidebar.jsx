@@ -63,11 +63,12 @@ export default function FilterSidebar({
       </div>
 
       <div className="mt-4">
-        <label className="ml-8 flex items-center gap-1.5 text-sm text-ink">
+        <label className="ml-8 flex items-center gap-2 text-base text-ink">
           <input
             type="checkbox"
             checked={Boolean(filters.remoteOnly)}
             onChange={(event) => onFilterChange({ ...filters, remoteOnly: event.target.checked })}
+            className="h-4 w-4 accent-ember"
           />
           Remote
         </label>
