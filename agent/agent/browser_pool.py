@@ -27,6 +27,13 @@ Reliability additions (2026-08-24, after a driver crash ~94% through a
     headless Chrome under sustained multi-hour load accumulates memory
     that a single `is_connected()` check won't catch until it's fatal.
     Set `recycle_after=0` to disable.
+  - Launch args now include `--disable-dev-shm-usage`. Docker containers
+    (Railway included) default /dev/shm to 64MB, which is too small for
+    Chromium's shared memory needs under real page rendering — when it
+    fills up, the renderer can crash or hang in ways that don't always
+    surface as a clean Python exception. This flag makes Chromium use
+    /tmp instead, which is sized to the container's normal disk/memory
+    limits instead of a fixed tiny default.
 
 Usage:
     pool = BrowserPool()
@@ -84,7 +91,7 @@ class BrowserPool:
         pw = sync_playwright().start()
         browser = pw.chromium.launch(
             headless=self._headless,
-            args=["--no-sandbox", "--disable-setuid-sandbox"],
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
         )
         self._local.pw = pw
         self._local.browser = browser

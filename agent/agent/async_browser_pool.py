@@ -20,6 +20,11 @@ adds `invalidate()` so a caller that just caught a
 ScraperBrowserDeadError can force the next `get()` to relaunch, without
 waiting on the lazy health check.
 
+Launch args now include `--disable-dev-shm-usage` — Docker containers
+default /dev/shm to 64MB, too small for Chromium's shared memory needs
+under real page rendering; this makes it use /tmp instead, which isn't
+capped at a fixed tiny size.
+
 Proactive recycling (closing the browser after N pages even if still
 healthy — see the per-thread version in browser_pool.py) is
 intentionally NOT done here: this pool hands out ONE browser shared by
@@ -62,7 +67,7 @@ class AsyncBrowserPool:
             self._pw = await async_playwright().start()
             self._browser = await self._pw.chromium.launch(
                 headless=self._headless,
-                args=["--no-sandbox", "--disable-setuid-sandbox"],
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
             )
         return self._browser
 

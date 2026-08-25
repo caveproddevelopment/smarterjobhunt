@@ -112,7 +112,7 @@ def scrape_careers_page(careers_url: str, base_domain: str, browser=None, fetch_
         return []
 
     with sync_playwright() as pw:
-        b = pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+        b = pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
         try:
             return _scrape_with_browser(b, careers_url, base_domain, fetch_descriptions=fetch_descriptions)
         finally:
@@ -269,7 +269,7 @@ def find_careers_url_via_playwright(base_url: str, browser=None) -> Optional[str
         except ImportError:
             return None
         pw = sync_playwright().start()
-        browser = pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+        browser = pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
 
     href_found = None
     try:

@@ -86,7 +86,7 @@ async def scrape_careers_page(careers_url: str, base_domain: str, browser=None) 
         return []
 
     async with async_playwright() as pw:
-        b = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+        b = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
         try:
             return await _scrape_with_browser(b, careers_url, base_domain)
         finally:
@@ -230,7 +230,7 @@ async def find_careers_url_via_playwright(base_url: str, browser=None) -> Option
         except ImportError:
             return None
         pw = await async_playwright().start()
-        browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+        browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
 
     href_found = None
     try:
