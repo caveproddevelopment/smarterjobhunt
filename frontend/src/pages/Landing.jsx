@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
@@ -28,11 +28,28 @@ export default function Landing() {
   const [query, setQuery] = useState('')
   const [isPlaying, setIsPlaying] = useState(false)
   const navigate = useNavigate()
+  const videoBoxRef = useRef(null)
 
   function handleSearch(event) {
     event.preventDefault()
     navigate(query ? `/dashboard?title=${encodeURIComponent(query)}` : '/dashboard')
   }
+
+  // Reset back to the cover state on an outside click while the video is
+  // playing -- listener is only attached while isPlaying is true, so a click
+  // anywhere before/after playback is a no-op.
+  useEffect(() => {
+    if (!isPlaying) return
+
+    function handleOutsideClick(event) {
+      if (videoBoxRef.current && !videoBoxRef.current.contains(event.target)) {
+        setIsPlaying(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [isPlaying])
 
   return (
     <div className="min-h-screen flame-gradient">
@@ -89,14 +106,18 @@ export default function Landing() {
               </form>
             </div>
 
-            <div className="relative aspect-video overflow-hidden rounded-2xl border border-line bg-mist">
+            <div
+              ref={videoBoxRef}
+              className="relative aspect-video overflow-hidden rounded-2xl border border-line bg-mist"
+            >
               {isPlaying ? (
                 <video
                   autoPlay
                   controls
                   playsInline
                   preload="metadata"
-                  className="h-full w-full object-cover"
+                  onEnded={() => setIsPlaying(false)}
+                  className="h-full w-full object-contain"
                 >
                   <source src="/videos/walkthrough.mp4" type="video/mp4" />
                   Your browser doesn't support embedded video.
