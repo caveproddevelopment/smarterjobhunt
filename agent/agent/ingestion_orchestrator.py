@@ -20,6 +20,28 @@ Same concurrency model as MyJobHunt's job_orchestrator.py: companies
 processed in a thread pool, one persistent Playwright browser per
 worker thread (via BrowserPool) instead of one browser launch per
 company.
+
+Reliability fixes (2026-08-24, after a driver crash ~94% through a
+1923-company run — see career_scraper.py and browser_pool.py for the
+underlying fixes):
+  - A company whose scrape hits a dead browser (ScraperBrowserDeadError)
+    no longer gets silently recorded as "0 jobs found" while every
+    other company on that thread quietly fails the same way for the
+    rest of the run. The thread's browser is discarded and relaunched,
+    and the company is retried once against the fresh browser before
+    being given up on.
+  - `browser_pool.get()` is now only called for companies that actually
+    fall through to the Playwright scrape path — companies resolved via
+    an ATS API never touch a browser at all, so a thread whose first
+    several companies are all ATS-API hits no longer launches a browser
+    it doesn't need.
+  - Per-company progress logging is sampled instead of printed for
+    every single completion. Printing one line per company across 10
+    concurrent workers was fast enough to trip Railway's 500 logs/sec
+    platform cap (1358 dropped log lines on the run that crashed) — the
+    full per-company detail is still captured in the returned
+    `per_company_timing` and `errors` lists regardless of what gets
+    printed to the console.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,10 +53,13 @@ from .ats_detector import detect_ats
 from .ats_api import fetch_jobs
 from .career_scraper import scrape_careers_page
 from .browser_pool import BrowserPool
+from .scraper_errors import ScraperBrowserDeadError
 from .company_source import CompanySource
 from .job_sink import JobSink
 
 DEFAULT_MAX_WORKERS = 10
+DEFAULT_SCRAPE_RETRIES = 2  # attempts per company against the career-scrape path
+MAX_PROGRESS_LINES = 200    # roughly how many "[n/total] Scraped X" lines to print for the whole run
 
 
 def run(
@@ -79,6 +104,7 @@ def run(
 
     companies = company_source.load()
     total = len(companies)
+    log_every = max(1, total // MAX_PROGRESS_LINES)
     progress(0.02, f"Loaded {total} companies.")
 
     all_jobs: list[dict] = []
@@ -91,12 +117,28 @@ def run(
     browser_pool = BrowserPool()
     run_ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    def scrape_with_retry(careers_url: str, domain: str, company_name: str) -> list[dict]:
+        """Runs the Playwright fallback scrape. If the shared browser's
+        driver connection has died, discards it and retries once with a
+        freshly launched browser instead of leaving the rest of this
+        thread's queue silently broken (see module docstring)."""
+        last_err = None
+        for attempt in range(1, DEFAULT_SCRAPE_RETRIES + 1):
+            browser = browser_pool.get()
+            try:
+                return scrape_careers_page(careers_url, domain, browser=browser, fetch_descriptions=fetch_descriptions)
+            except ScraperBrowserDeadError as e:
+                last_err = e
+                print(f"[ingestion_orchestrator] Browser died while scraping {company_name} "
+                      f"(attempt {attempt}/{DEFAULT_SCRAPE_RETRIES}) — relaunching and retrying.")
+                browser_pool.invalidate()
+        raise RuntimeError(f"browser kept dying while scraping {careers_url}: {last_err}")
+
     def process_company(company: dict) -> tuple[list[dict], str, float, Optional[str]]:
         """Returns (job_rows, path_taken, elapsed_seconds, error_or_none)."""
         name = company["company_name"]
         website = company["website"] or None
         started = datetime.now()
-        browser = browser_pool.get()
 
         try:
             ats_result = detect_ats(name, website)
@@ -109,7 +151,7 @@ def run(
                 path_taken = "ats_api"
             elif ats_result.careers_url:
                 domain = _extract_domain(ats_result.careers_url)
-                raw_jobs = scrape_careers_page(ats_result.careers_url, domain, browser=browser, fetch_descriptions=fetch_descriptions)
+                raw_jobs = scrape_with_retry(ats_result.careers_url, domain, name)
                 path_taken = "career_scrape"
 
             elapsed = (datetime.now() - started).total_seconds()
@@ -149,8 +191,10 @@ def run(
 
                 with progress_lock:
                     completed_count[0] += 1
-                    pct = 0.05 + 0.90 * (completed_count[0] / max(total, 1))
-                    progress(pct, f"[{completed_count[0]}/{total}] Scraped {name}")
+                    n = completed_count[0]
+                    pct = 0.05 + 0.90 * (n / max(total, 1))
+                    if n % log_every == 0 or n == total:
+                        progress(pct, f"[{n}/{total}] Scraped {name}")
 
                 try:
                     job_rows, path_taken, elapsed, err = fut.result()

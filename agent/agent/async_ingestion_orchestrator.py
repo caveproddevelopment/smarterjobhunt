@@ -12,6 +12,32 @@ Performance:
   - Async model: one shared browser, 1000s of concurrent page contexts
   - Async is lighter and avoids thread overhead entirely
   - Eliminates greenlet context-switching issues completely
+
+Reliability fixes (2026-08-24, after a driver crash on the sync
+pipeline — see career_scraper.py's module docstring for the full
+incident writeup):
+  - A company whose scrape hits a dead browser (ScraperBrowserDeadError)
+    is no longer silently recorded as "0 jobs found". The shared
+    browser is discarded and relaunched, and the company is retried
+    once against the fresh browser before being given up on.
+  - `browser_pool.get()` is now only called for companies that actually
+    fall through to the Playwright scrape path — companies resolved
+    via an ATS API never touch a browser at all.
+  - Fixed a pre-existing bug: every `timing_log` entry recorded
+    `company_name` as the literal string `"unknown"` instead of the
+    actual company, because `process_company`'s return tuple never
+    carried the name through to where the log entry was built. That
+    made `per_company_timing` useless for tracing which company was
+    slow or failing — exactly the kind of detail you'd want when
+    diagnosing an incident like this one.
+  - Per-company progress logging is sampled instead of printed for
+    every single completion, for the same log-rate-limit reason as
+    the sync orchestrator.
+  - `FUTURE_TIMEOUT_SECONDS` raised from 50 to 100: with a scrape now
+    allowed one retry after a dead-browser error (relaunch + a second
+    full-length attempt, each up to `HARD_TIMEOUT_SECONDS` in
+    async_career_scraper.py), the old 50s outer cap left almost no
+    room for a legitimate retry to complete.
 """
 
 import asyncio
@@ -22,12 +48,17 @@ from .ats_detector import detect_ats
 from .ats_api import fetch_jobs
 from .async_career_scraper import scrape_careers_page
 from .async_browser_pool import AsyncBrowserPool
+from .scraper_errors import ScraperBrowserDeadError
 from .company_source import CompanySource
 from .job_sink import JobSink
 
 DEFAULT_MAX_WORKERS = 10
-# Hard cap on how long a single company can take (45s scraper + 5s buffer)
-FUTURE_TIMEOUT_SECONDS = 50
+DEFAULT_SCRAPE_RETRIES = 2   # attempts per company against the career-scrape path
+MAX_PROGRESS_LINES = 200     # roughly how many "[n/total] Scraped X" lines to print for the whole run
+# Hard cap on how long a single company can take. Covers up to
+# DEFAULT_SCRAPE_RETRIES attempts, each up to HARD_TIMEOUT_SECONDS (45s)
+# in async_career_scraper.py, plus a buffer for browser relaunch.
+FUTURE_TIMEOUT_SECONDS = 100
 
 
 async def run(
@@ -57,6 +88,7 @@ async def run(
 
     companies = company_source.load()
     total = len(companies)
+    log_every = max(1, total // MAX_PROGRESS_LINES)
     progress(0.02, f"Loaded {total} companies.")
 
     all_jobs: list[dict] = []
@@ -66,14 +98,30 @@ async def run(
     browser_pool = AsyncBrowserPool()
     run_ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    async def scrape_with_retry(careers_url: str, domain: str, company_name: str) -> list[dict]:
+        """Runs the Playwright fallback scrape. If the shared browser's
+        driver connection has died, discards it and retries once with a
+        freshly launched browser instead of leaving every other
+        concurrent task sharing it silently broken too."""
+        last_err = None
+        for attempt in range(1, DEFAULT_SCRAPE_RETRIES + 1):
+            browser = await browser_pool.get()
+            try:
+                return await scrape_careers_page(careers_url, domain, browser=browser)
+            except ScraperBrowserDeadError as e:
+                last_err = e
+                print(f"[async_ingestion_orchestrator] Browser died while scraping {company_name} "
+                      f"(attempt {attempt}/{DEFAULT_SCRAPE_RETRIES}) — relaunching and retrying.")
+                await browser_pool.invalidate()
+        raise RuntimeError(f"browser kept dying while scraping {careers_url}: {last_err}")
+
     async def process_company(company: dict):
-        """Process one company; returns (job_rows, path, elapsed, error)."""
+        """Process one company; returns (name, job_rows, path, elapsed, error)."""
         name = company["company_name"]
         website = company["website"] or None
         started = datetime.now()
 
         try:
-            browser = await browser_pool.get()
             ats_result = detect_ats(name, website)
 
             raw_jobs = []
@@ -84,7 +132,7 @@ async def run(
                 path_taken = "ats_api"
             elif ats_result.careers_url:
                 domain = _extract_domain(ats_result.careers_url)
-                raw_jobs = await scrape_careers_page(ats_result.careers_url, domain, browser=browser)
+                raw_jobs = await scrape_with_retry(ats_result.careers_url, domain, name)
                 path_taken = "career_scrape"
 
             elapsed = (datetime.now() - started).total_seconds()
@@ -107,11 +155,11 @@ async def run(
                 }
                 for job in raw_jobs
             ]
-            return job_rows, path_taken, elapsed, None
+            return name, job_rows, path_taken, elapsed, None
 
         except Exception as e:
             elapsed = (datetime.now() - started).total_seconds()
-            return [], "error", elapsed, f"{name}: {e}"
+            return name, [], "error", elapsed, f"{name}: {e}"
 
     async def process_with_progress(company: dict):
         """Wrapper that updates progress and handles timeout."""
@@ -122,14 +170,15 @@ async def run(
                 timeout=FUTURE_TIMEOUT_SECONDS
             )
         except asyncio.TimeoutError:
-            result = [], "timeout", 0.0, f"{name}: did not complete within {FUTURE_TIMEOUT_SECONDS}s"
+            result = name, [], "timeout", 0.0, f"{name}: did not complete within {FUTURE_TIMEOUT_SECONDS}s"
         except Exception as e:
-            result = [], "error", 0.0, f"{name}: {e}"
+            result = name, [], "error", 0.0, f"{name}: {e}"
 
-        # Update progress
         state["completed_count"] += 1
-        pct = 0.05 + 0.90 * (state["completed_count"] / max(total, 1))
-        progress(pct, f"[{state['completed_count']}/{total}] Scraped {name}")
+        n = state["completed_count"]
+        pct = 0.05 + 0.90 * (n / max(total, 1))
+        if n % log_every == 0 or n == total:
+            progress(pct, f"[{n}/{total}] Scraped {name}")
 
         return result
 
@@ -146,10 +195,10 @@ async def run(
             return_exceptions=False
         )
 
-        for job_rows, path_taken, elapsed, err in results:
+        for name, job_rows, path_taken, elapsed, err in results:
             all_jobs.extend(job_rows)
             timing_log.append({
-                "company_name": "unknown",
+                "company_name": name,
                 "path": path_taken,
                 "elapsed_seconds": round(elapsed, 2),
                 "jobs_found": len(job_rows),
@@ -187,4 +236,3 @@ def _extract_domain(url: str) -> str:
     from urllib.parse import urlparse
     p = urlparse(url)
     return f"{p.scheme}://{p.netloc}"
-
