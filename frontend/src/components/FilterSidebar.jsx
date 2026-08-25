@@ -75,17 +75,20 @@ export default function FilterSidebar({
 
       <div className="mt-4">
         <p className="text-sm text-ink">Company Database</p>
-        <div className="mt-1.5 ml-8 space-y-1.5">
+        <div className="mt-1.5 ml-8 space-y-2">
           {COMPANY_TYPE_FILTER_OPTIONS.map(({ value, label }) => (
-            <label key={value} className="flex items-center gap-1.5 text-sm text-ink">
-              <input
-                type="radio"
-                name="company-type"
-                checked={(filters.companyType || DEFAULT_COMPANY_TYPE) === value}
-                onChange={() => onFilterChange({ ...filters, companyType: value })}
-              />
-              {label}
-              {renderCount(value)}
+            <label key={value} className="flex items-start justify-between gap-2 text-sm text-ink">
+              <span className="flex items-start gap-1.5">
+                <input
+                  type="radio"
+                  name="company-type"
+                  checked={(filters.companyType || DEFAULT_COMPANY_TYPE) === value}
+                  onChange={() => onFilterChange({ ...filters, companyType: value })}
+                  className="mt-0.5 shrink-0"
+                />
+                <span>{label}</span>
+              </span>
+              <span className="shrink-0 whitespace-nowrap pl-1">{renderCount(value)}</span>
             </label>
           ))}
         </div>
