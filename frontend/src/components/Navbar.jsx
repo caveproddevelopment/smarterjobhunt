@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import logo from '../assets/logo.jpg'
 import { useAuth } from '../lib/auth'
 
@@ -11,16 +11,22 @@ const links = [
 export default function Navbar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   function handleLogout() {
     logout()
     navigate('/')
   }
 
+  // Brand click is context-sensitive: from Job Listings it goes back to the
+  // Landing page; from anywhere else (including Profile) it goes to Job
+  // Listings, same as the old fixed '/dashboard' behavior.
+  const brandTo = location.pathname === '/dashboard' ? '/' : '/dashboard'
+
   return (
     <header className="w-full">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-        <Link to="/dashboard" className="flex items-center gap-3">
+        <Link to={brandTo} className="flex items-center gap-3">
           <img src={logo} alt="JobBeggar" className="h-10 w-10" />
           <span className="font-display text-lg font-semibold tracking-tight text-ink">
             JobBeggar

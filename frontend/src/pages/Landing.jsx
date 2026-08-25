@@ -74,13 +74,16 @@ export default function Landing() {
               </form>
             </div>
 
-            <div className="flex aspect-video items-center justify-center rounded-2xl border border-line bg-mist md:aspect-auto md:h-full md:min-h-[360px]">
-              <div className="flex flex-col items-center gap-3 text-ink-soft">
-                <span className="flex h-14 w-14 items-center justify-center rounded-full flame-gradient text-white">
-                  ▶
-                </span>
-                <p className="text-sm font-medium">Product walkthrough — 90 seconds</p>
-              </div>
+            <div className="aspect-video overflow-hidden rounded-2xl border border-line bg-mist md:aspect-auto md:h-full md:min-h-[360px]">
+              <video
+                controls
+                playsInline
+                preload="metadata"
+                className="h-full w-full object-cover"
+              >
+                <source src="/videos/walkthrough.mp4" type="video/mp4" />
+                Your browser doesn't support embedded video.
+              </video>
             </div>
           </section>
 
