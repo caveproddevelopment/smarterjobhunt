@@ -81,6 +81,7 @@ export async function createSavedSearch({
   companyType,
   statusFilter,
   companyId,
+  remoteOnly,
 }) {
   const res = await fetch(`${API_URL}/api/saved-searches`, {
     method: 'POST',
@@ -94,6 +95,7 @@ export async function createSavedSearch({
       company_type: companyType || 'both',
       status_filter: statusFilter || null,
       company_id: companyId || null,
+      remote_only: Boolean(remoteOnly),
     }),
   })
   if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to save search (${res.status})`))

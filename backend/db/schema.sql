@@ -255,6 +255,11 @@ ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS company_id INTEGER
 -- status filter -- the same as any other view with tracking off.
 ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS status_filter TEXT
     CHECK (status_filter IN ('applied', 'rejected'));
+-- Mirrors the "Remote" sidebar checkbox for the 'search' and 'variant' view
+-- types, same reasoning as company_type above -- so re-applying a bookmark
+-- restores it exactly as it was checked, rather than leaving it at
+-- whatever the checkbox currently happens to be.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS remote_only BOOLEAN NOT NULL DEFAULT false;
 
 -- The original UNIQUE (user_id, name) treated the display NAME as the
 -- definition of "already bookmarked" -- but `name` is just a human-readable
@@ -273,7 +278,14 @@ ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS status_filter TEXT
 -- column (e.g. two 'company' bookmarks, which never set job_title) would
 -- NOT be caught as duplicates.
 ALTER TABLE saved_searches DROP CONSTRAINT IF EXISTS saved_searches_user_id_name_key;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_saved_searches_view ON saved_searches (
+-- Dropped and recreated (rather than IF NOT EXISTS'd) whenever its column
+-- list changes -- CREATE INDEX IF NOT EXISTS is a no-op against an index
+-- that already exists under this name, even with a different definition,
+-- so a rename-free ADD COLUMN like remote_only above would otherwise never
+-- actually take effect on a database that already ran an earlier version
+-- of this file.
+DROP INDEX IF EXISTS uq_saved_searches_view;
+CREATE UNIQUE INDEX uq_saved_searches_view ON saved_searches (
     user_id,
     view_type,
     COALESCE(job_title, ''),
@@ -281,7 +293,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_saved_searches_view ON saved_searches (
     COALESCE(posted_within_days, -1),
     company_type,
     COALESCE(status_filter, ''),
-    COALESCE(company_id, -1)
+    COALESCE(company_id, -1),
+    remote_only
 );
 
 CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON saved_searches (user_id);

@@ -40,10 +40,11 @@ function buildBookmarkName(view) {
     return `All jobs at ${view.companyName}`
   }
   const dbLabel = ` · ${COMPANY_TYPE_LABELS[view.companyType || 'all']}`
+  const remoteLabel = view.remoteOnly ? ' · Remote' : ''
   if (view.viewType === 'variant') {
-    return `${view.variantTitle}${suffix}${dbLabel}`
+    return `${view.variantTitle}${suffix}${dbLabel}${remoteLabel}`
   }
-  return `${(view.title || '').trim() || 'All jobs'}${suffix}${dbLabel}`
+  return `${(view.title || '').trim() || 'All jobs'}${suffix}${dbLabel}${remoteLabel}`
 }
 
 export default function JobListings() {
@@ -361,12 +362,14 @@ export default function JobListings() {
             title: appliedFilters.title,
             days: appliedFilters.postedDays,
             companyType: appliedFilters.companyType,
+            remoteOnly: appliedFilters.remoteOnly,
           }
         : {
             viewType: 'search',
             title: appliedFilters.title,
             days: appliedFilters.postedDays,
             companyType: appliedFilters.companyType,
+            remoteOnly: appliedFilters.remoteOnly,
           }
 
   const bookmarkedSearch = savedSearches.find((search) => {
@@ -379,10 +382,13 @@ export default function JobListings() {
     }
     const sameDays = String(search.posted_within_days || '') === String(currentView.days || '')
     const sameCompanyType = (search.company_type || 'all') === (currentView.companyType || 'all')
+    const sameRemote = Boolean(search.remote_only) === Boolean(currentView.remoteOnly)
     if (currentView.viewType === 'variant') {
-      return (search.variant_title || '') === currentView.variantTitle && sameDays && sameCompanyType
+      return (
+        (search.variant_title || '') === currentView.variantTitle && sameDays && sameCompanyType && sameRemote
+      )
     }
-    return (search.job_title || '') === (currentView.title || '') && sameDays && sameCompanyType
+    return (search.job_title || '') === (currentView.title || '') && sameDays && sameCompanyType && sameRemote
   })
 
   function handleToggleBookmark() {
@@ -404,6 +410,7 @@ export default function JobListings() {
       companyType: currentView.viewType === 'company' ? undefined : currentView.companyType,
       statusFilter: currentView.viewType === 'status' ? currentView.statusFilter : null,
       companyId: currentView.viewType === 'company' ? currentView.companyId : null,
+      remoteOnly: currentView.viewType === 'company' ? undefined : currentView.remoteOnly,
     })
       .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
       .catch((err) => setBookmarkError(err.message))
@@ -432,6 +439,7 @@ export default function JobListings() {
       title: search.job_title || '',
       postedDays: search.posted_within_days != null ? String(search.posted_within_days) : '',
       companyType: search.company_type || 'all',
+      remoteOnly: Boolean(search.remote_only),
     }
     setFilters(applied)
     setAppliedFilters(applied)

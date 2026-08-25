@@ -20,7 +20,7 @@ def list_saved_searches():
             ss.id, ss.name, ss.view_type, ss.job_title, ss.variant_title,
             ss.posted_within_days, ss.company_type, ss.funding_filter,
             ss.status_filter, ss.company_id, c.name AS company_name,
-            ss.created_at
+            ss.remote_only, ss.created_at
         FROM saved_searches ss
         LEFT JOIN companies c ON c.id = ss.company_id
         WHERE ss.user_id = %s
@@ -54,11 +54,11 @@ def create_saved_search():
             INSERT INTO saved_searches
                 (user_id, name, view_type, job_title, variant_title, variants,
                  posted_within_days, company_type, funding_filter, status_filter,
-                 company_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 company_id, remote_only)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id, name, view_type, job_title, variant_title,
                       posted_within_days, company_type, funding_filter,
-                      status_filter, company_id, created_at
+                      status_filter, company_id, remote_only, created_at
             """,
             (
                 g.user_id,
@@ -72,6 +72,7 @@ def create_saved_search():
                 body.get("funding_filter", "both"),
                 status_filter,
                 body.get("company_id"),
+                bool(body.get("remote_only")),
             ),
         )
         saved = cur.fetchone()
