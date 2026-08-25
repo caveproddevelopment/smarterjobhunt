@@ -132,7 +132,7 @@ export default function Landing() {
                   <span className="flex h-14 w-14 items-center justify-center rounded-full flame-gradient text-white shadow-lg transition-transform group-hover:scale-105">
                     ▶
                   </span>
-                  <span className="text-sm font-medium">Product walkthrough — 90 seconds</span>
+                  <span className="text-sm font-medium">Product walkthrough</span>
                 </button>
               )}
             </div>
