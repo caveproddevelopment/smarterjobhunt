@@ -23,10 +23,13 @@ const plans = [
 ]
 
 export default function Pricing() {
-  const { user, startCheckout } = useAuth()
+  const { user, startCheckout, openBillingPortal } = useAuth()
   const navigate = useNavigate()
   const [loadingPlan, setLoadingPlan] = useState(null)
+  const [portalLoading, setPortalLoading] = useState(false)
   const [error, setError] = useState(null)
+
+  const isSubscribed = user?.plan === 'pro'
 
   async function handleChoose(planId) {
     if (!user) {
@@ -40,6 +43,17 @@ export default function Pricing() {
     } catch (err) {
       setError(err.message)
       setLoadingPlan(null)
+    }
+  }
+
+  async function handleManageBilling() {
+    setError(null)
+    setPortalLoading(true)
+    try {
+      await openBillingPortal() // redirects to Stripe on success
+    } catch (err) {
+      setError(err.message)
+      setPortalLoading(false)
     }
   }
 
@@ -57,33 +71,71 @@ export default function Pricing() {
           {error && <p className="mt-4 text-sm text-ember">{error}</p>}
 
           <div className="mt-10 grid gap-6 sm:grid-cols-2">
-            {plans.map((plan) => (
-              <div
-                key={plan.id}
-                className="flex flex-col rounded-2xl border border-line bg-white p-6 shadow-sm"
-              >
-                <h2 className="font-display text-lg font-semibold text-ink">{plan.name}</h2>
-                <p className="mt-3">
-                  <span className="font-display text-3xl font-semibold flame-text-gradient">
-                    {plan.price}
-                  </span>
-                  <span className="text-sm text-ink-soft"> {plan.cadence}</span>
-                </p>
-                <p className="mt-3 flex-1 text-sm leading-relaxed text-ink-soft">{plan.blurb}</p>
-                <button
-                  type="button"
-                  onClick={() => handleChoose(plan.id)}
-                  disabled={loadingPlan === plan.id}
-                  className="mt-6 rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.03] disabled:opacity-60"
+            {plans.map((plan) => {
+              const isCurrentPlan = isSubscribed && user.billing_interval === plan.id
+              return (
+                <div
+                  key={plan.id}
+                  className={`flex flex-col rounded-2xl border bg-white p-6 shadow-sm ${
+                    isCurrentPlan ? 'border-ember ring-1 ring-ember' : 'border-line'
+                  }`}
                 >
-                  {loadingPlan === plan.id
-                    ? 'Redirecting…'
-                    : user
-                      ? `Choose ${plan.name.toLowerCase()}`
-                      : 'Log in to subscribe'}
-                </button>
-              </div>
-            ))}
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="font-display text-lg font-semibold text-ink">{plan.name}</h2>
+                    {isCurrentPlan && (
+                      <span className="rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ember">
+                        Current plan
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-3">
+                    <span className="font-display text-3xl font-semibold flame-text-gradient">
+                      {plan.price}
+                    </span>
+                    <span className="text-sm text-ink-soft"> {plan.cadence}</span>
+                  </p>
+                  <p className="mt-3 flex-1 text-sm leading-relaxed text-ink-soft">
+                    {isCurrentPlan
+                      ? user.current_period_end
+                        ? `Renews ${new Date(user.current_period_end).toLocaleDateString()}.`
+                        : "You're all set — you have full access."
+                      : plan.blurb}
+                  </p>
+                  {isCurrentPlan ? (
+                    <button
+                      type="button"
+                      onClick={handleManageBilling}
+                      disabled={portalLoading}
+                      className="mt-6 rounded-full border border-line px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist disabled:opacity-60"
+                    >
+                      {portalLoading ? 'Opening…' : 'Manage subscription'}
+                    </button>
+                  ) : isSubscribed ? (
+                    <button
+                      type="button"
+                      onClick={handleManageBilling}
+                      disabled={portalLoading}
+                      className="mt-6 rounded-full border border-line px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist disabled:opacity-60"
+                    >
+                      {portalLoading ? 'Opening…' : 'Switch in subscription settings'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleChoose(plan.id)}
+                      disabled={loadingPlan === plan.id}
+                      className="mt-6 rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.03] disabled:opacity-60"
+                    >
+                      {loadingPlan === plan.id
+                        ? 'Redirecting…'
+                        : user
+                          ? `Choose ${plan.name.toLowerCase()}`
+                          : 'Log in to subscribe'}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </div>
 
           <p className="mt-6 text-sm font-medium text-ink-soft">Cancel anytime.</p>
