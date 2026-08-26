@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
@@ -30,6 +30,24 @@ export default function Pricing() {
   const [error, setError] = useState(null)
 
   const isSubscribed = user?.plan === 'pro'
+
+  // Clicking "Choose weekly/monthly" or "Manage subscription" navigates the
+  // browser away to Stripe. If the user hits the back button, some browsers
+  // (Chrome, Firefox, Safari) restore this page from the back/forward cache
+  // instead of remounting it -- so the loading state from before the redirect
+  // would otherwise be stuck showing "Redirecting…" / "Opening…" forever.
+  // `pageshow` with `persisted: true` fires specifically on that bfcache
+  // restore, so reset both loading flags then.
+  useEffect(() => {
+    function handlePageShow(event) {
+      if (event.persisted) {
+        setLoadingPlan(null)
+        setPortalLoading(false)
+      }
+    }
+    window.addEventListener('pageshow', handlePageShow)
+    return () => window.removeEventListener('pageshow', handlePageShow)
+  }, [])
 
   async function handleChoose(planId) {
     if (!user) {
@@ -106,7 +124,7 @@ export default function Pricing() {
                       type="button"
                       onClick={handleManageBilling}
                       disabled={portalLoading}
-                      className="mt-6 rounded-full border border-line px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist disabled:opacity-60"
+                      className="mt-6 rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.03] disabled:opacity-60"
                     >
                       {portalLoading ? 'Opening…' : 'Manage subscription'}
                     </button>
@@ -115,7 +133,7 @@ export default function Pricing() {
                       type="button"
                       onClick={handleManageBilling}
                       disabled={portalLoading}
-                      className="mt-6 rounded-full border border-line px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist disabled:opacity-60"
+                      className="mt-6 rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.03] disabled:opacity-60"
                     >
                       {portalLoading ? 'Opening…' : 'Switch in subscription settings'}
                     </button>
