@@ -40,28 +40,52 @@ def create_checkout_session():
 
     customer_id = user["stripe_customer_id"]
 
+    def _create_customer():
+        customer = stripe.Customer.create(
+            email=user["email"], metadata={"user_id": str(g.user_id)}
+        )
+        cur.execute(
+            "UPDATE users SET stripe_customer_id = %s WHERE id = %s",
+            (customer.id, g.user_id),
+        )
+        cur.connection.commit()
+        return customer.id
+
     try:
         if customer_id is None:
-            customer = stripe.Customer.create(
-                email=user["email"], metadata={"user_id": str(g.user_id)}
-            )
-            customer_id = customer.id
-            cur.execute(
-                "UPDATE users SET stripe_customer_id = %s WHERE id = %s",
-                (customer_id, g.user_id),
-            )
-            cur.connection.commit()
+            customer_id = _create_customer()
 
         frontend_origin = current_app.config["FRONTEND_ORIGIN"]
-        session = stripe.checkout.Session.create(
-            mode="subscription",
-            customer=customer_id,
-            client_reference_id=str(g.user_id),
-            line_items=[{"price": price_id, "quantity": 1}],
-            success_url=f"{frontend_origin}/profile?checkout=success",
-            cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
-            subscription_data={"metadata": {"user_id": str(g.user_id)}},
-        )
+        try:
+            session = stripe.checkout.Session.create(
+                mode="subscription",
+                customer=customer_id,
+                client_reference_id=str(g.user_id),
+                line_items=[{"price": price_id, "quantity": 1}],
+                success_url=f"{frontend_origin}/profile?checkout=success",
+                cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
+                subscription_data={"metadata": {"user_id": str(g.user_id)}},
+            )
+        except stripe.error.InvalidRequestError as e:
+            # The stored customer_id doesn't exist on Stripe's side anymore --
+            # most commonly because it's a leftover test-mode ID from before a
+            # switch to live mode (test and live customers are entirely
+            # separate), or because the customer was deleted directly in the
+            # Stripe dashboard. Either way, self-heal by minting a fresh
+            # customer and retrying once, instead of leaving the account
+            # permanently stuck unable to check out.
+            if getattr(e, "code", None) != "resource_missing":
+                raise
+            customer_id = _create_customer()
+            session = stripe.checkout.Session.create(
+                mode="subscription",
+                customer=customer_id,
+                client_reference_id=str(g.user_id),
+                line_items=[{"price": price_id, "quantity": 1}],
+                success_url=f"{frontend_origin}/profile?checkout=success",
+                cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
+                subscription_data={"metadata": {"user_id": str(g.user_id)}},
+            )
     except stripe.error.StripeError as e:
         return jsonify({"error": str(e)}), 502
 
