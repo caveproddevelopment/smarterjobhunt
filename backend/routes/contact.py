@@ -3,7 +3,7 @@ import re
 from flask import Blueprint, jsonify, request
 
 from db.connection import get_cursor
-from email_utils import send_contact_email
+from email_utils import send_contact_email, send_contact_response_email
 
 bp = Blueprint("contact", __name__, url_prefix="/api/contact")
 
@@ -66,5 +66,10 @@ def submit_contact():
     if send_contact_email(name, email, subject, message):
         cur.execute("UPDATE contact_messages SET emailed = true WHERE id = %s", (message_id,))
         cur.connection.commit()
+
+    # Auto-reply to the person who submitted the form, independent of
+    # whether the notification to CONTACT_TO_EMAIL above succeeded --
+    # this one's just a courtesy to the submitter, not tracked in the DB.
+    send_contact_response_email(email, name)
 
     return jsonify({"ok": True}), 201

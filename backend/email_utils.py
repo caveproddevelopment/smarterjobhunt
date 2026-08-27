@@ -1,6 +1,7 @@
 """
-Email sending — verification and password reset emails, sent through a
-Google Apps Script web app (Gmail-backed) instead of SMTP.
+Email sending — verification, password reset, billing lifecycle, and
+contact-form emails, sent through a Google Apps Script web app
+(Gmail-backed) instead of SMTP.
 
 There's no shared secret in the request payload; access is controlled
 purely by keeping APPS_SCRIPT_URL private, so treat it like a credential
@@ -25,6 +26,13 @@ def _password_reset_url(token: str) -> str:
 
 def _email_change_url(token: str) -> str:
     return f"{current_app.config['BACKEND_ORIGIN']}/api/auth/confirm-email/{token}"
+
+
+def _billing_manage_url() -> str:
+    """Where the "Manage Billing" button in billing emails points -- the
+    in-app profile page (not a one-off Stripe portal link, since those are
+    single-use and would need to be minted per-email)."""
+    return f"{current_app.config['FRONTEND_ORIGIN']}/profile"
 
 
 def _send_via_apps_script(payload: dict, fallback_link: str) -> bool:
@@ -114,4 +122,68 @@ def send_contact_email(sender_name: str, sender_email: str, subject: str, messag
             "message": message,
         },
         fallback_link=f"{sender_name} <{sender_email}>: {subject}",
+    )
+
+
+def send_contact_response_email(to_email: str, name: str | None) -> None:
+    """Auto-reply sent back to whoever submitted the "Contact us" form
+    (routes/contact.py), confirming receipt. This is separate from
+    send_contact_email, which notifies CONTACT_TO_EMAIL (you) instead of
+    the submitter."""
+    _send_via_apps_script(
+        {"type": "contact_response", "email": to_email, "name": name},
+        fallback_link=f"(auto-reply owed to {to_email})",
+    )
+
+
+def send_payment_setup_email(to_email: str, name: str | None, plan: str | None) -> None:
+    """Sent once a Stripe subscription is first successfully created (see
+    _handle_checkout_completed in routes/billing.py)."""
+    _send_via_apps_script(
+        {
+            "type": "pay_setup",
+            "email": to_email,
+            "name": name,
+            "plan": plan,
+            "manage_link": _billing_manage_url(),
+        },
+        fallback_link=_billing_manage_url(),
+    )
+
+
+def send_cancellation_email(
+    to_email: str, name: str | None, plan: str | None, end_date: str | None
+) -> None:
+    """Sent when a subscription is canceled (see _handle_subscription_deleted
+    in routes/billing.py). end_date should already be formatted for display,
+    or None if unknown."""
+    _send_via_apps_script(
+        {
+            "type": "cancel",
+            "email": to_email,
+            "name": name,
+            "plan": plan,
+            "end_date": end_date,
+            "manage_link": _billing_manage_url(),
+        },
+        fallback_link=_billing_manage_url(),
+    )
+
+
+def send_plan_change_email(
+    to_email: str, name: str | None, old_plan: str | None, new_plan: str | None
+) -> None:
+    """Sent when an existing subscription's billing interval actually
+    changes (see _handle_subscription_updated in routes/billing.py) --
+    not fired for every webhook update, only genuine interval changes."""
+    _send_via_apps_script(
+        {
+            "type": "plan_change",
+            "email": to_email,
+            "name": name,
+            "old_plan": old_plan,
+            "new_plan": new_plan,
+            "manage_link": _billing_manage_url(),
+        },
+        fallback_link=_billing_manage_url(),
     )

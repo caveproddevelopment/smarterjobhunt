@@ -5,6 +5,7 @@ from flask import Blueprint, current_app, g, jsonify, request
 
 from auth_utils import require_auth
 from db.connection import get_cursor
+from email_utils import send_cancellation_email, send_payment_setup_email, send_plan_change_email
 
 bp = Blueprint("billing", __name__, url_prefix="/api/billing")
 
@@ -19,6 +20,12 @@ def _price_id_for(interval):
         "week": current_app.config["STRIPE_PRICE_WEEKLY"],
         "month": current_app.config["STRIPE_PRICE_MONTHLY"],
     }.get(interval)
+
+
+def _plan_label(interval):
+    """'week'/'month' (Stripe's recurring.interval, also what we store in
+    users.billing_interval) -> a human label for emails."""
+    return {"week": "Weekly", "month": "Monthly"}.get(interval, interval)
 
 
 @bp.post("/checkout")
@@ -139,8 +146,14 @@ def webhook():
 
     if event_type == "checkout.session.completed":
         _handle_checkout_completed(data)
-    elif event_type in ("customer.subscription.updated", "customer.subscription.created"):
-        _handle_subscription_updated(data)
+    elif event_type == "customer.subscription.created":
+        # Already covered by checkout.session.completed above (every
+        # subscription in this app is created via Checkout) -- apply the
+        # data again for safety/idempotency, but don't fire a second
+        # "welcome" email for the same signup.
+        _handle_subscription_updated(data, is_new=True)
+    elif event_type == "customer.subscription.updated":
+        _handle_subscription_updated(data, is_new=False)
     elif event_type == "customer.subscription.deleted":
         _handle_subscription_deleted(data)
     # Other event types (invoice.*, payment_intent.*, ...) aren't needed —
@@ -166,6 +179,17 @@ def _find_user_id(customer_id, metadata):
     return row["id"] if row else None
 
 
+def _get_user_contact(user_id):
+    """email/full_name for firing billing emails. Returns (None, None) if
+    the user has since been deleted."""
+    cur = get_cursor()
+    cur.execute("SELECT email, full_name FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        return None, None
+    return row["email"], row["full_name"]
+
+
 def _interval_from_subscription(subscription):
     try:
         return subscription["items"]["data"][0]["price"]["recurring"]["interval"]
@@ -186,12 +210,37 @@ def _handle_checkout_completed(session):
     subscription = stripe.Subscription.retrieve(subscription_id).to_dict()
     _apply_subscription(user_id, session.get("customer"), subscription)
 
+    email, name = _get_user_contact(user_id)
+    if email:
+        send_payment_setup_email(email, name, _plan_label(_interval_from_subscription(subscription)))
 
-def _handle_subscription_updated(subscription):
+
+def _handle_subscription_updated(subscription, is_new=False):
     user_id = _find_user_id(subscription.get("customer"), subscription.get("metadata"))
     if user_id is None:
         return
+
+    old_interval = None
+    if not is_new:
+        cur = get_cursor()
+        cur.execute("SELECT billing_interval FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
+        old_interval = row["billing_interval"] if row else None
+
     _apply_subscription(user_id, subscription.get("customer"), subscription)
+
+    if is_new:
+        return
+
+    # Only "customer.subscription.updated" (not "created") reaches here, so
+    # this fires for every update -- renewals, status changes, plan swaps.
+    # Only email when the billing interval actually changed, so a payment
+    # retry or renewal doesn't look like a plan change to the user.
+    new_interval = _interval_from_subscription(subscription)
+    if old_interval and new_interval and old_interval != new_interval:
+        email, name = _get_user_contact(user_id)
+        if email:
+            send_plan_change_email(email, name, _plan_label(old_interval), _plan_label(new_interval))
 
 
 def _handle_subscription_deleted(subscription):
@@ -200,6 +249,12 @@ def _handle_subscription_deleted(subscription):
         return
 
     cur = get_cursor()
+    cur.execute(
+        "SELECT email, full_name, billing_interval, current_period_end FROM users WHERE id = %s",
+        (user_id,),
+    )
+    user = cur.fetchone()
+
     cur.execute(
         """
         UPDATE users
@@ -210,6 +265,15 @@ def _handle_subscription_deleted(subscription):
         (user_id,),
     )
     cur.connection.commit()
+
+    if user and user["email"]:
+        end_date = (
+            user["current_period_end"].strftime("%B %-d, %Y")
+            if user["current_period_end"] else None
+        )
+        send_cancellation_email(
+            user["email"], user["full_name"], _plan_label(user["billing_interval"]), end_date
+        )
 
 
 def _apply_subscription(user_id, customer_id, subscription):
