@@ -9,6 +9,16 @@ export default function Footer() {
           <img src={logo} alt="JobBeggar" className="h-6 w-6" />
           <span className="font-display font-medium text-ink">JobBeggar</span>
         </Link>
+
+        <nav className="flex items-center gap-6">
+          <Link to="/terms" className="transition-colors hover:text-ink">
+            Terms of Service
+          </Link>
+          <Link to="/privacy" className="transition-colors hover:text-ink">
+            Privacy Policy
+          </Link>
+        </nav>
+
         <p>© {new Date().getFullYear()} JobBeggar. Close the loop on your job search.</p>
       </div>
     </footer>

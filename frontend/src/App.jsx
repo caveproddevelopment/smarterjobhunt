@@ -7,6 +7,8 @@ import Profile from './pages/Profile'
 import WhatIsThis from './pages/WhatIsThis'
 import Pricing from './pages/Pricing'
 import AboutUs from './pages/AboutUs'
+import TermsOfService from './pages/TermsOfService'
+import PrivacyPolicy from './pages/PrivacyPolicy'
 import { AuthProvider } from './lib/auth'
 
 export default function App() {
@@ -21,6 +23,8 @@ export default function App() {
         <Route path="/what-is-this" element={<WhatIsThis />} />
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/about" element={<AboutUs />} />
+        <Route path="/terms" element={<TermsOfService />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
       </Routes>
     </AuthProvider>
   )
