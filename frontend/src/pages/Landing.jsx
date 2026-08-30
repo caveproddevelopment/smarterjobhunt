@@ -27,8 +27,13 @@ const reviews = [
 export default function Landing() {
   const [query, setQuery] = useState('')
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
   const navigate = useNavigate()
   const videoBoxRef = useRef(null)
+  // Tracks whether the person has manually played/dismissed the video, so
+  // the 5-second auto-preview below doesn't override a choice they already
+  // made (e.g. re-opening a video they just closed).
+  const hasInteractedRef = useRef(false)
 
   function handleSearch(event) {
     event.preventDefault()
@@ -43,6 +48,7 @@ export default function Landing() {
 
     function handleOutsideClick(event) {
       if (videoBoxRef.current && !videoBoxRef.current.contains(event.target)) {
+        hasInteractedRef.current = true
         setIsPlaying(false)
       }
     }
@@ -50,6 +56,20 @@ export default function Landing() {
     document.addEventListener('mousedown', handleOutsideClick)
     return () => document.removeEventListener('mousedown', handleOutsideClick)
   }, [isPlaying])
+
+  // Auto-start the walkthrough preview 5 seconds after the page loads,
+  // unless the person has already played or dismissed it themselves.
+  // Starts muted so browsers allow the autoplay without a click; native
+  // video controls let them unmute.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!hasInteractedRef.current) {
+        setIsMuted(true)
+        setIsPlaying(true)
+      }
+    }, 5000)
+    return () => clearTimeout(timer)
+  }, [])
 
   return (
     <div className="min-h-screen flame-gradient">
@@ -115,6 +135,7 @@ export default function Landing() {
                   autoPlay
                   controls
                   playsInline
+                  muted={isMuted}
                   preload="metadata"
                   onEnded={() => setIsPlaying(false)}
                   className="h-full w-full object-contain"
@@ -125,7 +146,11 @@ export default function Landing() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => setIsPlaying(true)}
+                  onClick={() => {
+                    hasInteractedRef.current = true
+                    setIsMuted(false)
+                    setIsPlaying(true)
+                  }}
                   aria-label="Play walkthrough video"
                   className="group flex h-full w-full flex-col items-center justify-center gap-3 bg-mist text-ink-soft"
                 >
