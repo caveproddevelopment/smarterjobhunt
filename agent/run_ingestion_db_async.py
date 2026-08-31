@@ -71,6 +71,12 @@ async def main():
     parser = argparse.ArgumentParser(description="SJH.com ingestion agent — DB-backed async run")
     parser.add_argument("--max-workers", type=int, default=10, help="Concurrent companies to process (default 10)")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N companies (for smoke tests)")
+    parser.add_argument(
+        "--company-type",
+        choices=["funded", "fortune500", "indianmajor", "midsize", "healthcare"],
+        default=None,
+        help="Only process companies tagged with this type (default: all)"
+    )
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--batch-id", default=None,
                          help="Override the generated batch UUID (mainly for testing or re-running against an existing batch)")
@@ -100,7 +106,7 @@ async def main():
 
     conn = psycopg2.connect(args.database_url)
     try:
-        source = PostgresCompanySource(conn, limit=args.limit)
+        source = PostgresCompanySource(conn, limit=args.limit, company_type=args.company_type)
         sink = StagingJobSink(conn, batch_id=batch_id)
 
         def progress(pct, msg):

@@ -97,26 +97,33 @@ class PostgresCompanySource(CompanySource):
     `limit`, when given, only loads the first N companies (ordered by
     name) — same purpose as CSVCompanySource's limit, for smoke tests
     against a subset before a full run.
+
+    `company_type`, when given, restricts the load to companies tagged
+    with that type ('funded' / 'fortune500' / 'indianmajor' — same
+    values seed_companies.py's --company-type accepts). Omit it
+    (default None) to scrape every company regardless of type, same
+    as the previous behavior.
     """
 
-    def __init__(self, connection, limit: Optional[int] = None):
+    def __init__(self, connection, limit: Optional[int] = None, company_type: Optional[str] = None):
         self.connection = connection
         self.limit = limit
+        self.company_type = company_type
 
     def load(self) -> list[dict]:
-        query = """
-            SELECT name, website, funding_stage, funding_amount, funding_date
-            FROM companies
-            ORDER BY name
-        """
-        params: tuple = ()
+        query = "SELECT name, website, funding_stage, funding_amount, funding_date FROM companies"
+        params: list = []
+        if self.company_type:
+            query += " WHERE company_type = %s"
+            params.append(self.company_type)
+        query += " ORDER BY name"
         if self.limit:
             query += " LIMIT %s"
-            params = (self.limit,)
+            params.append(self.limit)
 
         cur = self.connection.cursor()
         try:
-            cur.execute(query, params)
+            cur.execute(query, tuple(params))
             rows = cur.fetchall()
         finally:
             cur.close()
