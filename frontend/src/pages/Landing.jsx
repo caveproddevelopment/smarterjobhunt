@@ -4,11 +4,11 @@ import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 
 const badges = [
-  { src: '/images/badges/fortune-500.png', alt: 'Fortune 500 companies' },
-  { src: '/images/badges/funded-startups.png', alt: 'Funded startups' },
-  { src: '/images/badges/healthcare.png', alt: 'Health care companies' },
-  { src: '/images/badges/major-indian.png', alt: 'Major Indian companies' },
-  { src: '/images/badges/midsized-us.png', alt: 'Mid-sized US companies' },
+  { src: '/images/badges/Fortune500.png', alt: 'Fortune 500 companies' },
+  { src: '/images/badges/FundedStartups.png', alt: 'Funded startups' },
+  { src: '/images/badges/HealthCare.png', alt: 'Health care companies' },
+  { src: '/images/badges/majorIndian.png', alt: 'Major Indian companies' },
+  { src: '/images/badges/midsizedUS.png', alt: 'Mid-sized US companies' },
 ]
 
 const reviews = [
@@ -175,7 +175,7 @@ export default function Landing() {
                       playsInline
                       muted={isMuted}
                       preload="metadata"
-                      poster="/images/watch-this-thumbnail.png"
+                      poster="/images/WatchThisThmbnail.png"
                       onEnded={() => setIsPlaying(false)}
                       className="h-full w-full object-contain"
                     >
@@ -194,7 +194,7 @@ export default function Landing() {
                       className="group relative block h-full w-full"
                     >
                       <img
-                        src="/images/watch-this-thumbnail.png"
+                        src="/images/WatchThisThmbnail.png"
                         alt="How does this work? Watch this."
                         className="h-full w-full object-cover"
                       />
