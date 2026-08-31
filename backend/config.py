@@ -88,3 +88,10 @@ class Config:
     # uses as VITE_GOOGLE_CLIENT_ID. The backend uses it to verify that a
     # Google ID token was actually issued for THIS app, not some other one.
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+
+    # Shared secret for the staging-review endpoints (routes/staging.py).
+    # There's no per-user admin role in the users table -- these are
+    # internal ops endpoints for reviewing/promoting scraped jobs, gated
+    # purely by this one key (sent as the X-Admin-Key header), same
+    # treat-it-like-a-credential approach as APPS_SCRIPT_URL above.
+    ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY")

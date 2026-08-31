@@ -3,7 +3,7 @@ from flask_cors import CORS
 
 from config import Config
 from db.connection import init_pool, register_teardown, get_cursor
-from routes import auth, billing, contact, job_status, jobs, preferences, saved_searches, title_variants
+from routes import auth, billing, contact, job_status, jobs, preferences, saved_searches, staging, title_variants
 
 
 def create_app():
@@ -23,6 +23,7 @@ def create_app():
     app.register_blueprint(preferences.bp)
     app.register_blueprint(title_variants.bp)
     app.register_blueprint(billing.bp)
+    app.register_blueprint(staging.bp)
 
     @app.get("/api/health")
     def health():

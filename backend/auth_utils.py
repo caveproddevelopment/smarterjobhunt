@@ -1,4 +1,5 @@
 from functools import wraps
+import secrets
 
 from flask import current_app, g, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -119,6 +120,27 @@ def optional_auth(view):
         g.user_id = None
         if header.startswith("Bearer "):
             g.user_id = verify_token(header.removeprefix("Bearer ").strip())
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def require_admin_key(view):
+    """Decorator: reject the request unless it carries the shared admin
+    secret in an 'X-Admin-Key' header. Gates the staging-review endpoints
+    (routes/staging.py) -- there's no per-user admin role in the users
+    table, just this one shared secret (ADMIN_API_KEY in config.py)."""
+
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        expected = current_app.config.get("ADMIN_API_KEY")
+        if not expected:
+            return jsonify({"error": "Admin endpoints aren't configured"}), 500
+
+        provided = request.headers.get("X-Admin-Key", "")
+        if not secrets.compare_digest(provided, expected):
+            return jsonify({"error": "Invalid admin key"}), 401
+
         return view(*args, **kwargs)
 
     return wrapped
