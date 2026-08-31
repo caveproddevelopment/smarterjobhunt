@@ -18,6 +18,8 @@ export const COMPANY_TYPES = [
   { value: 'funded', label: 'Funded Startups' },
   { value: 'fortune500', label: 'Fortune 500' },
   { value: 'indianmajor', label: 'Major Indian Companies' },
+  { value: 'midmarket', label: 'Mid-Sized US' },
+  { value: 'healthcare', label: 'Healthcare Industry' },
 ]
 
 export const DEFAULT_COMPANY_TYPE = 'funded'
