@@ -20,7 +20,7 @@ FUNDING_FILTER_MAP = {"a": "series_a", "b": "series_b"}  # 'both' applies no fil
 # COMPANY_TYPES` checks below) rather than raising an error, so it's easy to
 # forget this one when adding a database -- the symptom is the new filter
 # quietly doing nothing instead of a visible failure.
-COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midmarket", "healthcare"}
+COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare"}
 
 # A job card needs at least a department OR a location to be worth showing.
 # Scraped rows sometimes store an empty string ('') rather than a true SQL

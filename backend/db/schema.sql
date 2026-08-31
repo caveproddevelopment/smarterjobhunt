@@ -275,7 +275,7 @@ ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS view_type TEXT NOT NULL DEFA
 -- those bookmarks restores the exact same Company Database dropdown value
 -- it was saved under, not just whatever the sidebar currently has selected.
 ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS company_type TEXT NOT NULL DEFAULT 'both'
-    CHECK (company_type IN ('both', 'funded', 'fortune500', 'indianmajor', 'midmarket', 'healthcare'));
+    CHECK (company_type IN ('both', 'funded', 'fortune500', 'indianmajor', 'midsize', 'healthcare'));
 -- 'variant': which "Also matching" pill was drilled into. job_title above
 -- still holds the ORIGINAL search title this variant was found under, so
 -- "Return to Full List" after re-applying the bookmark lands back on that
