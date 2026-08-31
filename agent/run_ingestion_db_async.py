@@ -8,7 +8,11 @@ This is the recommended entry point for Railway deployments.
 
 Writes scraped jobs into the `jobs_staging` landing table (see
 agent/job_sink.py's StagingJobSink and backend/routes/staging.py),
-tagged with one uuid.uuid4() batch_id per run. Jobs previously active
+tagged with one uuid.uuid4() batch_id per run. jobs_staging is fully
+cleared (DELETE FROM jobs_staging) right before this run starts, so
+it only ever holds the current scrape's fresh rows -- any rows from a
+prior run still 'pending' review are lost when the next run kicks off,
+not just already-promoted ones. Jobs previously active
 for a company but not seen in this run still get closed out
 immediately (is_active=FALSE) — see StagingJobSink's docstring — but
 new/updated listings only reach the live `jobs` table (and the backend
@@ -106,6 +110,24 @@ async def main():
 
     conn = psycopg2.connect(args.database_url)
     try:
+        # Clear jobs_staging before this run starts, so the table only ever
+        # holds the current scrape's fresh dataset -- no leftover rows from
+        # prior batches (pending, approved-unpromoted, rejected, or already
+        # promoted all get wiped equally). If you're not running with
+        # --auto-clean/--auto-promote every time, anything still sitting
+        # 'pending' from the last run is lost here, not just old batches.
+        cur = conn.cursor()
+        try:
+            cur.execute("DELETE FROM jobs_staging")
+            cleared = cur.rowcount
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+        print(f"[run_ingestion_db_async] Cleared {cleared} row(s) from jobs_staging before this run.", flush=True)
+
         source = PostgresCompanySource(conn, limit=args.limit, company_type=args.company_type)
         sink = StagingJobSink(conn, batch_id=batch_id)
 
