@@ -3,6 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 
+const badges = [
+  { src: '/images/badges/fortune-500.png', alt: 'Fortune 500 companies' },
+  { src: '/images/badges/funded-startups.png', alt: 'Funded startups' },
+  { src: '/images/badges/healthcare.png', alt: 'Health care companies' },
+  { src: '/images/badges/major-indian.png', alt: 'Major Indian companies' },
+  { src: '/images/badges/midsized-us.png', alt: 'Mid-sized US companies' },
+]
+
 const reviews = [
   {
     quote:
@@ -22,6 +30,15 @@ const reviews = [
     name: 'Marisol T.',
     role: 'Growth Marketer',
   },
+]
+
+// Placeholder copy — swap in the real answers whenever you have them.
+const faqs = [
+  { q: 'Why no free tier?', a: 'I will provide the text separately' },
+  { q: 'How many companies are there?', a: 'I will provide the text separately' },
+  { q: 'How reliable is the matching score?', a: 'I will provide the text separately' },
+  { q: 'Can I cancel anytime?', a: 'I will provide the text separately' },
+  { q: 'What happens if I find a broken listing?', a: 'I will provide the text separately' },
 ]
 
 export default function Landing() {
@@ -77,94 +94,124 @@ export default function Landing() {
         <Navbar />
 
         <main className="px-6">
-          {/* Hero: explanation + search on the left, video on the right */}
-          <section
-            id="what-is-this"
-            className="mx-auto grid max-w-6xl items-start gap-10 py-10 md:grid-cols-2 md:py-16"
-          >
-            <div>
-              <div className="max-w-md space-y-3 text-base leading-relaxed text-ink-soft">
-                <p>Job boards suck.</p>
-                <p>
-                  They're full of reposts, expired listings, and jobs that
-                  don't exist anymore.
-                </p>
-                <p>JobBeggar.com skips the boards and goes straight to the company.</p>
-                <p>
-                  JobBeggar.com does a better job using variants of your job
-                  title to find all of the relevant jobs.
-                </p>
-                <p>
-                  And JobBeggar.com allows you to target specific types of
-                  companies like Funded startups, Fortune 500 and Major Indian
-                  companies.
-                </p>
-                <p>The interface is easy and intuitive.</p>
-                <p>You need a job. JobBeggar.com can help.</p>
+          {/* Hero: heading, company badges, and the "why us" explainer */}
+          <section id="what-is-this" className="mx-auto max-w-6xl py-10 md:py-16">
+            <div className="mx-auto max-w-2xl text-center">
+              <h1 className="font-display text-2xl text-ink-soft md:text-3xl">
+                Pick the companies you'd actually work for
+                <br />
+                We'll dig up the jobs.
+              </h1>
+
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+                {badges.map((badge) => (
+                  <img
+                    key={badge.alt}
+                    src={badge.src}
+                    alt={badge.alt}
+                    className="h-28 w-auto sm:h-32"
+                  />
+                ))}
               </div>
 
-              <form onSubmit={handleSearch} className="mt-10 max-w-md">
-                <label htmlFor="job-title" className="text-sm font-medium text-ink">
-                  Search for a job title
-                </label>
-                <div className="mt-2 flex items-center gap-2 rounded-full border border-line bg-white p-1.5 pl-5 shadow-sm">
-                  <input
-                    id="job-title"
-                    type="text"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="e.g. Product Designer"
-                    className="w-full bg-transparent text-sm text-ink placeholder:text-ink-soft/60 focus:outline-none"
-                  />
-                  <button
-                    type="submit"
-                    className="flex shrink-0 items-center gap-1 rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03]"
-                  >
-                    Go <span aria-hidden>→</span>
-                  </button>
-                </div>
-              </form>
+              <div className="mt-8 flex items-center justify-center gap-4">
+                <span className="h-px w-12 bg-line sm:w-16" aria-hidden />
+                <p className="font-display text-lg italic text-ink-soft">
+                  One Day Free No Card No Catch
+                </p>
+                <span className="h-px w-12 bg-line sm:w-16" aria-hidden />
+              </div>
+
+              <p className="mt-6 font-display text-xl text-ink-soft">
+                Job Boards are <span className="text-ink">GARBAGE!</span>&nbsp;&nbsp;Skip 'em
+              </p>
             </div>
 
-            <div
-              ref={videoBoxRef}
-              className="relative aspect-video overflow-hidden rounded-2xl border border-line bg-mist"
-            >
-              {isPlaying ? (
-                <video
-                  autoPlay
-                  controls
-                  playsInline
-                  muted={isMuted}
-                  preload="metadata"
-                  onEnded={() => setIsPlaying(false)}
-                  className="h-full w-full object-contain"
+            {/* Explainer copy on the left, search + video walkthrough on the right */}
+            <div className="mx-auto mt-10 grid max-w-4xl items-start gap-10 md:grid-cols-2">
+              <div className="mx-auto max-w-sm space-y-4 text-center text-sm leading-relaxed text-ink-soft">
+                <p>Job boards suck.</p>
+                <p>
+                  They're full of reposts, expired listings, and jobs that{' '}
+                  <span className="font-semibold text-ink">NEVER</span> existed.
+                </p>
+                <p>JobBeggar.com skips the boards and goes straight to the company.</p>
+                <div className="!mt-6 rounded-sm bg-[#5c1717] px-6 py-3 text-sm font-semibold text-white">
+                  You need a job and JobBeggar.com can help
+                </div>
+              </div>
+
+              <div className="mx-auto flex w-full max-w-sm flex-col gap-4">
+                <form onSubmit={handleSearch}>
+                  <label htmlFor="job-title" className="text-sm font-medium text-ink">
+                    Search for a job title
+                  </label>
+                  <div className="mt-2 flex items-center gap-2 rounded-full border border-line bg-white p-1.5 pl-5 shadow-sm">
+                    <input
+                      id="job-title"
+                      type="text"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="e.g. Product Designer"
+                      className="w-full bg-transparent text-sm text-ink placeholder:text-ink-soft/60 focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="flex shrink-0 items-center gap-1 rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03]"
+                    >
+                      Go <span aria-hidden>→</span>
+                    </button>
+                  </div>
+                </form>
+
+                <div
+                  ref={videoBoxRef}
+                  className="relative aspect-[5/4] overflow-hidden rounded-2xl border border-line bg-ink"
                 >
-                  <source src="/videos/walkthrough.mp4" type="video/mp4" />
-                  Your browser doesn't support embedded video.
-                </video>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    hasInteractedRef.current = true
-                    setIsMuted(false)
-                    setIsPlaying(true)
-                  }}
-                  aria-label="Play walkthrough video"
-                  className="group flex h-full w-full flex-col items-center justify-center gap-3 bg-mist text-ink-soft"
-                >
-                  <span className="flex h-14 w-14 items-center justify-center rounded-full flame-gradient text-white shadow-lg transition-transform group-hover:scale-105">
-                    ▶
-                  </span>
-                  <span className="text-sm font-medium">Product walkthrough</span>
-                </button>
-              )}
+                  {isPlaying ? (
+                    <video
+                      autoPlay
+                      controls
+                      playsInline
+                      muted={isMuted}
+                      preload="metadata"
+                      poster="/images/watch-this-thumbnail.png"
+                      onEnded={() => setIsPlaying(false)}
+                      className="h-full w-full object-contain"
+                    >
+                      <source src="/videos/walkthrough.mp4" type="video/mp4" />
+                      Your browser doesn't support embedded video.
+                    </video>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        hasInteractedRef.current = true
+                        setIsMuted(false)
+                        setIsPlaying(true)
+                      }}
+                      aria-label="Play walkthrough video"
+                      className="group relative block h-full w-full"
+                    >
+                      <img
+                        src="/images/watch-this-thumbnail.png"
+                        alt="How does this work? Watch this."
+                        className="h-full w-full object-cover"
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center bg-ink/0 transition-colors group-hover:bg-ink/20">
+                        <span className="flex h-14 w-14 items-center justify-center rounded-full flame-gradient text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                          ▶
+                        </span>
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </section>
 
           {/* Reviews */}
-          <section className="mx-auto max-w-6xl py-10 pb-16">
+          <section className="mx-auto max-w-6xl py-10">
             <h2 className="font-display text-2xl font-semibold text-ink">
               Job seekers who closed the loop
             </h2>
@@ -174,13 +221,26 @@ export default function Landing() {
                   key={review.name}
                   className="rounded-2xl border border-line bg-white p-6 shadow-sm"
                 >
-                  <span className="font-display text-3xl flame-text-gradient">“</span>
+                  <span className="font-display text-3xl flame-text-gradient">"</span>
                   <p className="mt-1 text-sm leading-relaxed text-ink">{review.quote}</p>
                   <p className="mt-5 text-sm font-semibold text-ink">{review.name}</p>
                   <p className="text-xs text-ink-soft">{review.role}</p>
                 </article>
               ))}
             </div>
+          </section>
+
+          {/* FAQ */}
+          <section id="faq" className="mx-auto max-w-6xl py-10 pb-16">
+            <h2 className="font-display text-lg font-semibold text-ink">FAQ</h2>
+            <dl className="mt-6 space-y-6">
+              {faqs.map((faq) => (
+                <div key={faq.q}>
+                  <dt className="text-sm text-ink">'{faq.q}'</dt>
+                  <dd className="mt-1 text-sm text-ink-soft">{faq.a}</dd>
+                </div>
+              ))}
+            </dl>
           </section>
         </main>
 
