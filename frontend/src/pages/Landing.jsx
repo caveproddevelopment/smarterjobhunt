@@ -32,13 +32,12 @@ const reviews = [
   },
 ]
 
-// Placeholder copy — swap in the real answers whenever you have them.
 const faqs = [
-  { q: 'Why no free tier?', a: 'I will provide the text separately' },
-  { q: 'How many companies are there?', a: 'I will provide the text separately' },
-  { q: 'How reliable is the matching score?', a: 'I will provide the text separately' },
-  { q: 'Can I cancel anytime?', a: 'I will provide the text separately' },
-  { q: 'What happens if I find a broken listing?', a: 'I will provide the text separately' },
+  { q: 'Why no free tier?' },
+  { q: 'How many companies are there?' },
+  { q: 'How reliable is the matching score?' },
+  { q: 'Can I cancel anytime?' },
+  { q: 'What happens if I find a broken listing?' },
 ]
 
 export default function Landing() {
@@ -237,7 +236,6 @@ export default function Landing() {
               {faqs.map((faq) => (
                 <div key={faq.q}>
                   <dt className="text-sm text-ink">'{faq.q}'</dt>
-                  <dd className="mt-1 text-sm text-ink-soft">{faq.a}</dd>
                 </div>
               ))}
             </dl>
