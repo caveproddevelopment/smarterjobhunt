@@ -33,11 +33,20 @@ FULL_NAME_PATTERN = re.compile(r"^[A-Za-z]+( [A-Za-z]+)*$")
 # has_password lets the frontend know whether to show password-related UI
 # (the "Change password" section, the "Forgot password" link) -- Google-only
 # accounts have password_hash = NULL and can't use either.
+#
+# trial_active: the 24-hour full-access window every new signup gets,
+# gated purely by created_at -- no separate trial table, no cron job to
+# expire it. It's just re-evaluated on every request, so it silently
+# turns itself off once 24h have passed. Deliberately kept separate from
+# `plan` (which stays exactly what Stripe's webhook says) so this can
+# never interfere with real billing state -- the frontend is expected to
+# treat access as unlocked when EITHER plan == 'pro' OR trial_active.
 USER_FIELDS = """
     id, full_name, email, pending_email, created_at, plan, subscription_status,
     billing_interval, current_period_end, default_job_title, default_variants,
     default_posted_within_days, default_funding_filter, has_set_default_filters,
-    (password_hash IS NOT NULL) AS has_password
+    (password_hash IS NOT NULL) AS has_password,
+    (created_at + interval '24 hours' > now()) AS trial_active
 """
 
 

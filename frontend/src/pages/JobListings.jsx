@@ -69,7 +69,11 @@ export default function JobListings() {
   const [bookmarkError, setBookmarkError] = useState(null)
   const [showDefaultsModal, setShowDefaultsModal] = useState(false)
   const [showSubscribeModal, setShowSubscribeModal] = useState(false)
-  const canApply = user?.plan === 'pro'
+  // Pro subscribers always have access; new signups also get it for their
+  // first 24 hours (trial_active, computed server-side from created_at --
+  // see USER_FIELDS in routes/auth.py). Automatically turns off once the
+  // window passes, no separate expiry logic needed here.
+  const canApply = user?.plan === 'pro' || user?.trial_active
   const [savingDefaults, setSavingDefaults] = useState(false)
   const [titleVariants, setTitleVariants] = useState([])
   const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
