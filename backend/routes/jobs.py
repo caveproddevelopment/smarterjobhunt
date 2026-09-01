@@ -482,6 +482,33 @@ def variant_counts():
     return jsonify({"counts": counts})
 
 
+@bp.get("/stats")
+@optional_auth
+def site_stats():
+    """Site-wide totals for the landing page counters: how many distinct
+    companies and how many active jobs are currently in the database,
+    across every Company Database combined. Scoped by the same
+    department/location displayability guard as list_jobs and
+    company_type_counts (see HAS_DEPT_OR_LOCATION), so this stays in sync
+    with what a visitor would actually see once they click through.
+    """
+    cur = get_cursor()
+    cur.execute(
+        f"""
+        SELECT count(DISTINCT c.id) AS company_count, count(*) AS job_count
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.is_active = true
+          AND {HAS_DEPT_OR_LOCATION}
+        """
+    )
+    row = cur.fetchone()
+    return jsonify({
+        "company_count": row["company_count"],
+        "job_count": row["job_count"],
+    })
+
+
 @bp.get("/jobs/company-type-counts")
 @optional_auth
 def company_type_counts():
