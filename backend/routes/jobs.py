@@ -485,21 +485,27 @@ def variant_counts():
 @bp.get("/stats")
 @optional_auth
 def site_stats():
-    """Site-wide totals for the landing page counters: how many distinct
-    companies and how many active jobs are currently in the database,
-    across every Company Database combined. Scoped by the same
-    department/location displayability guard as list_jobs and
-    company_type_counts (see HAS_DEPT_OR_LOCATION), so this stays in sync
-    with what a visitor would actually see once they click through.
+    """Site-wide totals for the landing page counters.
+
+    company_count is every company row the scraping agent tracks -- NOT
+    scoped to whether it currently has an active, displayable job (that
+    previously undercounted badly, e.g. ~27 instead of ~5,500+, since most
+    tracked companies don't have a matching job at any given moment).
+
+    job_count stays scoped to active jobs with a department or location
+    (see HAS_DEPT_OR_LOCATION, shared with list_jobs and
+    company_type_counts), so it still matches what a visitor sees once
+    they click through.
     """
     cur = get_cursor()
     cur.execute(
         f"""
-        SELECT count(DISTINCT c.id) AS company_count, count(*) AS job_count
-        FROM jobs j
-        JOIN companies c ON c.id = j.company_id
-        WHERE j.is_active = true
-          AND {HAS_DEPT_OR_LOCATION}
+        SELECT
+            (SELECT count(*) FROM companies) AS company_count,
+            (SELECT count(*)
+               FROM jobs j
+              WHERE j.is_active = true
+                AND {HAS_DEPT_OR_LOCATION}) AS job_count
         """
     )
     row = cur.fetchone()
