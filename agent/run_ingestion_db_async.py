@@ -35,7 +35,7 @@ Usage (Railway sets DATABASE_URL automatically):
     export DATABASE_URL=postgresql://user:pass@host:5432/dbname
     python run_ingestion_db_async.py
     python run_ingestion_db_async.py --max-workers 10 --limit 50
-    python run_ingestion_db_async.py --companies-file retry_timeouts.txt
+    python run_ingestion_db_async.py --companies-file retry_timeouts.txt --skip-clean-staging
     python run_ingestion_db_async.py --auto-clean --auto-promote \
         --backend-url https://api.example.com --admin-key <ADMIN_API_KEY>
 """
@@ -103,6 +103,11 @@ async def main():
                          help="Base URL of the backend API (required for --auto-clean/--auto-promote)")
     parser.add_argument("--admin-key", default=os.environ.get("ADMIN_API_KEY"),
                          help="X-Admin-Key value for the backend's staging endpoints (required for --auto-clean/--auto-promote)")
+    parser.add_argument("--skip-clean-staging", action="store_true",
+                         help="Do not run DELETE FROM jobs_staging before this run. Use for a scoped/partial "
+                              "run (e.g. --companies-file) where you don't want to wipe out staging rows "
+                              "belonging to a different, still-pending batch. Default behavior (full wipe "
+                              "every run) is unchanged unless this is passed.")
     args = parser.parse_args()
 
     if not args.database_url:
@@ -133,17 +138,22 @@ async def main():
         # promoted all get wiped equally). If you're not running with
         # --auto-clean/--auto-promote every time, anything still sitting
         # 'pending' from the last run is lost here, not just old batches.
-        cur = conn.cursor()
-        try:
-            cur.execute("DELETE FROM jobs_staging")
-            cleared = cur.rowcount
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()
-        print(f"[run_ingestion_db_async] Cleared {cleared} row(s) from jobs_staging before this run.", flush=True)
+        # Skipped entirely when --skip-clean-staging is passed (e.g. a
+        # scoped retry run that shouldn't touch another batch's rows).
+        if args.skip_clean_staging:
+            print("[run_ingestion_db_async] --skip-clean-staging passed: leaving jobs_staging untouched.", flush=True)
+        else:
+            cur = conn.cursor()
+            try:
+                cur.execute("DELETE FROM jobs_staging")
+                cleared = cur.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+            print(f"[run_ingestion_db_async] Cleared {cleared} row(s) from jobs_staging before this run.", flush=True)
 
         source = PostgresCompanySource(conn, limit=args.limit, company_type=args.company_type, names=company_names)
         sink = StagingJobSink(conn, batch_id=batch_id)
