@@ -35,6 +35,7 @@ Usage (Railway sets DATABASE_URL automatically):
     export DATABASE_URL=postgresql://user:pass@host:5432/dbname
     python run_ingestion_db_async.py
     python run_ingestion_db_async.py --max-workers 10 --limit 50
+    python run_ingestion_db_async.py --companies-file retry_timeouts.txt
     python run_ingestion_db_async.py --auto-clean --auto-promote \
         --backend-url https://api.example.com --admin-key <ADMIN_API_KEY>
 """
@@ -81,6 +82,15 @@ async def main():
         default=None,
         help="Only process companies tagged with this type (default: all)"
     )
+    parser.add_argument(
+        "--companies-file",
+        default=None,
+        help="Path to a plain text file, one exact company name per line (must match the "
+             "`name` column in Postgres). Scopes this run to only those companies -- e.g. "
+             "retrying just the ones that hard-timed-out on a previous run. Combines with "
+             "--company-type via AND if both are given. Names with no matching row are "
+             "silently skipped."
+    )
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--batch-id", default=None,
                          help="Override the generated batch UUID (mainly for testing or re-running against an existing batch)")
@@ -108,6 +118,13 @@ async def main():
 
     batch_id = args.batch_id or str(uuid.uuid4())
 
+    company_names = None
+    if args.companies_file:
+        with open(args.companies_file, encoding="utf-8-sig") as f:
+            company_names = [line.strip() for line in f if line.strip()]
+        print(f"[run_ingestion_db_async] Loaded {len(company_names)} company name(s) from "
+              f"{args.companies_file} to scope this run.", flush=True)
+
     conn = psycopg2.connect(args.database_url)
     try:
         # Clear jobs_staging before this run starts, so the table only ever
@@ -128,7 +145,7 @@ async def main():
             cur.close()
         print(f"[run_ingestion_db_async] Cleared {cleared} row(s) from jobs_staging before this run.", flush=True)
 
-        source = PostgresCompanySource(conn, limit=args.limit, company_type=args.company_type)
+        source = PostgresCompanySource(conn, limit=args.limit, company_type=args.company_type, names=company_names)
         sink = StagingJobSink(conn, batch_id=batch_id)
 
         def progress(pct, msg):

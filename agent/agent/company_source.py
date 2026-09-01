@@ -103,19 +103,35 @@ class PostgresCompanySource(CompanySource):
     values seed_companies.py's --company-type accepts). Omit it
     (default None) to scrape every company regardless of type, same
     as the previous behavior.
+
+    `names`, when given, restricts the load to companies whose `name`
+    exactly matches one of the given strings (case-sensitive, must
+    match what's stored in the `name` column). Intended for scoped
+    reruns — e.g. retrying only the companies that hard-timed-out on a
+    previous run — without needing a whole company_type bucket or a
+    positional --limit. Combines with company_type via AND if both are
+    given. Names with no matching row are silently skipped, not errored.
     """
 
-    def __init__(self, connection, limit: Optional[int] = None, company_type: Optional[str] = None):
+    def __init__(self, connection, limit: Optional[int] = None, company_type: Optional[str] = None,
+                 names: Optional[list[str]] = None):
         self.connection = connection
         self.limit = limit
         self.company_type = company_type
+        self.names = names
 
     def load(self) -> list[dict]:
         query = "SELECT name, website, funding_stage, funding_amount, funding_date FROM companies"
         params: list = []
+        clauses: list = []
         if self.company_type:
-            query += " WHERE company_type = %s"
+            clauses.append("company_type = %s")
             params.append(self.company_type)
+        if self.names:
+            clauses.append("name = ANY(%s)")
+            params.append(self.names)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY name"
         if self.limit:
             query += " LIMIT %s"
