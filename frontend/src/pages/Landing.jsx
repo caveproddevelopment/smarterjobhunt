@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import FlipCounter from '../components/FlipCounter'
 import { fetchSiteStats } from '../lib/api'
 import { useCountUp } from '../lib/useCountUp'
 
@@ -15,11 +16,6 @@ const badges = [
   { src: '/images/badges/majorIndian.png', alt: 'Major Indian companies', type: 'indianmajor' },
   { src: '/images/badges/midsizedUS.png', alt: 'Mid-sized US companies', type: 'midsize' },
 ]
-
-// Zero-pads a count to 5 digits for the odometer-style display, e.g. 458 -> "00458".
-function padCount(n) {
-  return String(n).padStart(5, '0')
-}
 
 const reviews = [
   {
@@ -120,13 +116,11 @@ export default function Landing() {
         <Navbar />
 
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-10 gap-y-1 px-6 pb-2 text-center">
-          <p className="font-display text-sm font-semibold text-ink">
-            Current Company Count{' '}
-            <span className="font-mono text-base text-[#019c58]">{padCount(animatedCompanyCount)}</span>
+          <p className="flex items-center gap-2 font-display text-sm font-semibold text-ink">
+            Current Company Count <FlipCounter value={animatedCompanyCount} />
           </p>
-          <p className="font-display text-sm font-semibold text-ink">
-            Current Job Count{' '}
-            <span className="font-mono text-base text-[#019c58]">{padCount(animatedJobCount)}</span>
+          <p className="flex items-center gap-2 font-display text-sm font-semibold text-ink">
+            Current Job Count <FlipCounter value={animatedJobCount} />
           </p>
         </div>
 
