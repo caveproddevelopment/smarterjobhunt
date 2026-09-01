@@ -126,7 +126,7 @@ export default function Landing() {
 
         <main className="px-6">
           {/* Hero: heading, company badges, and the "why us" explainer */}
-          <section id="what-is-this" className="mx-auto max-w-6xl py-10 md:py-16">
+          <section id="what-is-this" className="mx-auto max-w-6xl pt-2 pb-10 md:pt-6 md:pb-16">
             <div className="mx-auto max-w-2xl text-center">
               <h1 className="font-display text-2xl text-ink-soft md:text-3xl">
                 Pick the companies you'd actually work for
@@ -134,7 +134,7 @@ export default function Landing() {
                 We'll dig up the jobs.
               </h1>
 
-              <div className="mt-8 flex w-full flex-wrap items-center justify-between gap-4">
+              <div className="mx-auto mt-8 flex w-full max-w-xl flex-wrap items-center justify-between gap-4">
                 {badges.map((badge) => (
                   <button
                     key={badge.alt}

@@ -19,7 +19,7 @@ export default function FlipCounter({ value, digits = 5, className = '' }) {
           src={DIGIT_SRC[Number(digit)]}
           alt={digit}
           draggable={false}
-          className="h-6 w-auto select-none drop-shadow-sm md:h-7"
+          className="h-8 w-auto select-none drop-shadow-sm md:h-9"
         />
       ))}
     </span>
