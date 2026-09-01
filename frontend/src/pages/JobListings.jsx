@@ -39,7 +39,9 @@ function buildBookmarkName(view) {
   if (view.viewType === 'company') {
     return `All jobs at ${view.companyName}`
   }
-  const dbLabel = ` · ${COMPANY_TYPE_LABELS[view.companyType || 'all']}`
+  // Handle multiple company types
+  const companyTypeLabels = (view.companyTypes || []).map((type) => COMPANY_TYPE_LABELS[type])
+  const dbLabel = companyTypeLabels.length > 0 ? ` · ${companyTypeLabels.join(', ')}` : ''
   const remoteLabel = view.remoteOnly ? ' · Remote' : ''
   if (view.viewType === 'variant') {
     return `${view.variantTitle}${suffix}${dbLabel}${remoteLabel}`
@@ -64,7 +66,7 @@ export default function JobListings() {
   const [filters, setFilters] = useState({
     title: searchParams.get('title') || '',
     postedDays: '',
-    companyType: linkedCompanyType || DEFAULT_COMPANY_TYPE,
+    companyTypes: linkedCompanyType ? [linkedCompanyType] : [DEFAULT_COMPANY_TYPE],
     remoteOnly: false,
   })
   const [appliedFilters, setAppliedFilters] = useState(filters)
@@ -128,7 +130,7 @@ export default function JobListings() {
       // Only re-fetch titleVariants when the title or posted-days filter
       // actually changed. Toggling selectedVariant alone (e.g. "Return to
       // Full List") reuses what's already loaded instead of re-fetching.
-      const variantsKey = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${appliedFilters.companyType}`
+      const variantsKey = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${(appliedFilters.companyTypes || []).join(',')}`
       const filtersChanged = variantsKeyRef.current !== variantsKey
 
       let variants = titleVariants
@@ -151,20 +153,20 @@ export default function JobListings() {
 
       // selectedStatus (Track Applications) takes priority over everything:
       // it's the user's marked-job history, not a search, so it ignores
-      // title/variant/company/postedDays/companyType entirely. Next,
+      // title/variant/company/postedDays/companyTypes entirely. Next,
       // selectedCompany means every job at that company, full stop. Then a
       // selected variant scopes to ONLY that variant's jobs (title left out
       // entirely, no OR'ing with the other variants). With nothing
       // selected, it's the normal combined title + all-variants view.
       const jobParams = selectedStatus
-        ? { title: '', postedDays: '', companyType: 'all', remoteOnly: false, status: selectedStatus }
+        ? { title: '', postedDays: '', companyTypes: [], remoteOnly: false, status: selectedStatus }
         : selectedCompany
-          ? { title: '', postedDays: '', companyType: 'all', remoteOnly: false, companyId: selectedCompany.id }
+          ? { title: '', postedDays: '', companyTypes: [], remoteOnly: false, companyId: selectedCompany.id }
           : selectedVariant
             ? {
                 title: '',
                 postedDays: appliedFilters.postedDays,
-                companyType: appliedFilters.companyType,
+                companyTypes: appliedFilters.companyTypes,
                 remoteOnly: appliedFilters.remoteOnly,
                 variantTitles: [selectedVariant],
               }
@@ -241,7 +243,7 @@ export default function JobListings() {
       const seeded = {
         title: user.default_job_title || '',
         postedDays: user.default_posted_within_days || '',
-        companyType: filters.companyType || DEFAULT_COMPANY_TYPE,
+        companyTypes: filters.companyTypes || [DEFAULT_COMPANY_TYPE],
       }
       setFilters(seeded)
       setAppliedFilters(seeded)
@@ -373,14 +375,14 @@ export default function JobListings() {
             variantTitle: selectedVariant,
             title: appliedFilters.title,
             days: appliedFilters.postedDays,
-            companyType: appliedFilters.companyType,
+            companyTypes: appliedFilters.companyTypes,
             remoteOnly: appliedFilters.remoteOnly,
           }
         : {
             viewType: 'search',
             title: appliedFilters.title,
             days: appliedFilters.postedDays,
-            companyType: appliedFilters.companyType,
+            companyTypes: appliedFilters.companyTypes,
             remoteOnly: appliedFilters.remoteOnly,
           }
 
@@ -393,14 +395,19 @@ export default function JobListings() {
       return search.company_id === currentView.companyId
     }
     const sameDays = String(search.posted_within_days || '') === String(currentView.days || '')
-    const sameCompanyType = (search.company_type || 'all') === (currentView.companyType || 'all')
+    // Compare company types as arrays - sort both for consistent comparison
+    const searchCompanyTypes = (search.company_types || []).sort()
+    const currentCompanyTypes = (currentView.companyTypes || []).sort()
+    const sameCompanyTypes =
+      searchCompanyTypes.length === currentCompanyTypes.length &&
+      searchCompanyTypes.every((type, idx) => type === currentCompanyTypes[idx])
     const sameRemote = Boolean(search.remote_only) === Boolean(currentView.remoteOnly)
     if (currentView.viewType === 'variant') {
       return (
-        (search.variant_title || '') === currentView.variantTitle && sameDays && sameCompanyType && sameRemote
+        (search.variant_title || '') === currentView.variantTitle && sameDays && sameCompanyTypes && sameRemote
       )
     }
-    return (search.job_title || '') === (currentView.title || '') && sameDays && sameCompanyType && sameRemote
+    return (search.job_title || '') === (currentView.title || '') && sameDays && sameCompanyTypes && sameRemote
   })
 
   function handleToggleBookmark() {
@@ -419,7 +426,7 @@ export default function JobListings() {
       jobTitle: currentView.viewType === 'company' ? null : currentView.title,
       variantTitle: currentView.viewType === 'variant' ? currentView.variantTitle : null,
       postedWithinDays: currentView.viewType === 'company' ? null : currentView.days,
-      companyType: currentView.viewType === 'company' ? undefined : currentView.companyType,
+      companyTypes: currentView.viewType === 'company' ? undefined : currentView.companyTypes,
       statusFilter: currentView.viewType === 'status' ? currentView.statusFilter : null,
       companyId: currentView.viewType === 'company' ? currentView.companyId : null,
       remoteOnly: currentView.viewType === 'company' ? undefined : currentView.remoteOnly,
@@ -450,7 +457,7 @@ export default function JobListings() {
     const applied = {
       title: search.job_title || '',
       postedDays: search.posted_within_days != null ? String(search.posted_within_days) : '',
-      companyType: search.company_type || 'all',
+      companyTypes: search.company_types || [DEFAULT_COMPANY_TYPE],
       remoteOnly: Boolean(search.remote_only),
     }
     setFilters(applied)

@@ -149,11 +149,11 @@ export default function Landing() {
               </div>
 
               <div className="mt-8 flex items-center justify-center gap-4">
-                <span className="h-px w-12 bg-line sm:w-16" aria-hidden />
+                <span className="h-px w-20 bg-line sm:w-32" aria-hidden />
                 <p className="font-display text-[1.6875rem] italic text-[#019c58]">
                   One Day Free No Card No Catch
                 </p>
-                <span className="h-px w-12 bg-line sm:w-16" aria-hidden />
+                <span className="h-px w-20 bg-line sm:w-32" aria-hidden />
               </div>
 
               <p className="mt-6 font-display text-xl text-ink-soft">

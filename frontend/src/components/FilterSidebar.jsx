@@ -69,10 +69,16 @@ export default function FilterSidebar({
             <label key={value} className="flex items-start justify-between gap-2 text-sm text-ink">
               <span className="flex items-start gap-1.5">
                 <input
-                  type="radio"
-                  name="company-type"
-                  checked={(filters.companyType || DEFAULT_COMPANY_TYPE) === value}
-                  onChange={() => onFilterChange({ ...filters, companyType: value })}
+                  type="checkbox"
+                  checked={(filters.companyTypes || []).includes(value)}
+                  onChange={(event) => {
+                    const companyTypes = filters.companyTypes || []
+                    if (event.target.checked) {
+                      onFilterChange({ ...filters, companyTypes: [...companyTypes, value] })
+                    } else {
+                      onFilterChange({ ...filters, companyTypes: companyTypes.filter((t) => t !== value) })
+                    }
+                  }}
                   className="mt-0.5 shrink-0"
                 />
                 <span>{label}</span>

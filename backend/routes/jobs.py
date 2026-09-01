@@ -218,7 +218,11 @@ def list_jobs():
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
     funding = request.args.get("funding", "both").strip().lower()
-    company_type = request.args.get("company_type", "both").strip().lower()
+    # Handle multiple company_type parameters - get all of them as a list
+    company_types = [ct.strip().lower() for ct in request.args.getlist("company_type") if ct.strip()]
+    # If no company types specified, treat as all types
+    if not company_types:
+        company_types = []
     company_id = request.args.get("company_id", "").strip()
     status_filter = request.args.get("status", "").strip().lower()
     remote_only = request.args.get("remote_only", "").strip().lower() in {"1", "true", "yes"}
@@ -291,9 +295,12 @@ def list_jobs():
         where.append("c.funding_stage = %s")
         params.append(FUNDING_FILTER_MAP[funding])
 
-    if company_type in COMPANY_TYPES:
-        where.append("c.company_type = %s")
-        params.append(company_type)
+    # Handle multiple company types - filter to only valid ones
+    valid_company_types = [ct for ct in company_types if ct in COMPANY_TYPES]
+    if valid_company_types:
+        placeholders = ", ".join(["%s"] * len(valid_company_types))
+        where.append(f"c.company_type IN ({placeholders})")
+        params.extend(valid_company_types)
 
     # "Remote" checkbox in the sidebar: word-boundary match (same \y
     # helper the title/description scoring above uses) against title,
@@ -431,7 +438,10 @@ def variant_counts():
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
     funding = request.args.get("funding", "both").strip().lower()
-    company_type = request.args.get("company_type", "both").strip().lower()
+    # Handle multiple company_type parameters
+    company_types = [ct.strip().lower() for ct in request.args.getlist("company_type") if ct.strip()]
+    if not company_types:
+        company_types = []
 
     if not variant_titles:
         return jsonify({"counts": {}})
@@ -451,9 +461,12 @@ def variant_counts():
         where.append("c.funding_stage = %s")
         params.append(FUNDING_FILTER_MAP[funding])
 
-    if company_type in COMPANY_TYPES:
-        where.append("c.company_type = %s")
-        params.append(company_type)
+    # Handle multiple company types - filter to only valid ones
+    valid_company_types = [ct for ct in company_types if ct in COMPANY_TYPES]
+    if valid_company_types:
+        placeholders = ", ".join(["%s"] * len(valid_company_types))
+        where.append(f"c.company_type IN ({placeholders})")
+        params.extend(valid_company_types)
 
     where_clause = " AND ".join(where)
 

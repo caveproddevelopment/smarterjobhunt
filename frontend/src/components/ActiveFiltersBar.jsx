@@ -3,7 +3,7 @@ import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 const DEFAULT_FILTERS = {
   title: '',
   postedDays: '',
-  companyType: DEFAULT_COMPANY_TYPE,
+  companyTypes: [],
   remoteOnly: false,
 }
 
@@ -109,16 +109,13 @@ export default function ActiveFiltersBar({
       clear: () => onChange({ ...filters, postedDays: '' }),
     })
   }
-  // Unlike title/postedDays, this one is a required radio -- there's no
-  // "unset" state to fall back to, "both" is just as much an explicit
-  // choice as funded or fortune500 (it means "search across both
-  // databases", not "no database filter applied"). So it always shows a
-  // chip, and its × resets to the sidebar's default rather than to "both".
-  if (filters.companyType) {
+  // Display chips for selected company types - multiple types can be selected
+  if (filters.companyTypes && filters.companyTypes.length > 0) {
+    const companyTypeLabels = filters.companyTypes.map((type) => COMPANY_TYPE_LABELS[type])
     chips.push({
-      key: 'companyType',
-      label: COMPANY_TYPE_LABELS[filters.companyType] || filters.companyType,
-      clear: () => onChange({ ...filters, companyType: DEFAULT_COMPANY_TYPE }),
+      key: 'companyTypes',
+      label: `Databases: ${companyTypeLabels.join(', ')}`,
+      clear: () => onChange({ ...filters, companyTypes: [DEFAULT_COMPANY_TYPE] }),
     })
   }
   if (filters.remoteOnly) {

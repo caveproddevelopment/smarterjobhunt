@@ -37,8 +37,11 @@ export async function fetchJobs(filters) {
   const params = new URLSearchParams()
   if (filters.title) params.set('title', filters.title)
   if (filters.postedDays) params.set('posted_days', filters.postedDays)
-  if (filters.companyType && filters.companyType !== 'both') {
-    params.set('company_type', filters.companyType)
+  // Handle companyTypes as an array - append each type
+  if (filters.companyTypes && filters.companyTypes.length > 0) {
+    for (const companyType of filters.companyTypes) {
+      params.append('company_type', companyType)
+    }
   }
   if (filters.companyId) params.set('company_id', filters.companyId)
   if (filters.status) params.set('status', filters.status)
@@ -78,7 +81,7 @@ export async function createSavedSearch({
   jobTitle,
   variantTitle,
   postedWithinDays,
-  companyType,
+  companyTypes,
   statusFilter,
   companyId,
   remoteOnly,
@@ -92,7 +95,7 @@ export async function createSavedSearch({
       job_title: jobTitle || null,
       variant_title: variantTitle || null,
       posted_within_days: postedWithinDays || null,
-      company_type: companyType || 'both',
+      company_types: companyTypes || [],
       status_filter: statusFilter || null,
       company_id: companyId || null,
       remote_only: Boolean(remoteOnly),

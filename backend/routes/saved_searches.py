@@ -28,7 +28,15 @@ def list_saved_searches():
         """,
         (g.user_id,),
     )
-    return jsonify({"saved_searches": cur.fetchall()})
+    searches = cur.fetchall()
+    # Convert comma-separated company_type back to array for API response
+    for search in searches:
+        if search.get("company_type"):
+            # If it's already a comma-separated string, split it
+            search["company_types"] = [ct.strip() for ct in search["company_type"].split(",") if ct.strip()]
+        else:
+            search["company_types"] = []
+    return jsonify({"saved_searches": searches})
 
 
 @bp.post("")
@@ -46,6 +54,13 @@ def create_saved_search():
     status_filter = body.get("status_filter")
     if status_filter is not None and status_filter not in VALID_STATUS_FILTERS:
         return jsonify({"error": f"status_filter must be one of {sorted(VALID_STATUS_FILTERS)}"}), 400
+
+    # Handle company_types as an array - convert to comma-separated string for storage
+    company_types = body.get("company_types", [])
+    if isinstance(company_types, list):
+        company_types_str = ",".join(company_types) if company_types else "funded"  # Default to "funded" if empty
+    else:
+        company_types_str = str(company_types) if company_types else "funded"
 
     cur = get_cursor()
     try:
@@ -68,7 +83,7 @@ def create_saved_search():
                 body.get("variant_title"),
                 15,  # variants count is no longer user-adjustable — always 15
                 body.get("posted_within_days"),
-                body.get("company_type", "both"),
+                company_types_str,
                 body.get("funding_filter", "both"),
                 status_filter,
                 body.get("company_id"),
@@ -91,6 +106,12 @@ def create_saved_search():
         saved["company_name"] = row["name"] if row else None
     else:
         saved["company_name"] = None
+
+    # Convert company_type string back to array for API response
+    if saved.get("company_type"):
+        saved["company_types"] = [ct.strip() for ct in saved["company_type"].split(",") if ct.strip()]
+    else:
+        saved["company_types"] = []
 
     return jsonify(saved), 201
 

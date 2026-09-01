@@ -5,6 +5,90 @@ import Footer from '../components/Footer'
 import PasswordInput from '../components/PasswordInput'
 import { useAuth } from '../lib/auth'
 
+function calculateRemainingTime(targetDate) {
+  const now = new Date()
+  const target = new Date(targetDate)
+  const diff = target - now
+
+  if (diff <= 0) return null
+
+  const totalSeconds = Math.floor(diff / 1000)
+  const days = Math.floor(totalSeconds / (24 * 3600))
+  const hours = Math.floor((totalSeconds % (24 * 3600)) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+
+  if (days > 0) {
+    return `${days} day${days !== 1 ? 's' : ''} ${hours} hr${hours !== 1 ? 's' : ''}`
+  }
+  if (hours > 0) {
+    return `${hours} hr${hours !== 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`
+  }
+  return `${minutes} minute${minutes !== 1 ? 's' : ''}`
+}
+
+function PlanStatusBox({ user }) {
+  const [remainingTime, setRemainingTime] = useState(null)
+
+  useEffect(() => {
+    if (user.trial_active) {
+      // Calculate time remaining until trial ends (24 hours from created_at)
+      const trialEndDate = new Date(user.created_at)
+      trialEndDate.setHours(trialEndDate.getHours() + 24)
+      setRemainingTime(calculateRemainingTime(trialEndDate))
+    } else if (user.plan === 'pro' && user.current_period_end) {
+      // Calculate time remaining until subscription renews
+      setRemainingTime(calculateRemainingTime(user.current_period_end))
+    }
+  }, [user])
+
+  // Update remaining time every minute
+  useEffect(() => {
+    if (!user.trial_active && !user.plan === 'pro') return
+
+    const interval = setInterval(() => {
+      if (user.trial_active) {
+        const trialEndDate = new Date(user.created_at)
+        trialEndDate.setHours(trialEndDate.getHours() + 24)
+        setRemainingTime(calculateRemainingTime(trialEndDate))
+      } else if (user.plan === 'pro' && user.current_period_end) {
+        setRemainingTime(calculateRemainingTime(user.current_period_end))
+      }
+    }, 60000) // Update every minute
+
+    return () => clearInterval(interval)
+  }, [user])
+
+  let statusText = ''
+  let statusColor = ''
+
+  if (user.trial_active) {
+    statusText = 'Free Access'
+    statusColor = 'text-moss'
+  } else if (user.plan === 'pro') {
+    const interval = user.billing_interval === 'week' ? 'Weekly' : 'Monthly'
+    statusText = interval
+    statusColor = 'text-ember'
+  } else {
+    statusText = 'Basic Free'
+    statusColor = 'text-ink-soft'
+  }
+
+  return (
+    <div className="mt-6 rounded-lg border border-line bg-mist px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className={`text-sm font-semibold ${statusColor}`}>{statusText}</p>
+          {remainingTime && (
+            <p className="mt-1 text-xs text-ink-soft">
+              {user.trial_active ? 'Free access ends in' : 'Renews in'}: <span className="font-medium text-ink">{remainingTime}</span>
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Profile() {
   const {
     user,
@@ -191,6 +275,8 @@ export default function Profile() {
           <p className="mt-2 text-sm text-ink-soft">
             Manage your account details, password, and plan.
           </p>
+
+          <PlanStatusBox user={user} />
 
           {/* Account details */}
           <section className="mt-8 border border-line p-6">
