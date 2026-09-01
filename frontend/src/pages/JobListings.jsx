@@ -53,10 +53,18 @@ export default function JobListings() {
   const { user, updateDefaultFilters } = useAuth()
   const sidebarRef = useRef(null)
   const appliedUserDefaultsRef = useRef(false)
+  // A landing-page badge links here as e.g. ?company_type=fortune500 --
+  // only honor it when it's one of the real, known databases, so a
+  // malformed/unknown value quietly falls back to the default instead of
+  // producing a broken-looking filter state.
+  const companyTypeParam = searchParams.get('company_type')
+  const linkedCompanyType =
+    companyTypeParam && COMPANY_TYPE_LABELS[companyTypeParam] ? companyTypeParam : null
+
   const [filters, setFilters] = useState({
     title: searchParams.get('title') || '',
     postedDays: '',
-    companyType: DEFAULT_COMPANY_TYPE,
+    companyType: linkedCompanyType || DEFAULT_COMPANY_TYPE,
     remoteOnly: false,
   })
   const [appliedFilters, setAppliedFilters] = useState(filters)
@@ -224,10 +232,10 @@ export default function JobListings() {
     if (!user || appliedUserDefaultsRef.current) return
     appliedUserDefaultsRef.current = true
 
-    // If the user arrived here with a title from the landing page search
-    // (or any other explicit ?title= link), that takes priority — don't
-    // let saved account defaults overwrite it.
-    if (searchParams.get('title')) return
+    // If the user arrived here with a title or company database from the
+    // landing page (or any other explicit ?title=/?company_type= link),
+    // that takes priority — don't let saved account defaults overwrite it.
+    if (searchParams.get('title') || linkedCompanyType) return
 
     if (user.has_set_default_filters) {
       const seeded = {

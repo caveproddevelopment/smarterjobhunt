@@ -152,6 +152,15 @@ export async function fetchTitleVariants(title) {
   return data.variants
 }
 
+// Site-wide totals for the landing page counters -- { companyCount, jobCount }
+// across every Company Database combined.
+export async function fetchSiteStats() {
+  const res = await fetch(`${API_URL}/api/stats`)
+  if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to load stats (${res.status})`))
+  const data = await res.json()
+  return { companyCount: data.company_count, jobCount: data.job_count }
+}
+
 // Total active jobs in each company database, unfiltered -- not scoped to
 // title, posted-days, or any other search filter, e.g.
 // { funded: 1025, fortune500: 1500, both: 2525 }. Drives the counts shown

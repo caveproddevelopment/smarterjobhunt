@@ -2,14 +2,24 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import { fetchSiteStats } from '../lib/api'
+import { useCountUp } from '../lib/useCountUp'
 
+// `type` is the company_type value the Job Listings page filters on when a
+// badge is clicked (see companyTypes.js -- kept in sync with the backend's
+// COMPANY_TYPES allowlist in routes/jobs.py).
 const badges = [
-  { src: '/images/badges/Fortune500.png', alt: 'Fortune 500 companies' },
-  { src: '/images/badges/FundedStartups.png', alt: 'Funded startups' },
-  { src: '/images/badges/HealthCare.png', alt: 'Health care companies' },
-  { src: '/images/badges/majorIndian.png', alt: 'Major Indian companies' },
-  { src: '/images/badges/midsizedUS.png', alt: 'Mid-sized US companies' },
+  { src: '/images/badges/Fortune500.png', alt: 'Fortune 500 companies', type: 'fortune500' },
+  { src: '/images/badges/FundedStartups.png', alt: 'Funded startups', type: 'funded' },
+  { src: '/images/badges/HealthCare.png', alt: 'Health care companies', type: 'healthcare' },
+  { src: '/images/badges/majorIndian.png', alt: 'Major Indian companies', type: 'indianmajor' },
+  { src: '/images/badges/midsizedUS.png', alt: 'Mid-sized US companies', type: 'midsize' },
 ]
+
+// Zero-pads a count to 5 digits for the odometer-style display, e.g. 458 -> "00458".
+function padCount(n) {
+  return String(n).padStart(5, '0')
+}
 
 const reviews = [
   {
@@ -45,6 +55,9 @@ export default function Landing() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const navigate = useNavigate()
+  const [stats, setStats] = useState({ companyCount: 0, jobCount: 0 })
+  const animatedCompanyCount = useCountUp(stats.companyCount)
+  const animatedJobCount = useCountUp(stats.jobCount)
   const videoBoxRef = useRef(null)
   // Tracks whether the person has manually played/dismissed the video, so
   // the 5-second auto-preview below doesn't override a choice they already
@@ -73,6 +86,20 @@ export default function Landing() {
     return () => document.removeEventListener('mousedown', handleOutsideClick)
   }, [isPlaying])
 
+  // Fetch the site-wide company/job totals once on mount to drive the
+  // counters at the top of the page; left at 0 (no animation) on failure.
+  useEffect(() => {
+    let cancelled = false
+    fetchSiteStats()
+      .then((data) => {
+        if (!cancelled) setStats(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Auto-start the walkthrough preview 5 seconds after the page loads,
   // unless the person has already played or dismissed it themselves.
   // Starts muted so browsers allow the autoplay without a click; native
@@ -92,6 +119,17 @@ export default function Landing() {
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
         <Navbar />
 
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-10 gap-y-1 px-6 pb-2 text-center">
+          <p className="font-display text-sm font-semibold text-ink">
+            Current Company Count{' '}
+            <span className="font-mono text-base text-[#019c58]">{padCount(animatedCompanyCount)}</span>
+          </p>
+          <p className="font-display text-sm font-semibold text-ink">
+            Current Job Count{' '}
+            <span className="font-mono text-base text-[#019c58]">{padCount(animatedJobCount)}</span>
+          </p>
+        </div>
+
         <main className="px-6">
           {/* Hero: heading, company badges, and the "why us" explainer */}
           <section id="what-is-this" className="mx-auto max-w-6xl py-10 md:py-16">
@@ -102,20 +140,23 @@ export default function Landing() {
                 We'll dig up the jobs.
               </h1>
 
-              <div className="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+              <div className="mt-8 flex w-full flex-wrap items-center justify-between gap-4">
                 {badges.map((badge) => (
-                  <img
+                  <button
                     key={badge.alt}
-                    src={badge.src}
-                    alt={badge.alt}
-                    className="h-28 w-auto sm:h-32"
-                  />
+                    type="button"
+                    onClick={() => navigate(`/dashboard?company_type=${badge.type}`)}
+                    aria-label={`Browse ${badge.alt} jobs`}
+                    className="shrink-0 transition-transform hover:scale-[1.05]"
+                  >
+                    <img src={badge.src} alt={badge.alt} className="h-36 w-auto sm:h-44" />
+                  </button>
                 ))}
               </div>
 
               <div className="mt-8 flex items-center justify-center gap-4">
                 <span className="h-px w-12 bg-line sm:w-16" aria-hidden />
-                <p className="font-display text-lg italic text-ink-soft">
+                <p className="font-display text-[1.6875rem] italic text-[#019c58]">
                   One Day Free No Card No Catch
                 </p>
                 <span className="h-px w-12 bg-line sm:w-16" aria-hidden />
@@ -236,6 +277,7 @@ export default function Landing() {
               {faqs.map((faq) => (
                 <div key={faq.q}>
                   <dt className="text-sm text-ink">'{faq.q}'</dt>
+                  <dd className="mt-2 text-sm text-ink-soft">{faq.a}</dd>
                 </div>
               ))}
             </dl>
