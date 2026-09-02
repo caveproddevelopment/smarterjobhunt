@@ -42,12 +42,28 @@ This is the command to put in Railway's "Custom Start Command" for the
 agent service, with a Cron Schedule set (e.g. `0 2 * * *` for nightly
 at 2am). Companies live in the DB — seed/update them with
 seed_companies.py, not by editing this script.
+
+Forced-exit fix (2026-09-02, matching ingestion_orchestrator.py's new
+per-company watchdog): if that watchdog abandons a stuck company, its
+worker thread isn't forcibly killed — it may keep running in the
+background even after run() returns with a complete, correct summary.
+Python's concurrent.futures.thread module registers its own atexit hook
+that joins *every* ThreadPoolExecutor worker thread it ever created, for
+the whole process, the moment the interpreter starts shutting down —
+regardless of whether we called shutdown(wait=True) ourselves. Left
+alone, that means the script (and the Railway deploy) would still hang
+at exit waiting on that one abandoned thread, even though every real
+piece of work (staging writes, --auto-clean/--auto-promote calls) is
+already done. The __main__ block below calls os._exit() after
+everything finishes, which skips that shutdown sequence entirely and
+lets the process actually terminate.
 """
 
 import argparse
 import os
 import sys
 import time
+import traceback
 import uuid
 
 import psycopg2
@@ -150,6 +166,7 @@ def main():
         print(f"  -> ATS API hit:        {summary['companies_ats_hit']}")
         print(f"  -> Career page scrape: {summary['companies_scraped']}")
         print(f"  -> Failed/unknown:     {summary['companies_failed']}")
+        print(f"  -> Timed out/abandoned:{summary['companies_timed_out']}")
         print(f"Jobs staged:             {summary['jobs_found']}")
         print(f"Total wall-clock time:   {total_elapsed:.1f}s")
         print(f"Errors:                  {len(summary['errors'])}")
@@ -184,4 +201,27 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        _exit_code = main()
+    except SystemExit as _e:
+        _exit_code = _e.code
+    except Exception:
+        traceback.print_exc()
+        _exit_code = 1
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    # Force real process termination — see the module docstring's
+    # "Forced-exit fix" note. A normal `sys.exit()` here would still hang
+    # if the watchdog in ingestion_orchestrator.py abandoned a stuck
+    # company, because Python's own thread-pool cleanup tries to join
+    # that thread at interpreter shutdown no matter what we do above it.
+    if _exit_code is None:
+        _exit_code = 0
+    elif not isinstance(_exit_code, int):
+        # SystemExit(<string message>) case — the message was already
+        # printed by the default handling; just exit non-zero.
+        print(_exit_code, file=sys.stderr)
+        _exit_code = 1
+    os._exit(_exit_code)
