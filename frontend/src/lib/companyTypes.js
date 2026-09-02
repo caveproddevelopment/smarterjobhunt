@@ -24,11 +24,10 @@ export const COMPANY_TYPES = [
 
 export const DEFAULT_COMPANY_TYPE = 'funded'
 
-// A search/bookmark's Company Database filter always additionally offers
-// "All" (no restriction) on top of the real categories above -- unlike
-// those, "All" isn't something a company itself can be, so it's added
-// here rather than being one of the COMPANY_TYPES entries.
-export const COMPANY_TYPE_FILTER_OPTIONS = [...COMPANY_TYPES, { value: 'all', label: 'All' }]
+// The Companies checkbox list in the filter sidebar. No "All" entry --
+// leaving every real category unchecked (or checking several) is how you
+// broaden the search instead.
+export const COMPANY_TYPE_FILTER_OPTIONS = [...COMPANY_TYPES]
 
 export const COMPANY_TYPE_LABELS = Object.fromEntries(
   COMPANY_TYPE_FILTER_OPTIONS.map(({ value, label }) => [value, label])

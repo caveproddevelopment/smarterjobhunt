@@ -22,45 +22,11 @@ export default function ActiveFiltersBar({
   selectedCompany = null,
   selectedStatus = null,
   onReturnToFullList = () => {},
-  bookmarked = false,
-  onToggleBookmark = () => {},
-  bookmarkError = null,
 }) {
-  // Wrapped in a helper (rather than a single precomputed element) so the
-  // "chips" branch below can slot the match-% note in as an extra line
-  // underneath the button, while the other two branches (scoped view, no
-  // chips) render just the button + any bookmark error as before.
-  function renderBookmarkColumn(extra = null) {
-    return (
-      <div className="ml-auto flex shrink-0 flex-col items-end gap-1">
-        <button
-          type="button"
-          onClick={onToggleBookmark}
-          className="flex items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
-        >
-          <span
-            aria-hidden="true"
-            className={`text-xl leading-none ${bookmarked ? 'text-ember' : 'text-ink-soft'}`}
-          >
-            {bookmarked ? '★' : '☆'}
-          </span>
-          Bookmark Search
-        </button>
-        {bookmarkError && (
-          <p className="max-w-[200px] text-right text-xs text-ember">{bookmarkError}</p>
-        )}
-        {extra}
-      </div>
-    )
-  }
-
   // Once a variant pill, "See them all", or a "Track Applications" radio is
   // selected, the listing is scoped to just that title, company, or
-  // application status. "Return to Full List" and "Current View" move into this same
-  // gray bar alongside the bookmark control, instead of living in the white
-  // header above. Every scoped view is bookmarkable now (see
-  // buildBookmarkName / currentView in JobListings), so the bookmark
-  // control always shows here too.
+  // application status. "Return to Full List" and "Current View" show in
+  // this same gray bar instead of the chips below.
   const scopedLabel = selectedStatus
     ? STATUS_LABELS[selectedStatus]
     : selectedCompany
@@ -81,7 +47,6 @@ export default function ActiveFiltersBar({
           <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-ink">
             Current View: <span className="text-ember">{scopedLabel}</span>
           </span>
-          {renderBookmarkColumn()}
         </div>
       </div>
     )
@@ -114,7 +79,7 @@ export default function ActiveFiltersBar({
     const companyTypeLabels = filters.companyTypes.map((type) => COMPANY_TYPE_LABELS[type])
     chips.push({
       key: 'companyTypes',
-      label: `Databases: ${companyTypeLabels.join(', ')}`,
+      label: companyTypeLabels.join(', '),
       clear: () => onChange({ ...filters, companyTypes: [DEFAULT_COMPANY_TYPE] }),
     })
   }
@@ -126,13 +91,7 @@ export default function ActiveFiltersBar({
     })
   }
 
-  if (chips.length === 0) {
-    return (
-      <div className="border-b border-line bg-mist/60 px-6 py-3">
-        <div className="flex items-center">{renderBookmarkColumn()}</div>
-      </div>
-    )
-  }
+  if (chips.length === 0) return null
 
   return (
     <div className="border-b border-line bg-mist/60 px-6 py-3">
@@ -184,15 +143,12 @@ export default function ActiveFiltersBar({
             Clear all
           </button>
         )}
-        {renderBookmarkColumn(
-          filters.title && (
-            <p className="mt-2 whitespace-nowrap text-right text-xs text-ink-soft">
-              Match % is based on how closely each job's title and description match your search.
-            </p>
-          )
-        )}
       </div>
-
+      {filters.title && (
+        <p className="mt-2 text-xs text-ink-soft">
+          Match % is based on how closely each job's title and description match your search.
+        </p>
+      )}
     </div>
   )
 }

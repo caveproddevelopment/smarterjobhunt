@@ -487,8 +487,26 @@ export default function JobListings() {
 
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
         <div className="border border-line">
-          <div className="border-b border-line py-4 text-center">
-            <h1 className="text-xl font-semibold text-ink">Your Job Listings</h1>
+          <div className="relative border-b border-line py-4 text-center">
+            <div className="absolute right-4 top-4 flex flex-col items-end gap-1">
+              <button
+                type="button"
+                onClick={handleToggleBookmark}
+                className="flex items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`text-xl leading-none ${bookmarkedSearch ? 'text-ember' : 'text-ink-soft'}`}
+                >
+                  {bookmarkedSearch ? '★' : '☆'}
+                </span>
+                Bookmark Search
+              </button>
+              {bookmarkError && (
+                <p className="max-w-[200px] text-right text-xs text-ember">{bookmarkError}</p>
+              )}
+            </div>
+            <h1 className="text-xl font-semibold text-ink">Job Listings</h1>
             <button
               type="button"
               onClick={scrollToFilters}
@@ -498,7 +516,7 @@ export default function JobListings() {
             </button>
             {!loading && (
               <p className="mt-1 text-xs text-ink-soft">
-                {totalCount} match{totalCount === 1 ? '' : 'es'} for your current filters
+                {totalCount} Job{totalCount === 1 ? '' : 's'} in current search
               </p>
             )}
           </div>
@@ -511,9 +529,6 @@ export default function JobListings() {
             selectedCompany={selectedCompany}
             selectedStatus={selectedStatus}
             onReturnToFullList={handleReturnToFullList}
-            bookmarked={Boolean(bookmarkedSearch)}
-            onToggleBookmark={handleToggleBookmark}
-            bookmarkError={bookmarkError}
           />
 
           <div className="flex flex-col gap-6 p-6 md:flex-row">

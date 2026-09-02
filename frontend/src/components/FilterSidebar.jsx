@@ -1,4 +1,4 @@
-import { COMPANY_TYPE_FILTER_OPTIONS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
+import { COMPANY_TYPE_FILTER_OPTIONS } from '../lib/companyTypes'
 
 export default function FilterSidebar({
   filters,
@@ -30,10 +30,10 @@ export default function FilterSidebar({
 
   return (
     <aside className="w-full shrink-0 border border-line bg-paper p-5 md:w-72">
-      <h2 className="text-sm font-semibold text-ink">Search Criteria and Filters</h2>
+      <h2 className="text-sm font-semibold text-ink">Search Panel</h2>
 
-      <div className="mt-4">
-        <label htmlFor="filter-title" className="text-sm text-ink">
+      <div className="mt-4 flex items-center gap-2">
+        <label htmlFor="filter-title" className="shrink-0 text-sm text-ink">
           Job Title
         </label>
         <input
@@ -41,33 +41,32 @@ export default function FilterSidebar({
           type="text"
           value={filters.title}
           onChange={(event) => onFilterChange({ ...filters, title: event.target.value })}
-          className="mt-1 ml-8 block w-[calc(100%-2rem)] border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
+          className="flex-1 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
         />
       </div>
 
-      <div className="mt-4">
-        <label htmlFor="filter-days" className="text-sm text-ink">
-          Posted in the last
+      <div className="mt-3 flex items-center gap-2">
+        <label htmlFor="filter-days" className="shrink-0 text-sm text-ink">
+          Posted In the last
         </label>
-        <div className="mt-1 flex items-center gap-2">
-          <input
-            id="filter-days"
-            type="number"
-            min="0"
-            value={filters.postedDays}
-            onChange={(event) => onFilterChange({ ...filters, postedDays: event.target.value })}
-            className="w-16 ml-8 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
-          />
-          <span className="text-sm text-ink">days</span>
-        </div>
+        <input
+          id="filter-days"
+          type="number"
+          min="0"
+          value={filters.postedDays}
+          onChange={(event) => onFilterChange({ ...filters, postedDays: event.target.value })}
+          className="w-16 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
+        />
+        <span className="text-sm text-ink">days</span>
       </div>
 
       <div className="mt-4">
-        <p className="text-sm text-ink">Company Database</p>
-        <div className="mt-1.5 ml-8 space-y-2">
-          {COMPANY_TYPE_FILTER_OPTIONS.map(({ value, label }) => (
-            <label key={value} className="flex items-start justify-between gap-2 text-sm text-ink">
-              <span className="flex items-start gap-1.5">
+        <p className="text-sm text-ink">Companies</p>
+        <div className="mt-1.5 space-y-2">
+          {COMPANY_TYPE_FILTER_OPTIONS.map(({ value, label }) => {
+            const count = renderCount(value)
+            return (
+              <label key={value} className="flex items-start gap-1.5 text-sm text-ink">
                 <input
                   type="checkbox"
                   checked={(filters.companyTypes || []).includes(value)}
@@ -81,32 +80,32 @@ export default function FilterSidebar({
                   }}
                   className="mt-0.5 shrink-0"
                 />
-                <span>{label}</span>
-              </span>
-              <span className="shrink-0 whitespace-nowrap pl-1">{renderCount(value)}</span>
-            </label>
-          ))}
+                <span>
+                  {label}
+                  {count && <> - {count}</>}
+                </span>
+              </label>
+            )
+          })}
         </div>
       </div>
 
-      <div className="mt-8">
-        <label className="flex items-center gap-2 text-base text-ink">
-          <span>Show remote jobs only</span>
-          <input
-            type="checkbox"
-            checked={Boolean(filters.remoteOnly)}
-            onChange={(event) => onFilterChange({ ...filters, remoteOnly: event.target.checked })}
-            className="ml-8 h-4 w-4 accent-ember"
-          />
-        </label>
+      <div className="mt-4 flex items-center justify-between text-sm text-ink">
+        <span>Remote Only</span>
+        <input
+          type="checkbox"
+          checked={Boolean(filters.remoteOnly)}
+          onChange={(event) => onFilterChange({ ...filters, remoteOnly: event.target.checked })}
+          className="h-4 w-4 accent-ember"
+        />
       </div>
 
       <button
         type="button"
         onClick={onUpdateListings}
-        className="mt-3 w-full rounded-full flame-gradient py-2.5 text-sm font-semibold text-white transition-transform hover:scale-[1.02]"
+        className="mt-4 block w-full border border-line py-2 text-sm font-medium text-ink transition-colors hover:bg-mist"
       >
-        Update Listings
+        Update Search
       </button>
 
       {loggedIn && (
