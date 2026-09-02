@@ -486,107 +486,105 @@ export default function JobListings() {
       {showSubscribeModal && <SubscribeModal onClose={() => setShowSubscribeModal(false)} />}
 
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
-        <div className="border border-line">
-          <div className="relative border-b border-line py-4 text-center">
-            <div className="absolute right-4 top-4 flex flex-col items-end gap-1">
-              <button
-                type="button"
-                onClick={handleToggleBookmark}
-                className="flex items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`text-xl leading-none ${bookmarkedSearch ? 'text-ember' : 'text-ink-soft'}`}
-                >
-                  {bookmarkedSearch ? '★' : '☆'}
-                </span>
-                Bookmark Search
-              </button>
-              {bookmarkError && (
-                <p className="max-w-[200px] text-right text-xs text-ember">{bookmarkError}</p>
-              )}
-            </div>
-            <h1 className="text-xl font-semibold text-ink">Job Listings</h1>
-            <button
-              type="button"
-              onClick={scrollToFilters}
-              className="mt-1 text-sm text-ember underline decoration-line underline-offset-2 hover:text-flame md:hidden"
-            >
-              Search Criteria
-            </button>
-            {!loading && (
-              <p className="mt-1 text-xs text-ink-soft">
-                {totalCount} Job{totalCount === 1 ? '' : 's'} in current search
-              </p>
-            )}
+        <div className="flex flex-col items-stretch gap-6 md:flex-row">
+          <div ref={sidebarRef} className="border border-line p-5 md:w-72 md:shrink-0">
+            <FilterSidebar
+              filters={filters}
+              onFilterChange={setFilters}
+              onUpdateListings={handleUpdateListings}
+              savedSearches={savedSearches}
+              onApplySearch={handleApplySearch}
+              onDeleteSearch={handleDeleteSearch}
+              loggedIn={Boolean(user)}
+              selectedStatus={selectedStatus}
+              onSelectStatus={handleSelectStatus}
+              companyTypeCounts={companyTypeCounts}
+              companyTypeCountsLoading={companyTypeCountsLoading}
+            />
           </div>
 
-          <ActiveFiltersBar
-            filters={appliedFilters}
-            onChange={handleActiveFiltersChange}
-            onJumpToTitleMatch={handleJumpToTitleMatch}
-            selectedVariant={selectedVariant}
-            selectedCompany={selectedCompany}
-            selectedStatus={selectedStatus}
-            onReturnToFullList={handleReturnToFullList}
-          />
-
-          <div className="flex flex-col divide-y divide-line md:flex-row md:divide-x md:divide-y-0">
-            <div ref={sidebarRef}>
-              <FilterSidebar
-                filters={filters}
-                onFilterChange={setFilters}
-                onUpdateListings={handleUpdateListings}
-                savedSearches={savedSearches}
-                onApplySearch={handleApplySearch}
-                onDeleteSearch={handleDeleteSearch}
-                loggedIn={Boolean(user)}
-                selectedStatus={selectedStatus}
-                onSelectStatus={handleSelectStatus}
-                companyTypeCounts={companyTypeCounts}
-                companyTypeCountsLoading={companyTypeCountsLoading}
-              />
-            </div>
-
-            <div className="flex-1 p-5">
-              {error ? (
-                <div className="border border-dashed border-line p-10 text-center text-sm text-ink-soft">
-                  Couldn't load job listings ({error}). Check that the backend is running and
-                  reachable.
-                </div>
-              ) : !loading && jobs.length === 0 ? (
-                <div className="border border-dashed border-line p-10 text-center text-sm text-ink-soft">
-                  No roles match those filters yet. Try widening your search or checking
-                  back after the next scrape.
-                </div>
-              ) : (
-                <div className="divide-y divide-line">
-                  {jobs.map((job, index) => (
-                    <div
-                      key={job.id}
-                      ref={(el) => {
-                        jobCardRefs.current[job.id] = el
-                      }}
-                      className={
-                        job.id === highlightedJobId
-                          ? 'ring-2 ring-inset ring-ember transition-shadow'
-                          : ''
-                      }
-                    >
-                      <JobCard
-                        job={job}
-                        status={getStatus(job.id)}
-                        onStatusChange={(status) => setStatus(job.id, status)}
-                        shaded={index % 2 === 1}
-                        canApply={canApply}
-                        onRequireSubscription={() => setShowSubscribeModal(true)}
-                        onSeeCompanyJobs={handleSeeCompanyJobs}
-                      />
-                    </div>
-                  ))}
-                </div>
+          <div className="min-w-0 flex-1 border border-line">
+            <div className="relative border-b border-line py-4 text-center">
+              <div className="absolute right-4 top-4 flex flex-col items-end gap-1">
+                <button
+                  type="button"
+                  onClick={handleToggleBookmark}
+                  className="flex items-center gap-1.5 text-xs font-medium text-ink-soft hover:text-ink"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`text-xl leading-none ${bookmarkedSearch ? 'text-ember' : 'text-ink-soft'}`}
+                  >
+                    {bookmarkedSearch ? '★' : '☆'}
+                  </span>
+                  Bookmark Search
+                </button>
+                {bookmarkError && (
+                  <p className="max-w-[200px] text-right text-xs text-ember">{bookmarkError}</p>
+                )}
+              </div>
+              <h1 className="text-xl font-semibold text-ink">Job Listings</h1>
+              <button
+                type="button"
+                onClick={scrollToFilters}
+                className="mt-1 text-sm text-ember underline decoration-line underline-offset-2 hover:text-flame md:hidden"
+              >
+                Search Criteria
+              </button>
+              {!loading && (
+                <p className="mt-1 text-xs text-ink-soft">
+                  {totalCount} Job{totalCount === 1 ? '' : 's'} in current search
+                </p>
               )}
             </div>
+
+            <ActiveFiltersBar
+              filters={appliedFilters}
+              onChange={handleActiveFiltersChange}
+              onJumpToTitleMatch={handleJumpToTitleMatch}
+              selectedVariant={selectedVariant}
+              selectedCompany={selectedCompany}
+              selectedStatus={selectedStatus}
+              onReturnToFullList={handleReturnToFullList}
+            />
+
+            {error ? (
+              <div className="border border-dashed border-line m-5 p-10 text-center text-sm text-ink-soft">
+                Couldn't load job listings ({error}). Check that the backend is running and
+                reachable.
+              </div>
+            ) : !loading && jobs.length === 0 ? (
+              <div className="border border-dashed border-line m-5 p-10 text-center text-sm text-ink-soft">
+                No roles match those filters yet. Try widening your search or checking
+                back after the next scrape.
+              </div>
+            ) : (
+              <div className="divide-y divide-line">
+                {jobs.map((job, index) => (
+                  <div
+                    key={job.id}
+                    ref={(el) => {
+                      jobCardRefs.current[job.id] = el
+                    }}
+                    className={
+                      job.id === highlightedJobId
+                        ? 'ring-2 ring-inset ring-ember transition-shadow'
+                        : ''
+                    }
+                  >
+                    <JobCard
+                      job={job}
+                      status={getStatus(job.id)}
+                      onStatusChange={(status) => setStatus(job.id, status)}
+                      shaded={index % 2 === 1}
+                      canApply={canApply}
+                      onRequireSubscription={() => setShowSubscribeModal(true)}
+                      onSeeCompanyJobs={handleSeeCompanyJobs}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </main>
