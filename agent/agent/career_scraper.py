@@ -51,6 +51,20 @@ Reliability fixes (2026-08-24, after a driver crash ~94% through a
     with a fresh one.
   - Added an explicit `page.set_default_timeout()` so a stuck selector
     query can't hang a worker thread indefinitely.
+
+Content-quality fixes (2026-08-31, from the jobs_staging QA review):
+  - `NOISE_WORDS` now covers career-page CTA/button language ("Apply
+    Now", "Learn more and apply", "View open roles now", etc.), not
+    just generic sitewide nav — see the comment above `NOISE_WORDS`
+    for the staging-table frequency counts that drove this list.
+  - `_looks_like_job_link` adds a `MAX_TITLE_WORDS` ceiling as a second,
+    structural filter layer: real job titles are short phrases, not
+    full sentences, which catches CTA phrasing the blocklist hasn't
+    seen yet without needing to enumerate it by hand.
+  - `_clean_title` strips trailing chevron/arrow characters some sites
+    use as decorative CTA styling (e.g. "Learn more >").
+These are layered on top of the 2026-08-24 reliability fixes above —
+both sets of changes are active in this version.
 """
 
 import re
@@ -323,20 +337,64 @@ JOB_LINK_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# Fix for jobs_staging QA issue 1 (2026-08-31 review): the original list
+# only covered generic sitewide nav ("home", "about"...) and never covered
+# career-page-specific CTA/button language. Since nearly every link on a
+# careers page has "career" or "job" IN ITS URL (it's the careers page),
+# the href half of the OR check in _looks_like_job_link is almost always
+# true — this blocklist was, in practice, the only real filter. These
+# additions are the literal top offenders from the staging-table review
+# (478x "Careers", 157x "Apply Now", 108x "CAREERS", ~199x "Learn more"
+# variants, 86x "Apply for job", 60x "APPLY NOW", 51x "View open roles
+# now", 41x "Search Jobs", 38x "Learn more and apply", 25x "View Job").
 NOISE_WORDS = re.compile(
     r"^(home|about|contact|blog|news|press|team|product|pricing|sign|log|"
-    r"privacy|terms|cookie|back|next|prev|all jobs?|view all|see all|more)$",
+    r"privacy|terms|cookie|back|next|prev|all jobs?|view all|see all|more|"
+    r"careers?|apply( now)?|apply for job|learn more( and apply)?|"
+    r"view (job|open roles?( now)?)|search jobs?|open positions?|"
+    r"see (open )?(jobs?|roles?|positions?)|explore (jobs?|careers?)|"
+    r"join (us|our team)|current openings?)[\s>]*$",
     re.IGNORECASE,
 )
 
+# Fix for QA issue 5 (systemic, spread across nearly every company): the
+# blocklist above will always be incomplete — every company phrases CTAs
+# a little differently, and this will always be a step behind whatever
+# new phrasing the next scraped company uses. This is a structural
+# second layer, not a blocklist entry: real job titles are short phrases
+# ("Senior Software Engineer"), not full sentences ("Learn more about
+# opportunities on our team"). A word-count ceiling catches CTA phrasing
+# the blocklist hasn't seen yet, without needing to enumerate it by hand.
+MAX_TITLE_WORDS = 8
+
 
 def _looks_like_job_link(href: str, text: str) -> bool:
-    if NOISE_WORDS.match(text.strip()):
+    stripped = text.strip()
+    if NOISE_WORDS.match(stripped):
         return False
-    if len(text) < 5 or len(text) > 150:
+    if len(stripped) < 5 or len(stripped) > 150:
+        return False
+    # Fix for QA issue 2 (full description paragraphs landing in the
+    # title field): the old length check only rejected text over 150
+    # characters, but the staging review flagged junk as short as ~100
+    # characters — sentence fragments and CTA phrases that are short
+    # enough to slip the character check but aren't shaped like a job
+    # title. Word count is a tighter, more reliable signal than raw
+    # character length for "does this look like a title."
+    if len(stripped.split()) > MAX_TITLE_WORDS:
         return False
     return bool(JOB_LINK_KEYWORDS.search(href) or JOB_LINK_KEYWORDS.search(text))
 
 
 def _clean_title(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
+    # Fix for QA issue 3: strips any literal trailing chevron/arrow
+    # characters some sites use as decorative CTA styling (e.g. "Learn
+    # more >"), in addition to the existing whitespace collapse. This is
+    # a real characteristic of the site's own visible button text, not
+    # unstripped HTML markup — Playwright's inner_text() already reads
+    # rendered text, not raw HTML, so entities like "&gt;" would not
+    # normally survive into this string unless the character is
+    # literally visible on the page.
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    cleaned = re.sub(r"[\s>»›\u2192]+$", "", cleaned).strip()
+    return cleaned

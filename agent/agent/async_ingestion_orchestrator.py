@@ -145,6 +145,7 @@ async def run(
                     "location":       job.get("location", ""),
                     "apply_url":      job.get("apply_url", ""),
                     "posted_at":      job.get("posted_at", ""),
+                    "description_snippet": job.get("description_snippet", ""),
                     "funding_round":  company["funding_round"],
                     "funding_amount": company["funding_amount"],
                     "funding_date":   company["funding_date"],

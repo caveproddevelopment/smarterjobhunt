@@ -35,6 +35,7 @@ from typing import Optional
 from urllib.parse import urljoin
 
 from .scraper_errors import ScraperBrowserDeadError, is_dead_browser_error
+from .text_extract import DESCRIPTION_SNIPPET_CHARS, make_snippet
 
 # Hard wall-clock cap on top of Playwright's own per-call timeouts.
 HARD_TIMEOUT_SECONDS = 45
@@ -136,6 +137,7 @@ async def _extract_links(page, careers_url: str, base_domain: str) -> list[dict]
                 "location":   "",
                 "apply_url":  href,
                 "posted_at":  "",
+                "description_snippet": "",
             })
         except Exception:
             continue
@@ -143,7 +145,38 @@ async def _extract_links(page, careers_url: str, base_domain: str) -> list[dict]
     return jobs
 
 
-async def _scrape_in_context(ctx, careers_url: str, base_domain: str) -> list[dict]:
+async def _fetch_job_description_snippet(ctx, url: str) -> str:
+    """Load one job page and return its cleaned description snippet."""
+    from playwright.async_api import TimeoutError as PWTimeout
+
+    try:
+        page = await ctx.new_page()
+    except Exception as e:
+        if is_dead_browser_error(e):
+            raise ScraperBrowserDeadError(str(e)) from e
+        return ""
+
+    try:
+        await page.goto(url, timeout=15_000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(1000)
+        html = await page.content()
+        return make_snippet(html, is_html=True, max_chars=DESCRIPTION_SNIPPET_CHARS)
+    except PWTimeout:
+        return ""
+    except Exception as e:
+        if is_dead_browser_error(e):
+            raise ScraperBrowserDeadError(str(e)) from e
+        return ""
+    finally:
+        try:
+            await page.close()
+        except Exception:
+            pass
+
+
+async def _scrape_in_context(
+    ctx, careers_url: str, base_domain: str, fetch_descriptions: bool = True
+) -> list[dict]:
     """Opens the page, navigates, extracts links. Raises
     ScraperBrowserDeadError if the browser itself has died; ordinary
     per-page failures (timeouts, bad selectors) are the caller's job
@@ -162,7 +195,14 @@ async def _scrape_in_context(ctx, careers_url: str, base_domain: str) -> list[di
     try:
         await page.goto(careers_url, timeout=20_000, wait_until="domcontentloaded")
         await page.wait_for_timeout(2000)
-        return await _extract_links(page, careers_url, base_domain)
+        jobs = await _extract_links(page, careers_url, base_domain)
+        if fetch_descriptions:
+            for job in jobs:
+                if job["apply_url"]:
+                    job["description_snippet"] = await _fetch_job_description_snippet(
+                        ctx, job["apply_url"]
+                    )
+        return jobs
     except PWTimeout:
         print(f"[async_career_scraper] Timeout loading {careers_url}")
         return []
@@ -177,7 +217,9 @@ async def _scrape_in_context(ctx, careers_url: str, base_domain: str) -> list[di
             pass
 
 
-async def _scrape_with_browser(browser, careers_url: str, base_domain: str) -> list[dict]:
+async def _scrape_with_browser(
+    browser, careers_url: str, base_domain: str, fetch_descriptions: bool = True
+) -> list[dict]:
     """Scrape a careers page with hard timeout protection."""
     jobs = []
 
@@ -199,10 +241,14 @@ async def _scrape_with_browser(browser, careers_url: str, base_domain: str) -> l
         try:
             # asyncio.timeout() is Python 3.11+; fall back to wait_for on older runtimes.
             async with asyncio.timeout(HARD_TIMEOUT_SECONDS):
-                jobs = await _scrape_in_context(ctx, careers_url, base_domain)
+                jobs = await _scrape_in_context(
+                    ctx, careers_url, base_domain, fetch_descriptions=fetch_descriptions
+                )
         except AttributeError:
             jobs = await asyncio.wait_for(
-                _scrape_in_context(ctx, careers_url, base_domain),
+                _scrape_in_context(
+                    ctx, careers_url, base_domain, fetch_descriptions=fetch_descriptions
+                ),
                 timeout=HARD_TIMEOUT_SECONDS,
             )
     except ScraperBrowserDeadError:
@@ -286,18 +332,28 @@ JOB_LINK_KEYWORDS = re.compile(
 
 NOISE_WORDS = re.compile(
     r"^(home|about|contact|blog|news|press|team|product|pricing|sign|log|"
-    r"privacy|terms|cookie|back|next|prev|all jobs?|view all|see all|more)$",
+    r"privacy|terms|cookie|back|next|prev|all jobs?|view all|see all|more|"
+    r"careers?|apply( now)?|apply for job|learn more( and apply)?|"
+    r"view (job|open roles?( now)?)|search jobs?|open positions?|"
+    r"see (open )?(jobs?|roles?|positions?)|explore (jobs?|careers?)|"
+    r"join (us|our team)|current openings?)[\s>]*$",
     re.IGNORECASE,
 )
 
+MAX_TITLE_WORDS = 8
+
 
 def _looks_like_job_link(href: str, text: str) -> bool:
-    if NOISE_WORDS.match(text.strip()):
+    stripped = text.strip()
+    if NOISE_WORDS.match(stripped):
         return False
-    if len(text) < 5 or len(text) > 150:
+    if len(stripped) < 5 or len(stripped) > 150:
+        return False
+    if len(stripped.split()) > MAX_TITLE_WORDS:
         return False
     return bool(JOB_LINK_KEYWORDS.search(href) or JOB_LINK_KEYWORDS.search(text))
 
 
 def _clean_title(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    return re.sub(r"[\s>»›\u2192]+$", "", cleaned).strip()
