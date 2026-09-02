@@ -41,7 +41,7 @@ export default function FilterSidebar({
           type="text"
           value={filters.title}
           onChange={(event) => onFilterChange({ ...filters, title: event.target.value })}
-          className="flex-1 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
+          className="min-w-0 flex-1 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
         />
       </div>
 

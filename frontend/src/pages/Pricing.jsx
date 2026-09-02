@@ -85,6 +85,9 @@ export default function Pricing() {
           <h1 className="mt-2 font-display text-3xl font-semibold text-ink md:text-4xl">
             JobBeggar is going to make you make a choice.
           </h1>
+          <p className="mt-3 text-sm leading-relaxed text-ink-soft">
+            We give you a day to see how valuable this tool is. Then you choose.
+          </p>
 
           {error && <p className="mt-4 text-sm text-ember">{error}</p>}
 
@@ -164,13 +167,14 @@ export default function Pricing() {
             </h2>
             <p>
               <strong className="font-semibold text-ink">Giving it away for free, or with a
-              trial.</strong> This tool has value, and while $3.99 or $9.99 won't break the bank,
-              paying for it means you'll actually use it. That's called incentive. You're welcome.
+              longer trial.</strong> This tool has value, and while $3.99 or $9.99 won't break the
+              bank, paying for it means you'll actually use it. That's called incentive. You're
+              welcome.
             </p>
             <p>
-              <strong className="font-semibold text-ink">An annual plan.</strong> If you're still
-              looking for a job using this tool correctly in a year — or frankly in six months — then
-              neither of us is doing as good a job as we should.
+              <strong className="font-semibold text-ink">An annual plan.</strong> Dude — if you're
+              still looking for a job using this tool correctly in a year, or frankly in six months,
+              then neither of us is doing as good a job as we should.
             </p>
             <p>
               Still worried it's not worth trying for $3.99 a week? Then you really need to stick with

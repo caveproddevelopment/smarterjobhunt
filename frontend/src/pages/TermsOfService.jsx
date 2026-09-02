@@ -70,8 +70,12 @@ export default function TermsOfService() {
                 <li>Monthly plan: $9.99, billed every 30 days</li>
               </ul>
               <p className="mt-3">
-                No free trial is offered. Your subscription begins immediately upon
-                payment.
+                New accounts get 24 hours of free access from the time the account is
+                created. No payment method or subscription is required during this
+                period. After 24 hours, continued access requires an active
+                subscription; your subscription begins immediately upon payment, and
+                no additional or extended free trial is offered beyond the initial 24
+                hours.
               </p>
               <p className="mt-3">
                 <strong className="font-semibold text-ink">Automatic renewal:</strong>{' '}
