@@ -68,11 +68,14 @@ both sets of changes are active in this version.
 """
 
 import re
+import time
 from typing import Optional
 from urllib.parse import urljoin
 
 from .text_extract import html_to_text, make_snippet, DESCRIPTION_SNIPPET_CHARS
 from .scraper_errors import ScraperBrowserDeadError, is_dead_browser_error
+
+HARD_TIMEOUT_SECONDS = 45
 
 LISTING_SELECTORS = [
     "a[href*='/job']",
@@ -133,7 +136,7 @@ def scrape_careers_page(careers_url: str, base_domain: str, browser=None, fetch_
             b.close()
 
 
-def _fetch_job_description_snippet(ctx, url: str) -> str:
+def _fetch_job_description_snippet(ctx, url: str, timeout_seconds: float = 15) -> str:
     """One extra page load per job — see the cost note in the module
     docstring. Opens its own page in the given (already-open) context,
     reads the rendered HTML, cleans it, and closes the page. Fails soft
@@ -151,7 +154,7 @@ def _fetch_job_description_snippet(ctx, url: str) -> str:
         return ""
 
     try:
-        page.goto(url, timeout=15_000, wait_until="domcontentloaded")
+        page.goto(url, timeout=max(1, int(timeout_seconds * 1000)), wait_until="domcontentloaded")
         page.wait_for_timeout(1000)  # let JS render, shorter than the listing-page wait since this is a single job page
         html = page.content()
         return make_snippet(html, is_html=True, max_chars=DESCRIPTION_SNIPPET_CHARS)
@@ -172,6 +175,7 @@ def _scrape_with_browser(browser, careers_url: str, base_domain: str, fetch_desc
     from playwright.sync_api import TimeoutError as PWTimeout
 
     jobs = []
+    deadline = time.monotonic() + HARD_TIMEOUT_SECONDS
 
     try:
         ctx = browser.new_context(
@@ -198,7 +202,10 @@ def _scrape_with_browser(browser, careers_url: str, base_domain: str, fetch_desc
 
         try:
             page.set_default_timeout(15_000)
-            page.goto(careers_url, timeout=20_000, wait_until="domcontentloaded")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return jobs
+            page.goto(careers_url, timeout=max(1, int(min(20, remaining) * 1000)), wait_until="domcontentloaded")
             page.wait_for_timeout(2000)  # let JS render
 
             links = []
@@ -250,7 +257,12 @@ def _scrape_with_browser(browser, careers_url: str, base_domain: str, fetch_desc
                 # Sequential, one extra page load per job — see module docstring.
                 for job in jobs:
                     if job["apply_url"]:
-                        job["description_snippet"] = _fetch_job_description_snippet(ctx, job["apply_url"])
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            break
+                        job["description_snippet"] = _fetch_job_description_snippet(
+                            ctx, job["apply_url"], timeout_seconds=min(15, remaining)
+                        )
 
         except PWTimeout:
             print(f"[career_scraper] Timeout loading {careers_url}")
