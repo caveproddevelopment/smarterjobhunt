@@ -29,7 +29,7 @@ export default function FilterSidebar({
   }
 
   return (
-    <aside className="w-full shrink-0 border border-line bg-paper p-5 md:w-72">
+    <aside className="w-full shrink-0 p-5 md:w-72">
       <h2 className="text-sm font-semibold text-ink">Search Panel</h2>
 
       <div className="mt-4 flex items-center gap-2">

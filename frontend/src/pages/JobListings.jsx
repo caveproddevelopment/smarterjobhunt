@@ -531,7 +531,7 @@ export default function JobListings() {
             onReturnToFullList={handleReturnToFullList}
           />
 
-          <div className="flex flex-col gap-6 p-6 md:flex-row">
+          <div className="flex flex-col divide-y divide-line md:flex-row md:divide-x md:divide-y-0">
             <div ref={sidebarRef}>
               <FilterSidebar
                 filters={filters}
@@ -548,7 +548,7 @@ export default function JobListings() {
               />
             </div>
 
-            <div className="flex-1">
+            <div className="flex-1 p-5">
               {error ? (
                 <div className="border border-dashed border-line p-10 text-center text-sm text-ink-soft">
                   Couldn't load job listings ({error}). Check that the backend is running and
@@ -560,7 +560,7 @@ export default function JobListings() {
                   back after the next scrape.
                 </div>
               ) : (
-                <div className="border border-line divide-y divide-line">
+                <div className="divide-y divide-line">
                   {jobs.map((job, index) => (
                     <div
                       key={job.id}
