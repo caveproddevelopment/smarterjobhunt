@@ -25,6 +25,9 @@ class ScraperBrowserDeadError(RuntimeError):
 
 
 _DEAD_BROWSER_MARKERS = (
+    # Playwright's Node driver can report a crashed/invalid connection as
+    # an internal "Assertion error" rather than a disconnection message.
+    "assertion error",
     "connection closed",
     "target page, context or browser has been closed",
     "browser has been closed",
