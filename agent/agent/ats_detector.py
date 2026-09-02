@@ -163,11 +163,27 @@ def _try_career_path(base_url: str, path: str) -> Optional[str]:
     url = base_url.rstrip("/") + path
     try:
         r = requests.get(url, headers=HEADERS, timeout=8, allow_redirects=True)
+        if r.status_code == 200 and _redirected_to_homepage(r.url, base_url, path):
+            return None
         if r.status_code == 200:
             return r.url
     except Exception:
         pass
     return None
+
+
+def _redirected_to_homepage(final_url: str, base_url: str, requested_path: str) -> bool:
+    """Reject career-path requests that simply redirect back home."""
+    if requested_path == "/":
+        return False
+    final = urlparse(final_url)
+    base = urlparse(base_url)
+    return (
+        final.netloc.lower() == base.netloc.lower()
+        and final.path.rstrip("/") == ""
+        and not final.query
+        and not final.fragment
+    )
 
 
 def _find_careers_page_parallel(base_url: str) -> Optional[str]:
