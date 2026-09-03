@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
 import Profile from './pages/Profile'
 import WhatIsThis from './pages/WhatIsThis'
+import FAQ from './pages/FAQ'
 import Pricing from './pages/Pricing'
 import AboutUs from './pages/AboutUs'
 import TermsOfService from './pages/TermsOfService'
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/what-is-this" element={<WhatIsThis />} />
+        <Route path="/faq" element={<FAQ />} />
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/about" element={<AboutUs />} />
         <Route path="/terms" element={<TermsOfService />} />
