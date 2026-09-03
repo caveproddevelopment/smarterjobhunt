@@ -28,6 +28,8 @@ export default function ActiveFiltersBar({
   onToggleVariants = () => {},
   variantCounts = {},
   variantCountsLoading = false,
+  variantCountsError = null,
+  onRetryVariantCounts = () => {},
   onSelectVariant = () => {},
 }) {
   // Once a variant pill, "See them all", or a "Track Applications" radio is
@@ -59,23 +61,10 @@ export default function ActiveFiltersBar({
     )
   }
 
-  const chips = []
+  const restChips = []
 
-  if (filters.title) {
-    chips.push({
-      key: 'title',
-      label: `Title: "${filters.title}"`,
-      clear: () => onChange({ ...filters, title: '' }),
-      // Clicking the chip's label (not its ×) jumps to the best-matching
-      // job in the current list instead of clearing the filter -- exact
-      // title match if there is one, otherwise whichever job has the
-      // highest match %. The × still just clears, same as every other chip.
-      onLabelClick: onJumpToTitleMatch,
-      labelTitle: 'Jump to the best-matching job',
-    })
-  }
   if (filters.postedDays) {
-    chips.push({
+    restChips.push({
       key: 'postedDays',
       label: `Last ${filters.postedDays} days`,
       clear: () => onChange({ ...filters, postedDays: '' }),
@@ -84,64 +73,123 @@ export default function ActiveFiltersBar({
   // Display chips for selected company types - multiple types can be selected
   if (filters.companyTypes && filters.companyTypes.length > 0) {
     const companyTypeLabels = filters.companyTypes.map((type) => COMPANY_TYPE_LABELS[type])
-    chips.push({
+    restChips.push({
       key: 'companyTypes',
       label: companyTypeLabels.join(', '),
       clear: () => onChange({ ...filters, companyTypes: [DEFAULT_COMPANY_TYPE] }),
     })
   }
   if (filters.remoteOnly) {
-    chips.push({
+    restChips.push({
       key: 'remoteOnly',
       label: 'Remote',
       clear: () => onChange({ ...filters, remoteOnly: false }),
     })
   }
 
-  if (chips.length === 0) return null
+  const hasTitle = Boolean(filters.title)
+  const totalChipCount = restChips.length + (hasTitle ? 1 : 0)
+  if (totalChipCount === 0) return null
+
+  const canShowVariants = hasTitle && !titleVariantsLoading && titleVariants.length > 0
 
   return (
     <div className="border-b border-line bg-mist/60 px-6 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium text-ink-soft">Active filters:</span>
-        {chips.map((chip) =>
-          chip.onLabelClick ? (
-            <span
-              key={chip.key}
-              className="flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink"
-            >
+      <div className="flex flex-wrap items-start gap-2">
+        <span className="mt-1.5 text-xs font-medium text-ink-soft">Active filters:</span>
+
+        {hasTitle && (
+          // The Title chip and its "See Variants" link/panel are kept in
+          // their own stacked column -- the variants UI belongs directly
+          // under the Title chip it's about, not centered under the whole
+          // filter row.
+          <div className="flex flex-col items-start gap-1">
+            <span className="flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink">
               <button
                 type="button"
-                onClick={chip.onLabelClick}
-                title={chip.labelTitle}
+                onClick={onJumpToTitleMatch}
+                title="Jump to the best-matching job"
                 className="hover:text-ember"
               >
-                {chip.label}
+                Title: "{filters.title}"
               </button>
               <button
                 type="button"
-                onClick={chip.clear}
-                aria-label={`Clear ${chip.label} filter`}
+                onClick={() => onChange({ ...filters, title: '' })}
+                aria-label="Clear Title filter"
                 className="text-ink-soft hover:text-ink"
               >
                 ×
               </button>
             </span>
-          ) : (
-            <button
-              key={chip.key}
-              type="button"
-              onClick={chip.clear}
-              className="flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:bg-line/40"
-            >
-              {chip.label}
-              <span aria-hidden="true" className="text-ink-soft">
-                ×
-              </span>
-            </button>
-          )
+
+            {canShowVariants && (
+              <button
+                type="button"
+                onClick={onToggleVariants}
+                className="text-xs font-semibold text-ember hover:text-flame"
+              >
+                {showVariants ? 'Hide Variants' : 'See Variants'}
+              </button>
+            )}
+
+            {showVariants && (
+              <div className="flex flex-wrap gap-2">
+                {variantCountsError ? (
+                  <span className="text-xs text-ember">
+                    Couldn't load variant counts ({variantCountsError}).{' '}
+                    <button type="button" onClick={onRetryVariantCounts} className="underline hover:text-flame">
+                      Try again
+                    </button>
+                  </span>
+                ) : variantCountsLoading ? (
+                  <span className="text-xs text-ink-soft">Loading variant match counts…</span>
+                ) : (
+                  titleVariants.map((variant) => {
+                    const count = variantCounts[variant] ?? 0
+                    const clickable = count > 0
+                    return (
+                      <button
+                        key={variant}
+                        type="button"
+                        disabled={!clickable}
+                        onClick={() => onSelectVariant(variant)}
+                        title={
+                          clickable
+                            ? `See ${count} job${count === 1 ? '' : 's'} matching "${variant}"`
+                            : 'No jobs currently match this variant'
+                        }
+                        className={
+                          clickable
+                            ? 'rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:border-ember hover:text-ember'
+                            : 'cursor-default rounded-full border border-line bg-paper/60 px-3 py-1 text-xs font-medium text-ink-soft/60'
+                        }
+                      >
+                        {variant} ({count})
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
         )}
-        {chips.length > 1 && (
+
+        {restChips.map((chip) => (
+          <button
+            key={chip.key}
+            type="button"
+            onClick={chip.clear}
+            className="flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:bg-line/40"
+          >
+            {chip.label}
+            <span aria-hidden="true" className="text-ink-soft">
+              ×
+            </span>
+          </button>
+        ))}
+
+        {totalChipCount > 1 && (
           <button
             type="button"
             onClick={() => onChange(DEFAULT_FILTERS)}
@@ -151,46 +199,8 @@ export default function ActiveFiltersBar({
           </button>
         )}
       </div>
-      {filters.title && !titleVariantsLoading && titleVariants.length > 0 && (
-        <div className="mt-2 text-center">
-          <button
-            type="button"
-            onClick={onToggleVariants}
-            className="text-xs font-semibold text-ember hover:text-flame"
-          >
-            {showVariants ? 'Hide Variants' : 'See Variants'}
-          </button>
-        </div>
-      )}
 
-      {showVariants && (
-        <div className="mt-2 flex flex-wrap justify-center gap-2">
-          {variantCountsLoading
-            ? <span className="text-xs text-ink-soft">Loading variant match counts…</span>
-            : titleVariants.map((variant) => {
-                const count = variantCounts[variant] ?? 0
-                const clickable = count > 0
-                return (
-                  <button
-                    key={variant}
-                    type="button"
-                    disabled={!clickable}
-                    onClick={() => onSelectVariant(variant)}
-                    title={clickable ? `See ${count} job${count === 1 ? '' : 's'} matching "${variant}"` : 'No jobs currently match this variant'}
-                    className={
-                      clickable
-                        ? 'rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:border-ember hover:text-ember'
-                        : 'cursor-default rounded-full border border-line bg-paper/60 px-3 py-1 text-xs font-medium text-ink-soft/60'
-                    }
-                  >
-                    {variant} ({count})
-                  </button>
-                )
-              })}
-        </div>
-      )}
-
-      {filters.title && (
+      {hasTitle && (
         <p className="mt-2 text-xs text-ink-soft">
           Match % is based on how closely each job's title and description match your search.
         </p>
