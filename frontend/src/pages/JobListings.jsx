@@ -15,6 +15,7 @@ import {
   setJobStatus,
   fetchTitleVariants,
   fetchCompanyTypeCounts,
+  fetchVariantCounts,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
@@ -87,16 +88,26 @@ export default function JobListings() {
   const [savingDefaults, setSavingDefaults] = useState(false)
   const [titleVariants, setTitleVariants] = useState([])
   const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
+  // Whether the "See Variants" pill panel in ActiveFiltersBar is expanded.
+  const [showVariants, setShowVariants] = useState(false)
+  // job_count per variant title -- { "Product Owner": 4, ... } -- fetched
+  // lazily the first time the panel is opened for a given title/filters
+  // combo, not preloaded on every keystroke.
+  const [variantCounts, setVariantCounts] = useState({})
+  const [variantCountsLoading, setVariantCountsLoading] = useState(false)
+  // The title|||postedDays|||companyTypes combo variantCounts was last
+  // fetched for, so re-opening the panel without anything else changing
+  // reuses what's already loaded instead of re-fetching.
+  const variantCountsKeyRef = useRef(null)
   // Total active jobs in each of the three Company Database options --
   // { funded, fortune500, indianmajor, all } -- unfiltered (not scoped to title,
   // postedDays, or anything else), fetched once on mount.
   const [companyTypeCounts, setCompanyTypeCounts] = useState({})
   const [companyTypeCountsLoading, setCompanyTypeCountsLoading] = useState(false)
   // Which title-variant view (if any) the listing below is currently scoped
-  // to. There's no UI to pick one directly anymore (see match % on job
-  // cards instead), but a saved bookmark from before that change can still
-  // restore a variant-scoped view via handleApplySearch, so this stays.
-  // null means the normal combined title+variants view.
+  // to -- set via a "See Variants" pill (handleSelectVariant) or restored
+  // from a saved bookmark (handleApplySearch). null means the normal
+  // combined title+variants view.
   const [selectedVariant, setSelectedVariant] = useState(null)
   // Set when "See them all" is clicked on a job card — scopes the listing
   // to every job at that one company, ignoring title/variant/postedDays
@@ -199,6 +210,38 @@ export default function JobListings() {
     }
   }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus])
 
+  // Fetches per-variant job counts for the "See Variants" panel, lazily --
+  // only once it's actually open, and only re-fetching when the title,
+  // posted-days, or Company Database scope it was fetched for no longer
+  // matches what's currently applied.
+  useEffect(() => {
+    if (!showVariants || titleVariants.length === 0) return
+    const key = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${(appliedFilters.companyTypes || []).join(',')}`
+    if (variantCountsKeyRef.current === key) return
+
+    let cancelled = false
+    setVariantCountsLoading(true)
+    fetchVariantCounts(titleVariants, {
+      postedDays: appliedFilters.postedDays,
+      companyTypes: appliedFilters.companyTypes,
+    })
+      .then((counts) => {
+        if (cancelled) return
+        setVariantCounts(counts)
+        variantCountsKeyRef.current = key
+      })
+      .catch(() => {
+        if (!cancelled) setVariantCounts({})
+      })
+      .finally(() => {
+        if (!cancelled) setVariantCountsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [showVariants, titleVariants, appliedFilters.title, appliedFilters.postedDays, appliedFilters.companyTypes])
+
   // Total jobs per company database, unfiltered -- fetched once on mount
   // (not tied to title/postedDays/companyType at all), since it's meant to
   // show the overall size of each database, not a per-search count.
@@ -281,6 +324,7 @@ export default function JobListings() {
     setSelectedVariant(null)
     setSelectedCompany(null)
     setSelectedStatus(null)
+    setShowVariants(false)
   }
 
   function handleUpdateListings() {
@@ -288,6 +332,7 @@ export default function JobListings() {
     setSelectedVariant(null)
     setSelectedCompany(null)
     setSelectedStatus(null)
+    setShowVariants(false)
   }
 
   // "See them all" on a job card scopes the listing to every job at that
@@ -300,6 +345,21 @@ export default function JobListings() {
     setSelectedVariant(null)
     setSelectedStatus(null)
     setSelectedCompany((prev) => (prev?.id === companyId ? null : { id: companyId, name: companyName }))
+  }
+
+  function handleToggleVariants() {
+    setShowVariants((prev) => !prev)
+  }
+
+  // Clicking a variant pill in the "See Variants" panel scopes the listing
+  // to ONLY that variant's jobs, same as restoring a variant bookmark.
+  // Mutually exclusive with selectedCompany/selectedStatus, same rule as
+  // everywhere else a view gets picked.
+  function handleSelectVariant(variantTitle) {
+    setSelectedCompany(null)
+    setSelectedStatus(null)
+    setSelectedVariant(variantTitle)
+    setShowVariants(false)
   }
 
   // The sidebar's "Track Applications" radios. Picking one shows the
@@ -546,6 +606,13 @@ export default function JobListings() {
               selectedCompany={selectedCompany}
               selectedStatus={selectedStatus}
               onReturnToFullList={handleReturnToFullList}
+              titleVariants={titleVariants}
+              titleVariantsLoading={titleVariantsLoading}
+              showVariants={showVariants}
+              onToggleVariants={handleToggleVariants}
+              variantCounts={variantCounts}
+              variantCountsLoading={variantCountsLoading}
+              onSelectVariant={handleSelectVariant}
             />
 
             {error ? (

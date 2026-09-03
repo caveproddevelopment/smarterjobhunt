@@ -155,6 +155,30 @@ export async function fetchTitleVariants(title) {
   return data.variants
 }
 
+// How many currently-active jobs match each given title variant, scoped to
+// whatever posted-days/company-type filters are applied everywhere else on
+// the page -- e.g. { "Product Owner": 4, "Senior Product Manager": 0 }.
+// Powers the "See Variants" pills on the Job Listings page.
+export async function fetchVariantCounts(variantTitles, { postedDays, companyTypes } = {}) {
+  if (!variantTitles || variantTitles.length === 0) return {}
+  const params = new URLSearchParams()
+  for (const variantTitle of variantTitles) {
+    params.append('variant_title', variantTitle)
+  }
+  if (postedDays) params.set('posted_days', postedDays)
+  if (companyTypes && companyTypes.length > 0) {
+    for (const companyType of companyTypes) {
+      params.append('company_type', companyType)
+    }
+  }
+  const res = await fetch(`${API_URL}/api/jobs/variant-counts?${params.toString()}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to load variant counts (${res.status})`))
+  const data = await res.json()
+  return data.counts
+}
+
 // Site-wide totals for the landing page counters -- { companyCount, jobCount }
 // across every Company Database combined.
 export async function fetchSiteStats() {

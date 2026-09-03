@@ -22,6 +22,13 @@ export default function ActiveFiltersBar({
   selectedCompany = null,
   selectedStatus = null,
   onReturnToFullList = () => {},
+  titleVariants = [],
+  titleVariantsLoading = false,
+  showVariants = false,
+  onToggleVariants = () => {},
+  variantCounts = {},
+  variantCountsLoading = false,
+  onSelectVariant = () => {},
 }) {
   // Once a variant pill, "See them all", or a "Track Applications" radio is
   // selected, the listing is scoped to just that title, company, or
@@ -144,6 +151,45 @@ export default function ActiveFiltersBar({
           </button>
         )}
       </div>
+      {filters.title && !titleVariantsLoading && titleVariants.length > 0 && (
+        <div className="mt-2 text-center">
+          <button
+            type="button"
+            onClick={onToggleVariants}
+            className="text-xs font-semibold text-ember hover:text-flame"
+          >
+            {showVariants ? 'Hide Variants' : 'See Variants'}
+          </button>
+        </div>
+      )}
+
+      {showVariants && (
+        <div className="mt-2 flex flex-wrap justify-center gap-2">
+          {variantCountsLoading
+            ? <span className="text-xs text-ink-soft">Loading variant match counts…</span>
+            : titleVariants.map((variant) => {
+                const count = variantCounts[variant] ?? 0
+                const clickable = count > 0
+                return (
+                  <button
+                    key={variant}
+                    type="button"
+                    disabled={!clickable}
+                    onClick={() => onSelectVariant(variant)}
+                    title={clickable ? `See ${count} job${count === 1 ? '' : 's'} matching "${variant}"` : 'No jobs currently match this variant'}
+                    className={
+                      clickable
+                        ? 'rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:border-ember hover:text-ember'
+                        : 'cursor-default rounded-full border border-line bg-paper/60 px-3 py-1 text-xs font-medium text-ink-soft/60'
+                    }
+                  >
+                    {variant} ({count})
+                  </button>
+                )
+              })}
+        </div>
+      )}
+
       {filters.title && (
         <p className="mt-2 text-xs text-ink-soft">
           Match % is based on how closely each job's title and description match your search.
