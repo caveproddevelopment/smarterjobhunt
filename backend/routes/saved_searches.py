@@ -66,10 +66,10 @@ def list_saved_searches():
     )
     searches = cur.fetchall()
     # Convert comma-separated company_type back to array for API response.
-    # 'both' means "no restriction" (the default/empty case), not a real
-    # category, so it maps to an empty list rather than ["both"].
+    # 'all' means "no restriction" (the default/empty case), not a real
+    # category, so it maps to an empty list rather than ["all"].
     for search in searches:
-        if search.get("company_type") and search["company_type"] != "both":
+        if search.get("company_type") and search["company_type"] != "all":
             search["company_types"] = [ct.strip() for ct in search["company_type"].split(",") if ct.strip()]
         else:
             search["company_types"] = []
@@ -94,7 +94,7 @@ def create_saved_search():
 
     # Handle company_types as an array (one or many boxes checked) -- convert
     # to a canonical comma-separated string for storage. Empty/unset means
-    # "no restriction", which is what 'both' represents on this column --
+    # "no restriction", which is what 'all' represents on this column --
     # NOT 'funded' (that was the old default, which mislabeled 'company' and
     # 'status' bookmarks, which never set company_types at all, as if the
     # user had filtered to Funded Startups).
@@ -102,7 +102,7 @@ def create_saved_search():
         company_types = _normalize_company_types(body.get("company_types", []))
     except ValueError as e:
         return jsonify({"error": f"invalid company type(s): {', '.join(e.args[0])}"}), 400
-    company_types_str = ",".join(company_types) if company_types else "both"
+    company_types_str = ",".join(company_types) if company_types else "all"
 
     cur = get_cursor()
     try:
@@ -150,8 +150,8 @@ def create_saved_search():
         saved["company_name"] = None
 
     # Convert company_type string back to array for API response (see the
-    # same 'both' handling as list_saved_searches above).
-    if saved.get("company_type") and saved["company_type"] != "both":
+    # same 'all' handling as list_saved_searches above).
+    if saved.get("company_type") and saved["company_type"] != "all":
         saved["company_types"] = [ct.strip() for ct in saved["company_type"].split(",") if ct.strip()]
     else:
         saved["company_types"] = []
