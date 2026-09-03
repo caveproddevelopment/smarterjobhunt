@@ -38,14 +38,6 @@ const reviews = [
   },
 ]
 
-const faqs = [
-  { q: 'Why no free tier?' },
-  { q: 'How many companies are there?' },
-  { q: 'How reliable is the matching score?' },
-  { q: 'Can I cancel anytime?' },
-  { q: 'What happens if I find a broken listing?' },
-]
-
 export default function Landing() {
   const [query, setQuery] = useState('')
   const [isPlaying, setIsPlaying] = useState(false)
@@ -245,7 +237,7 @@ export default function Landing() {
           </section>
 
           {/* Reviews */}
-          <section className="mx-auto max-w-6xl py-10">
+          <section className="mx-auto max-w-6xl py-10 pb-16">
             <h2 className="font-display text-2xl font-semibold text-ink">
               Job seekers who closed the loop
             </h2>
@@ -262,19 +254,6 @@ export default function Landing() {
                 </article>
               ))}
             </div>
-          </section>
-
-          {/* FAQ */}
-          <section id="faq" className="mx-auto max-w-6xl py-10 pb-16">
-            <h2 className="font-display text-lg font-semibold text-ink">FAQ</h2>
-            <dl className="mt-6 space-y-6">
-              {faqs.map((faq) => (
-                <div key={faq.q}>
-                  <dt className="text-sm text-ink">'{faq.q}'</dt>
-                  <dd className="mt-2 text-sm text-ink-soft">{faq.a}</dd>
-                </div>
-              ))}
-            </dl>
           </section>
         </main>
 

@@ -103,7 +103,7 @@ export default function FilterSidebar({
       <button
         type="button"
         onClick={onUpdateListings}
-        className="mt-4 block w-full border border-line py-2 text-sm font-medium text-ink transition-colors hover:bg-mist"
+        className="mt-4 block w-full rounded-full flame-gradient py-2 text-sm font-semibold text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.02]"
       >
         Update Search
       </button>

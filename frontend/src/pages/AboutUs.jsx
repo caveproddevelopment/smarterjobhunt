@@ -73,12 +73,19 @@ export default function AboutUs() {
               JobBeggar is the newest of those.
             </p>
 
-            <p>
-              I'm Monte, the guy running all of it. I've spent over twenty years
-              leading large technology and product programs, most recently at
-              Dell Technologies. Caveman Productions started in 2024 and it's
-              grown into a real studio with a small team spread across the globe.
-            </p>
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
+              <img
+                src="/images/monte%20about%20us%20pic.jpeg"
+                alt="Monte, founder of Caveman Productions Media"
+                className="h-40 w-40 shrink-0 rounded-2xl border border-line object-cover shadow-sm sm:h-44 sm:w-44"
+              />
+              <p>
+                I'm Monte, the guy running all of it. I've spent over twenty years
+                leading large technology and product programs, most recently at
+                Dell Technologies. Caveman Productions started in 2024 and it's
+                grown into a real studio with a small team spread across the globe.
+              </p>
+            </div>
 
             <p>
               Most of what we've built so far sits in the creative world —
@@ -107,7 +114,7 @@ export default function AboutUs() {
           </div>
 
           {/* Contact Form */}
-          <section className="mt-16 border-t border-ink/10 pt-12">
+          <section id="contact" className="mt-16 border-t border-ink/10 pt-12">
             <p className="text-sm font-semibold uppercase tracking-wide text-ember">
               Contact us
             </p>
