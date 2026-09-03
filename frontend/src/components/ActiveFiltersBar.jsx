@@ -103,7 +103,7 @@ export default function ActiveFiltersBar({
           // their own stacked column -- the variants UI belongs directly
           // under the Title chip it's about, not centered under the whole
           // filter row.
-          <div className="flex flex-col items-start gap-1">
+          <div className="flex flex-col items-center gap-1">
             <span className="flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink">
               <button
                 type="button"
