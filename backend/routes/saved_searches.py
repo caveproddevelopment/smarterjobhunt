@@ -9,6 +9,42 @@ bp = Blueprint("saved_searches", __name__, url_prefix="/api/saved-searches")
 VALID_VIEW_TYPES = {"search", "variant", "company", "status"}
 VALID_STATUS_FILTERS = {"applied", "rejected", "neither"}
 
+# The five real Company Database categories a bookmark's company_type can be
+# built from. Kept in sync BY HAND with COMPANY_TYPES in routes/jobs.py (see
+# the warning comment there) -- this is the third by-hand copy referenced by
+# that comment, alongside frontend/src/lib/companyTypes.js.
+VALID_COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare"}
+
+
+def _normalize_company_types(raw):
+    """Turn whatever shape the frontend sent for company_types into a
+    sorted, de-duplicated list of valid tokens.
+
+    Accepts a JSON array (the documented shape) and, just in case, an
+    already-comma-joined string -- either way the result is canonicalized
+    (sorted + deduped) so the same set of selections always produces the
+    same stored string regardless of the order they were checked in, which
+    is what the uq_saved_searches_view unique index relies on to catch
+    real duplicates.
+
+    Raises ValueError(list_of_bad_tokens) if anything isn't one of the five
+    real categories.
+    """
+    if isinstance(raw, list):
+        candidates = raw
+    elif isinstance(raw, str):
+        candidates = raw.split(",")
+    elif raw:
+        candidates = [raw]
+    else:
+        candidates = []
+
+    tokens = sorted({str(ct).strip().lower() for ct in candidates if str(ct).strip()})
+    invalid = [ct for ct in tokens if ct not in VALID_COMPANY_TYPES]
+    if invalid:
+        raise ValueError(invalid)
+    return tokens
+
 
 @bp.get("")
 @require_auth
@@ -29,10 +65,11 @@ def list_saved_searches():
         (g.user_id,),
     )
     searches = cur.fetchall()
-    # Convert comma-separated company_type back to array for API response
+    # Convert comma-separated company_type back to array for API response.
+    # 'both' means "no restriction" (the default/empty case), not a real
+    # category, so it maps to an empty list rather than ["both"].
     for search in searches:
-        if search.get("company_type"):
-            # If it's already a comma-separated string, split it
+        if search.get("company_type") and search["company_type"] != "both":
             search["company_types"] = [ct.strip() for ct in search["company_type"].split(",") if ct.strip()]
         else:
             search["company_types"] = []
@@ -55,12 +92,17 @@ def create_saved_search():
     if status_filter is not None and status_filter not in VALID_STATUS_FILTERS:
         return jsonify({"error": f"status_filter must be one of {sorted(VALID_STATUS_FILTERS)}"}), 400
 
-    # Handle company_types as an array - convert to comma-separated string for storage
-    company_types = body.get("company_types", [])
-    if isinstance(company_types, list):
-        company_types_str = ",".join(company_types) if company_types else "funded"  # Default to "funded" if empty
-    else:
-        company_types_str = str(company_types) if company_types else "funded"
+    # Handle company_types as an array (one or many boxes checked) -- convert
+    # to a canonical comma-separated string for storage. Empty/unset means
+    # "no restriction", which is what 'both' represents on this column --
+    # NOT 'funded' (that was the old default, which mislabeled 'company' and
+    # 'status' bookmarks, which never set company_types at all, as if the
+    # user had filtered to Funded Startups).
+    try:
+        company_types = _normalize_company_types(body.get("company_types", []))
+    except ValueError as e:
+        return jsonify({"error": f"invalid company type(s): {', '.join(e.args[0])}"}), 400
+    company_types_str = ",".join(company_types) if company_types else "both"
 
     cur = get_cursor()
     try:
@@ -107,8 +149,9 @@ def create_saved_search():
     else:
         saved["company_name"] = None
 
-    # Convert company_type string back to array for API response
-    if saved.get("company_type"):
+    # Convert company_type string back to array for API response (see the
+    # same 'both' handling as list_saved_searches above).
+    if saved.get("company_type") and saved["company_type"] != "both":
         saved["company_types"] = [ct.strip() for ct in saved["company_type"].split(",") if ct.strip()]
     else:
         saved["company_types"] = []
