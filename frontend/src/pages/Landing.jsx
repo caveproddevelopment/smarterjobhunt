@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import SEO from '../components/SEO'
 import FlipCounter from '../components/FlipCounter'
 import { fetchSiteStats } from '../lib/api'
 import { useCountUp } from '../lib/useCountUp'
@@ -105,6 +106,11 @@ export default function Landing() {
   return (
     <div className="min-h-screen flame-gradient">
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
+        <SEO
+          title="JobBeggar - Search Company Career Pages Directly, Skip Job Boards"
+          description="JobBeggar skips job boards and goes straight to company career pages. Filter by funded startups, Fortune 500, or major Indian companies. Title-variant matching with ranked results."
+          path="/"
+        />
         <Navbar />
 
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-10 gap-y-1 px-6 pb-2 text-center">

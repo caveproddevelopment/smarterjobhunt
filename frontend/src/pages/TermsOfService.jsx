@@ -1,10 +1,16 @@
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import SEO from '../components/SEO'
 
 export default function TermsOfService() {
   return (
     <div className="min-h-screen flame-gradient">
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
+        <SEO
+          title="Terms of Service - JobBeggar"
+          description="Read JobBeggar's Terms of Service covering account use, subscriptions, and acceptable use of the site."
+          path="/terms"
+        />
         <Navbar />
 
         <main className="mx-auto max-w-3xl px-6 py-16">

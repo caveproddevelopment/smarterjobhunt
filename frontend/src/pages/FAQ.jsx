@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import SEO from '../components/SEO'
 
 const faqs = [
   {
@@ -45,6 +46,11 @@ export default function FAQ() {
   return (
     <div className="min-h-screen flame-gradient">
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
+        <SEO
+          title="JobBeggar FAQ - Pricing, Matching Score, and Cancellation"
+          description="Answers to the most common JobBeggar questions: pricing, how the matching score works, company database size, and cancellations."
+          path="/faq"
+        />
         <Navbar />
 
         <main className="mx-auto max-w-3xl px-6 py-16">

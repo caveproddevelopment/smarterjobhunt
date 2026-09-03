@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import SEO from '../components/SEO'
 import { submitContactMessage } from '../lib/api'
 
 export default function AboutUs() {
@@ -51,6 +52,11 @@ export default function AboutUs() {
   return (
     <div className="min-h-screen flame-gradient">
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
+        <SEO
+          title="About JobBeggar - Built by Caveman Productions Media"
+          description="JobBeggar is built by Caveman Productions Media, an independent studio founded by Monte. Learn why JobBeggar exists and how to get in touch."
+          path="/about"
+        />
         <Navbar />
 
         <main className="mx-auto max-w-3xl px-6 py-16">

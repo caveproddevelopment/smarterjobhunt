@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import SEO from '../components/SEO'
 
 const features = [
   {
@@ -43,6 +44,11 @@ export default function WhatIsThis() {
   return (
     <div className="min-h-screen flame-gradient">
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
+        <SEO
+          title="What is JobBeggar? - How It Works"
+          description="JobBeggar searches company career pages directly instead of job boards, checking 15 title variants per search so you never miss a role because of how it's titled."
+          path="/what-is-this"
+        />
         <Navbar />
 
         <main className="mx-auto max-w-3xl px-6 py-16">

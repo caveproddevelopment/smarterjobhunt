@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import SEO from '../components/SEO'
 import { useAuth } from '../lib/auth'
 
 const plans = [
@@ -78,6 +79,11 @@ export default function Pricing() {
   return (
     <div className="min-h-screen flame-gradient">
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
+        <SEO
+          title="JobBeggar Pricing - $3.99/week or $9.99/month"
+          description="Simple JobBeggar pricing: $3.99 a week or $9.99 a month, cancel anytime. No free tier, no ads -- just direct access to company career pages ranked by match score."
+          path="/pricing"
+        />
         <Navbar />
 
         <main className="mx-auto max-w-3xl px-6 py-16">
