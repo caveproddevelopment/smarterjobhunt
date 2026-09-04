@@ -137,7 +137,7 @@ export default function ActiveFiltersBar({
                 onClick={onToggleVariants}
                 className="text-xs font-semibold text-ember hover:text-flame"
               >
-                See Variants ({titleVariants.length + 1})
+                See Variants
               </button>
             )}
 
