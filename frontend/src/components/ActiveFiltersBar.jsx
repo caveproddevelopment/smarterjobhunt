@@ -31,6 +31,11 @@ export default function ActiveFiltersBar({
   variantCountsError = null,
   onRetryVariantCounts = () => {},
   onSelectVariant = () => {},
+  // Job count for whichever view is currently on screen (matches the
+  // number shown in the "N Jobs in current search" line above this bar) --
+  // shown next to the scoped title once a variant/company/status view is
+  // selected, e.g. "Current View: Product Owner (12)".
+  scopedCount = null,
 }) {
   // Once a variant pill, "See them all", or a "Track Applications" radio is
   // selected, the listing is scoped to just that title, company, or
@@ -42,6 +47,8 @@ export default function ActiveFiltersBar({
       ? `All jobs at ${selectedCompany.name}`
       : selectedVariant
   if (scopedLabel) {
+    const countSuffix =
+      typeof scopedCount === 'number' ? ` (${scopedCount} job${scopedCount === 1 ? '' : 's'})` : ''
     return (
       <div className="border-b border-line bg-mist/60 px-6 py-3">
         <div className="relative flex items-center">
@@ -55,6 +62,7 @@ export default function ActiveFiltersBar({
           </button>
           <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-ink">
             Current View: <span className="text-ember">{scopedLabel}</span>
+            {countSuffix}
           </span>
         </div>
       </div>
@@ -129,47 +137,93 @@ export default function ActiveFiltersBar({
                 onClick={onToggleVariants}
                 className="text-xs font-semibold text-ember hover:text-flame"
               >
-                {showVariants ? 'Hide Variants' : 'See Variants'}
+                See Variants ({titleVariants.length + 1})
               </button>
             )}
 
             {showVariants && (
-              <div className="flex flex-wrap gap-2">
-                {variantCountsError ? (
-                  <span className="text-xs text-ember">
-                    Couldn't load variant counts ({variantCountsError}).{' '}
-                    <button type="button" onClick={onRetryVariantCounts} className="underline hover:text-flame">
-                      Try again
+              // Backdrop -- clicking anywhere outside the popup card closes
+              // it, same as the × button. stopPropagation on the card below
+              // keeps clicks inside (including on a variant pill) from
+              // bubbling up and closing it first.
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4"
+                onClick={onToggleVariants}
+              >
+                <div
+                  onClick={(event) => event.stopPropagation()}
+                  className="w-full max-w-md border border-line bg-paper p-6 shadow-xl"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="font-display text-lg font-semibold text-ink">
+                        Title Variants
+                      </h2>
+                      <p className="mt-1 text-sm text-ink-soft">
+                        Your searched title plus its {titleVariants.length} closest variants.
+                        Click one to see just those jobs.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onToggleVariants}
+                      aria-label="Close"
+                      className="shrink-0 text-lg leading-none text-ink-soft hover:text-ink"
+                    >
+                      ×
                     </button>
-                  </span>
-                ) : variantCountsLoading ? (
-                  <span className="text-xs text-ink-soft">Loading variant match counts…</span>
-                ) : (
-                  titleVariants.map((variant) => {
-                    const count = variantCounts[variant] ?? 0
-                    const clickable = count > 0
-                    return (
-                      <button
-                        key={variant}
-                        type="button"
-                        disabled={!clickable}
-                        onClick={() => onSelectVariant(variant)}
-                        title={
-                          clickable
-                            ? `See ${count} job${count === 1 ? '' : 's'} matching "${variant}"`
-                            : 'No jobs currently match this variant'
-                        }
-                        className={
-                          clickable
-                            ? 'rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:border-ember hover:text-ember'
-                            : 'cursor-default rounded-full border border-line bg-paper/60 px-3 py-1 text-xs font-medium text-ink-soft/60'
-                        }
-                      >
-                        {variant} ({count})
-                      </button>
-                    )
-                  })
-                )}
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {variantCountsError ? (
+                      <span className="text-xs text-ember">
+                        Couldn't load variant counts ({variantCountsError}).{' '}
+                        <button
+                          type="button"
+                          onClick={onRetryVariantCounts}
+                          className="underline hover:text-flame"
+                        >
+                          Try again
+                        </button>
+                      </span>
+                    ) : variantCountsLoading ? (
+                      <span className="text-xs text-ink-soft">Loading variant match counts…</span>
+                    ) : (
+                      // The original searched title is always item 0, so it
+                      // gets its own count too, not just the 15 variants
+                      // fetched alongside it -- styled a shade darker
+                      // (border-ember/50 bg-ember/5) so it reads as "the
+                      // title you typed" rather than just another variant.
+                      [filters.title, ...titleVariants].map((variant, index) => {
+                        const isOriginal = index === 0
+                        const count = variantCounts[variant] ?? 0
+                        const clickable = count > 0
+                        return (
+                          <button
+                            key={variant}
+                            type="button"
+                            disabled={!clickable}
+                            onClick={() => onSelectVariant(variant)}
+                            title={
+                              clickable
+                                ? `See ${count} job${count === 1 ? '' : 's'} matching "${variant}"`
+                                : 'No jobs currently match this title'
+                            }
+                            className={
+                              clickable
+                                ? isOriginal
+                                  ? 'rounded-full border border-ember/50 bg-ember/5 px-3 py-1 text-xs font-semibold text-ink hover:border-ember hover:text-ember'
+                                  : 'rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:border-ember hover:text-ember'
+                                : 'cursor-default rounded-full border border-line bg-paper/60 px-3 py-1 text-xs font-medium text-ink-soft/60'
+                            }
+                          >
+                            {variant} ({count})
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>

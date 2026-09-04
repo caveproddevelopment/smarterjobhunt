@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import SEO from '../components/SEO'
 import FlipCounter from '../components/FlipCounter'
 import { fetchSiteStats } from '../lib/api'
 import { useCountUp } from '../lib/useCountUp'
+import { faqs } from '../data/faqs'
 
 // `type` is the company_type value the Job Listings page filters on when a
 // badge is clicked (see companyTypes.js -- kept in sync with the backend's
@@ -43,6 +44,7 @@ export default function Landing() {
   const [query, setQuery] = useState('')
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
+  const [openFaqIndex, setOpenFaqIndex] = useState(0)
   const navigate = useNavigate()
   const [stats, setStats] = useState({ companyCount: 0, jobCount: 0 })
   const animatedCompanyCount = useCountUp(stats.companyCount)
@@ -259,6 +261,58 @@ export default function Landing() {
                   <p className="text-xs text-ink-soft">{review.role}</p>
                 </article>
               ))}
+            </div>
+          </section>
+
+          {/* FAQ -- same questions and answers as the standalone /faq page
+              (src/data/faqs.jsx), so the two stay in sync with each other. */}
+          <section id="faq" className="mx-auto max-w-3xl pb-16">
+            <h2 className="font-display text-2xl font-semibold text-ink">
+              Questions people actually ask
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+              Straight answers, no runaround. Can't find what you're looking for?{' '}
+              <Link to="/about#contact" className="font-semibold text-ember hover:underline">
+                Send us a message
+              </Link>
+              .
+            </p>
+
+            <div className="mt-8 space-y-3">
+              {faqs.map((faq, index) => {
+                const isOpen = openFaqIndex === index
+                return (
+                  <div
+                    key={faq.q}
+                    className="overflow-hidden rounded-2xl border border-line bg-white shadow-sm"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setOpenFaqIndex(isOpen ? null : index)}
+                      aria-expanded={isOpen}
+                      className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
+                    >
+                      <span className="font-display text-base font-semibold text-ink">
+                        {faq.q}
+                      </span>
+                      <span
+                        aria-hidden
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full flame-gradient text-sm font-bold text-white transition-transform ${
+                          isOpen ? 'rotate-45' : ''
+                        }`}
+                      >
+                        +
+                      </span>
+                    </button>
+
+                    {isOpen && (
+                      <div className="px-6 pb-6 text-sm leading-relaxed text-ink-soft">
+                        {faq.a}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </section>
         </main>

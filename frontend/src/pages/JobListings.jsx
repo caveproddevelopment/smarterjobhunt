@@ -210,10 +210,12 @@ export default function JobListings() {
     }
   }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus])
 
-  // Fetches per-variant job counts for the "See Variants" panel, lazily --
+  // Fetches per-variant job counts for the "See Variants" popup, lazily --
   // only once it's actually open, and only re-fetching when the title,
   // posted-days, or Company Database scope it was fetched for no longer
-  // matches what's currently applied.
+  // matches what's currently applied. Includes the original searched title
+  // itself alongside the 15 variants, so the popup can show a count on
+  // that pill too, not just the variants.
   useEffect(() => {
     if (!showVariants || titleVariants.length === 0) return
     const key = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${(appliedFilters.companyTypes || []).join(',')}`
@@ -221,7 +223,8 @@ export default function JobListings() {
 
     let cancelled = false
     setVariantCountsLoading(true)
-    fetchVariantCounts(titleVariants, {
+    const titlesToCount = appliedFilters.title ? [appliedFilters.title, ...titleVariants] : titleVariants
+    fetchVariantCounts(titlesToCount, {
       postedDays: appliedFilters.postedDays,
       companyTypes: appliedFilters.companyTypes,
     })
@@ -613,6 +616,7 @@ export default function JobListings() {
               variantCounts={variantCounts}
               variantCountsLoading={variantCountsLoading}
               onSelectVariant={handleSelectVariant}
+              scopedCount={loading ? null : totalCount}
             />
 
             {error ? (
