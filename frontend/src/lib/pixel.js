@@ -69,3 +69,22 @@ export function trackGoogleAuthLead(params = {}) {
   if (!PIXEL_ID || typeof window.fbq !== 'function') return
   window.fbq('track', 'Lead', { content_name: 'google_auth', ...params })
 }
+
+// Dollar value per billing interval -- kept in sync by hand with the
+// backend's Stripe prices (STRIPE_PRICE_WEEKLY / STRIPE_PRICE_MONTHLY in
+// config.py). Update here if pricing ever changes.
+const PLAN_VALUES = { week: 3.99, month: 9.99 }
+
+// Fires once a Stripe Checkout session has actually completed and the
+// webhook has flipped the account to plan='pro' (see Profile.jsx, which
+// calls this the moment that happens). This is the real "started paying"
+// signal Meta needs to optimize the ad campaign toward -- CompleteRegistration
+// and Lead above only mean an account exists, not that anyone paid.
+export function trackSubscribe(interval, params = {}) {
+  if (!PIXEL_ID || typeof window.fbq !== 'function') return
+  window.fbq('track', 'Subscribe', {
+    value: PLAN_VALUES[interval],
+    currency: 'USD',
+    ...params,
+  })
+}

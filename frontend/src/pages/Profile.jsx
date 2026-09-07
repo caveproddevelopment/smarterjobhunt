@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import PasswordInput from '../components/PasswordInput'
 import { useAuth } from '../lib/auth'
+import { trackSubscribe } from '../lib/pixel'
 
 function calculateRemainingTime(targetDate) {
   const now = new Date()
@@ -102,7 +103,7 @@ export default function Profile() {
     openBillingPortal,
   } = useAuth()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const checkoutStatus = searchParams.get('checkout')
   const emailChanged = searchParams.get('email_changed') === '1'
   const emailChangeError = searchParams.get('email_change_error')
@@ -140,6 +141,30 @@ export default function Profile() {
       return () => clearTimeout(timer)
     }
   }, [checkoutStatus, refreshUser])
+
+  // Fires the pixel's Subscribe event the moment the webhook-driven refresh
+  // above actually lands `plan: 'pro'` -- this is the real paid-conversion
+  // signal, as opposed to CompleteRegistration/Lead which only mean an
+  // account exists. Reactive on `user` so it fires off whichever refreshUser
+  // call above actually picks up the change, rather than guessing a fixed
+  // delay. Guarded by a ref (won't double-fire on re-renders) and strips the
+  // `checkout` param once tracked so reloading this URL doesn't re-fire it
+  // for the same purchase.
+  const subscribeTrackedRef = useRef(false)
+  useEffect(() => {
+    if (checkoutStatus === 'success' && user?.plan === 'pro' && !subscribeTrackedRef.current) {
+      subscribeTrackedRef.current = true
+      trackSubscribe(user.billing_interval)
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('checkout')
+          return next
+        },
+        { replace: true }
+      )
+    }
+  }, [checkoutStatus, user, setSearchParams])
 
   // Seed the form fields once we have a user.
   useEffect(() => {
