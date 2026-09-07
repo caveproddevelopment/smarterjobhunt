@@ -1,4 +1,5 @@
-import { Routes, Route } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { Routes, Route, useLocation } from 'react-router-dom'
 import Landing from './pages/Landing'
 import JobListings from './pages/JobListings'
 import Login from './pages/Login'
@@ -11,10 +12,30 @@ import AboutUs from './pages/AboutUs'
 import TermsOfService from './pages/TermsOfService'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import { AuthProvider } from './lib/auth'
+import { trackPageView } from './lib/pixel'
+
+// initPixel() (main.jsx) already fires the first PageView on load. This
+// covers every client-side navigation after that, since BrowserRouter never
+// does a real page load.
+function PixelPageViewTracker() {
+  const location = useLocation()
+  const isFirstRender = useRef(true)
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+    trackPageView()
+  }, [location.pathname])
+
+  return null
+}
 
 export default function App() {
   return (
     <AuthProvider>
+      <PixelPageViewTracker />
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/dashboard" element={<JobListings />} />
