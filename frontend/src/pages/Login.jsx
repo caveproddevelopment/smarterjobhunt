@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
@@ -34,19 +34,30 @@ export default function Login() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function handleGoogleCredential(credential) {
-    setError(null)
-    setErrorCode(null)
-    setSubmitting(true)
-    try {
-      await loginWithGoogle(credential)
-      navigate('/dashboard')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  // Wrapped in useCallback so its identity stays stable across renders --
+  // GoogleSignInButton re-runs its init effect whenever onCredential
+  // changes, and without this it was getting a new function on every
+  // keystroke in the email/password fields, re-initializing the Google
+  // button constantly. loginWithGoogle and navigate are both stable
+  // (loginWithGoogle comes from context and doesn't change identity;
+  // navigate is stable per React Router), so an empty dependency array
+  // is correct here.
+  const handleGoogleCredential = useCallback(
+    async (credential) => {
+      setError(null)
+      setErrorCode(null)
+      setSubmitting(true)
+      try {
+        await loginWithGoogle(credential)
+        navigate('/dashboard')
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [loginWithGoogle, navigate]
+  )
 
   async function handleSubmit(event) {
     event.preventDefault()

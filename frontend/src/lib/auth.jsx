@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
+import { trackCompleteRegistration, trackGoogleAuthLead } from './pixel'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 const TOKEN_KEY = 'sjh_token'
@@ -45,7 +46,9 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ full_name: fullName, email, password }),
     })
     if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not create account'))
-    return res.json() // { message, user } — account is unverified, no session yet
+    const data = await res.json() // { message, user } — account is unverified, no session yet
+    trackCompleteRegistration()
+    return data
   }
 
   async function login(email, password) {
@@ -83,6 +86,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem(TOKEN_KEY, data.token)
     setToken(data.token)
     setUser(data.user)
+    trackGoogleAuthLead()
   }
 
   async function resendVerification(email) {
