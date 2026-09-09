@@ -7,6 +7,7 @@ import JobCard from '../components/JobCard'
 import ActiveFiltersBar from '../components/ActiveFiltersBar'
 import DefaultFiltersModal from '../components/DefaultFiltersModal'
 import SubscribeModal from '../components/SubscribeModal'
+import AccessExpiredModal from '../components/AccessExpiredModal'
 import {
   fetchJobs,
   fetchSavedSearches,
@@ -84,7 +85,10 @@ export default function JobListings() {
   // first 24 hours (trial_active, computed server-side from created_at --
   // see USER_FIELDS in routes/auth.py). Automatically turns off once the
   // window passes, no separate expiry logic needed here.
+  // Also gates job-title search itself (see AccessExpiredModal below), not
+  // just the per-job "Apply" action.
   const canApply = user?.plan === 'pro' || user?.trial_active
+  const [showAccessExpiredModal, setShowAccessExpiredModal] = useState(false)
   const [savingDefaults, setSavingDefaults] = useState(false)
   const [titleVariants, setTitleVariants] = useState([])
   const [titleVariantsLoading, setTitleVariantsLoading] = useState(false)
@@ -331,6 +335,13 @@ export default function JobListings() {
   }
 
   function handleUpdateListings() {
+    // Searching by job title (as opposed to just adjusting company/date/
+    // remote filters) is gated once the free trial has ended and there's
+    // no subscription -- show the popup instead of running the search.
+    if (filters.title.trim() && !canApply) {
+      setShowAccessExpiredModal(true)
+      return
+    }
     setAppliedFilters(filters)
     setSelectedVariant(null)
     setSelectedCompany(null)
@@ -517,6 +528,14 @@ export default function JobListings() {
       setSelectedCompany({ id: search.company_id, name: search.company_name || 'this company' })
       return
     }
+    // A bookmarked plain-title or variant search is still a job-title
+    // search -- same gate as clicking "Update Search" with a title typed in.
+    const bookmarkedTitle = search.view_type === 'variant' ? search.variant_title : search.job_title
+    if ((bookmarkedTitle || '').trim() && !canApply) {
+      setShowAccessExpiredModal(true)
+      return
+    }
+
     const applied = {
       title: search.job_title || '',
       postedDays: search.posted_within_days != null ? String(search.posted_within_days) : '',
@@ -547,6 +566,10 @@ export default function JobListings() {
       )}
 
       {showSubscribeModal && <SubscribeModal onClose={() => setShowSubscribeModal(false)} />}
+
+      {showAccessExpiredModal && (
+        <AccessExpiredModal onClose={() => setShowAccessExpiredModal(false)} />
+      )}
 
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-8">
         <div className="flex flex-col items-stretch gap-6 md:flex-row">
