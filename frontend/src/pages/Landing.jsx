@@ -129,10 +129,20 @@ export default function Landing() {
           <section id="what-is-this" className="mx-auto max-w-6xl pt-2 pb-10 md:pt-6 md:pb-16">
             <div className="mx-auto max-w-2xl text-center">
               <h1 className="font-display text-2xl text-ink-soft md:text-3xl">
-                Pick the companies you'd actually work for
+                This is a place to find your next job
+                <br />
+                At JobBeggar.com <span className="text-ink">YOU</span> pick the companies you'd actually work for
                 <br />
                 We'll dig up the jobs.
               </h1>
+
+              <div className="mt-6 flex items-center justify-center gap-3">
+                <span aria-hidden className="text-lg text-ember">↓</span>
+                <p className="font-display text-base font-semibold text-ink">
+                  Pick your company type to Start Now
+                </p>
+                <span aria-hidden className="text-lg text-ember">↓</span>
+              </div>
 
               <div className="mx-auto mt-8 flex w-full max-w-xl flex-wrap items-center justify-between gap-4">
                 {badges.map((badge) => (
@@ -156,6 +166,13 @@ export default function Landing() {
                 <span className="h-1 w-8 rounded-full bg-line sm:w-12" aria-hidden />
               </div>
 
+              <Link
+                to="/login?mode=register"
+                className="mt-4 inline-block font-display text-lg font-bold text-[#5c1717] hover:underline"
+              >
+                Register Now For Full Site Access
+              </Link>
+
               <p className="mt-6 font-display text-xl text-ink-soft">
                 Job Boards are <span className="text-ink">GARBAGE!</span>&nbsp;&nbsp;Skip 'em
               </p>
@@ -177,24 +194,26 @@ export default function Landing() {
 
               <div className="mx-auto flex w-full max-w-sm flex-col gap-4">
                 <form onSubmit={handleSearch}>
-                  <label htmlFor="job-title" className="text-sm font-medium text-ink">
-                    Search for a job title
-                  </label>
-                  <div className="mt-2 flex items-center gap-2 rounded-full border border-line bg-white p-1.5 pl-5 shadow-sm">
-                    <input
-                      id="job-title"
-                      type="text"
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="e.g. Product Designer"
-                      className="w-full bg-transparent text-sm text-ink placeholder:text-ink-soft/60 focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      className="flex shrink-0 items-center gap-1 rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03]"
-                    >
-                      Go <span aria-hidden>→</span>
-                    </button>
+                  <div className="rounded-2xl border border-line p-4">
+                    <label htmlFor="job-title" className="text-sm font-medium text-ink">
+                      Search for a job title
+                    </label>
+                    <div className="mt-2 flex items-center gap-2 rounded-full border border-line bg-white p-1.5 pl-5 shadow-sm">
+                      <input
+                        id="job-title"
+                        type="text"
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder="e.g. Product Designer"
+                        className="w-full bg-transparent text-sm text-ink placeholder:text-ink-soft/60 focus:outline-none"
+                      />
+                      <button
+                        type="submit"
+                        className="flex shrink-0 items-center gap-1 rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03]"
+                      >
+                        Go <span aria-hidden>→</span>
+                      </button>
+                    </div>
                   </div>
                 </form>
 

@@ -8,7 +8,10 @@ import { useAuth } from '../lib/auth'
 
 export default function Login() {
   const [searchParams] = useSearchParams()
-  const [mode, setMode] = useState('login') // 'login' | 'register' | 'forgot'
+  // Defaults to 'login', but a link can send someone straight into the
+  // register form with /login?mode=register (e.g. the Landing page's
+  // "Register Now" link) instead of landing on login first.
+  const [mode, setMode] = useState(searchParams.get('mode') === 'register' ? 'register' : 'login')
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
