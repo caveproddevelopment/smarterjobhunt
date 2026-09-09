@@ -131,10 +131,15 @@ export default function Landing() {
               <h1 className="font-display text-2xl text-ink-soft md:text-3xl">
                 This is a place to find your next job
                 <br />
-                At JobBeggar.com <span className="text-ink">YOU</span> pick the companies you'd actually work for
-                <br />
-                We'll dig up the jobs.
+                <span className="text-ink">YOU</span> pick the companies you'd actually work for
               </h1>
+
+              <Link
+                to="/login?mode=register"
+                className="mt-6 inline-block font-display text-lg font-bold text-blue-600 underline"
+              >
+                Register Now For Full Site Access — Start Your Free Trial
+              </Link>
 
               <div className="mt-6 flex items-center justify-center gap-3">
                 <span aria-hidden className="text-lg text-ember">↓</span>
@@ -165,13 +170,6 @@ export default function Landing() {
                 </p>
                 <span className="h-1 w-8 rounded-full bg-line sm:w-12" aria-hidden />
               </div>
-
-              <Link
-                to="/login?mode=register"
-                className="mt-4 inline-block font-display text-lg font-bold text-[#5c1717] hover:underline"
-              >
-                Register Now For Full Site Access
-              </Link>
 
               <p className="mt-6 font-display text-xl text-ink-soft">
                 Job Boards are <span className="text-ink">GARBAGE!</span>&nbsp;&nbsp;Skip 'em
