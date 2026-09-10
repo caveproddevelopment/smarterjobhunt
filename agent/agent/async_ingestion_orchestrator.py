@@ -38,6 +38,24 @@ incident writeup):
     full-length attempt, each up to `HARD_TIMEOUT_SECONDS` in
     async_career_scraper.py), the old 50s outer cap left almost no
     room for a legitimate retry to complete.
+
+Reliability fix (2026-09-10, after a 35+ minute full-pipeline freeze
+with no log output at all, near the end of a 5501-company run):
+  - `detect_ats()` and `fetch_jobs()` are synchronous, `requests`-based
+    functions. They were being called directly inside `process_company`
+    (an async function) with no `await` and no thread offload. A plain
+    function call like that never yields control back to the event
+    loop — so when one of them got stuck (most likely DNS resolution
+    hanging past `requests`' own `timeout=`, which does not bound the
+    DNS step), it froze the *entire* event loop, not just that one
+    task. That's why every concurrent worker stopped logging at once,
+    and why neither the 45s hard timeout in async_career_scraper.py
+    nor FUTURE_TIMEOUT_SECONDS below ever fired: both depend on the
+    loop being free to check elapsed time between awaits, which it
+    wasn't. Both calls are now run via `asyncio.to_thread()` so a
+    stuck call strands only its own worker thread; the event loop —
+    and every other in-flight company — keeps moving, and
+    FUTURE_TIMEOUT_SECONDS can now actually do its job.
 """
 
 import asyncio
@@ -122,13 +140,17 @@ async def run(
         started = datetime.now()
 
         try:
-            ats_result = detect_ats(name, website)
+            # detect_ats() and fetch_jobs() are synchronous (requests-based)
+            # calls. Run them on a worker thread rather than inline, so a
+            # slow/hung DNS lookup or connection can't freeze the whole
+            # event loop — see the 2026-09-10 note in the module docstring.
+            ats_result = await asyncio.to_thread(detect_ats, name, website)
 
             raw_jobs = []
             path_taken = "unknown"
 
             if ats_result.can_api and ats_result.token:
-                raw_jobs = fetch_jobs(ats_result.ats, ats_result.token)
+                raw_jobs = await asyncio.to_thread(fetch_jobs, ats_result.ats, ats_result.token)
                 path_taken = "ats_api"
             elif ats_result.careers_url:
                 domain = _extract_domain(ats_result.careers_url)
