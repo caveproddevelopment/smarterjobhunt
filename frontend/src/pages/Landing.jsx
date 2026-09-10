@@ -44,20 +44,12 @@ export default function Landing() {
   const [query, setQuery] = useState('')
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
-  // Drives the silent, low-res teaser loop shown in place of the poster
-  // image before the person has chosen to play the real video (see the
-  // 5-second auto-start effect below).
-  const [showTeaser, setShowTeaser] = useState(false)
   const [openFaqIndex, setOpenFaqIndex] = useState(0)
   const navigate = useNavigate()
   const [stats, setStats] = useState({ companyCount: 0, jobCount: 0 })
   const animatedCompanyCount = useCountUp(stats.companyCount)
   const animatedJobCount = useCountUp(stats.jobCount)
   const videoBoxRef = useRef(null)
-  // Tracks whether the person has manually played/dismissed the video, so
-  // the 5-second auto-preview below doesn't override a choice they already
-  // made (e.g. re-opening a video they just closed).
-  const hasInteractedRef = useRef(false)
 
   function handleSearch(event) {
     event.preventDefault()
@@ -72,7 +64,6 @@ export default function Landing() {
 
     function handleOutsideClick(event) {
       if (videoBoxRef.current && !videoBoxRef.current.contains(event.target)) {
-        hasInteractedRef.current = true
         setIsPlaying(false)
       }
     }
@@ -93,22 +84,6 @@ export default function Landing() {
     return () => {
       cancelled = true
     }
-  }, [])
-
-  // Auto-start a short, silent, low-res teaser loop 5 seconds after the
-  // page loads, unless the person has already played or dismissed the real
-  // video themselves. This used to auto-play the full walkthrough.mp4
-  // (~32MB) for every visitor, which was the single biggest driver of our
-  // Vercel Fast Data Transfer usage -- walkthrough-teaser.mp4 is a ~200KB,
-  // audio-free stand-in. The full-quality video with sound only loads once
-  // someone explicitly clicks to play it.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!hasInteractedRef.current) {
-        setShowTeaser(true)
-      }
-    }, 5000)
-    return () => clearTimeout(timer)
   }, [])
 
   return (
@@ -243,33 +218,17 @@ export default function Landing() {
                     <button
                       type="button"
                       onClick={() => {
-                        hasInteractedRef.current = true
-                        setShowTeaser(false)
                         setIsMuted(false)
                         setIsPlaying(true)
                       }}
                       aria-label="Play walkthrough video"
                       className="group relative block h-full w-full"
                     >
-                      {showTeaser ? (
-                        <video
-                          autoPlay
-                          loop
-                          muted
-                          playsInline
-                          preload="auto"
-                          poster="/images/WatchThisThmbnail.jpg"
-                          className="h-full w-full object-cover"
-                        >
-                          <source src="/videos/walkthrough-teaser.mp4" type="video/mp4" />
-                        </video>
-                      ) : (
-                        <img
-                          src="/images/WatchThisThmbnail.jpg"
-                          alt="How does this work? Watch this."
-                          className="h-full w-full object-cover"
-                        />
-                      )}
+                      <img
+                        src="/images/WatchThisThmbnail.jpg"
+                        alt="How does this work? Watch this."
+                        className="h-full w-full object-cover"
+                      />
                       <span className="absolute inset-0 flex items-center justify-center bg-ink/0 transition-colors group-hover:bg-ink/20">
                         <span className="flex h-14 w-14 items-center justify-center rounded-full flame-gradient text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
                           ▶
