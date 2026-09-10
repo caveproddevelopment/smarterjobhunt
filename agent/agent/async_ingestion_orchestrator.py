@@ -56,6 +56,23 @@ with no log output at all, near the end of a 5501-company run):
     stuck call strands only its own worker thread; the event loop —
     and every other in-flight company — keeps moving, and
     FUTURE_TIMEOUT_SECONDS can now actually do its job.
+
+Batching + incremental writes (2026-09-10, same incident): previously
+the entire company list was scraped in one asyncio.gather() and
+job_sink.write() was called exactly once, after every company
+finished. A run that died at 94% — for any reason — had written
+*nothing* to jobs_staging. Companies are now processed in sequential
+chunks of `batch_size` (default 500), and job_sink.write() is called
+once per chunk, so a run that dies partway through has already
+committed every earlier chunk. The shared browser is also recycled
+between chunks (async_browser_pool.py's docstring flagged this as a
+safe, not-yet-implemented option for exactly this reason — a
+multi-hour run no longer keeps one Chromium process alive the whole
+time). See run_ingestion_db_async.py's matching `os._exit()` fix and
+--clear-staging flag flip — batching and incremental writes are far
+less useful if jobs_staging still gets wiped on the next scheduled run
+before anyone's reviewed it, or if a leaked thread still hangs the
+process at exit despite every chunk having saved successfully.
 """
 
 import asyncio
@@ -72,6 +89,7 @@ from .job_sink import JobSink
 
 DEFAULT_MAX_WORKERS = 10
 DEFAULT_SCRAPE_RETRIES = 2   # attempts per company against the career-scrape path
+DEFAULT_BATCH_SIZE = 500     # companies processed, then written to job_sink, per sequential chunk
 MAX_PROGRESS_LINES = 200     # roughly how many "[n/total] Scraped X" lines to print for the whole run
 # Hard cap on how long a single company can take. Covers up to
 # DEFAULT_SCRAPE_RETRIES attempts, each up to HARD_TIMEOUT_SECONDS (45s)
@@ -83,19 +101,38 @@ async def run(
     company_source: CompanySource,
     job_sink: JobSink,
     max_workers: int = DEFAULT_MAX_WORKERS,
+    batch_size: int = DEFAULT_BATCH_SIZE,
     progress_callback: Optional[Callable] = None,
 ) -> dict:
     """
-    Async version: loads companies, scrapes jobs concurrently with asyncio.
+    Async version: loads companies, scrapes jobs concurrently with asyncio,
+    in sequential chunks of `batch_size` companies at a time.
 
-    Returns the same summary dict as the sync orchestrator.
+    `batch_size` (default 500): companies are split into consecutive
+    chunks; each chunk is scraped with up to `max_workers` concurrent
+    tasks, then written to `job_sink` immediately, before the next chunk
+    starts. Set this >= the total company count to reproduce the old
+    one-shot-at-the-end behavior. The shared browser is recycled between
+    chunks (closed and relaunched fresh) — see the module docstring.
+
+    Returns a run summary dict:
+      {
+        "companies_total":     int,
+        "companies_ats_hit":   int,   # resolved via a supported ATS API
+        "companies_scraped":   int,   # fell back to Playwright scrape
+        "companies_failed":    int,   # no jobs found, error, or unknown ATS
+        "companies_timed_out": int,   # abandoned after FUTURE_TIMEOUT_SECONDS
+        "jobs_found":          int,
+        "errors":              list[str],
+        "per_company_timing":  list[dict],
+      }
     """
-    # Use mutable containers to avoid nonlocal issues
     state = {
         "completed_count": 0,
         "ats_hit_count": 0,
         "scraped_count": 0,
         "failed_count": 0,
+        "timed_out_count": 0,
     }
 
     def progress(pct: float, msg: str):
@@ -109,9 +146,9 @@ async def run(
     log_every = max(1, total // MAX_PROGRESS_LINES)
     progress(0.02, f"Loaded {total} companies.")
 
-    all_jobs: list[dict] = []
-    errors: list[str] = []
-    timing_log: list[dict] = []
+    all_errors: list[str] = []
+    all_timing_log: list[dict] = []
+    total_jobs_written = 0
 
     browser_pool = AsyncBrowserPool()
     run_ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -193,6 +230,8 @@ async def run(
                 timeout=FUTURE_TIMEOUT_SECONDS
             )
         except asyncio.TimeoutError:
+            print(f"[async_ingestion_orchestrator] STUCK: {name} did not complete within "
+                  f"{FUTURE_TIMEOUT_SECONDS}s — abandoning it and moving on to the rest of the batch.")
             result = name, [], "timeout", 0.0, f"{name}: did not complete within {FUTURE_TIMEOUT_SECONDS}s"
         except Exception as e:
             result = name, [], "error", 0.0, f"{name}: {e}"
@@ -205,53 +244,81 @@ async def run(
 
         return result
 
+    chunks = [companies[i:i + batch_size] for i in range(0, total, batch_size)]
+    num_chunks = len(chunks)
+
     try:
-        # Process companies concurrently with a semaphore to limit concurrency
         semaphore = asyncio.Semaphore(max_workers)
 
         async def process_with_semaphore(company):
             async with semaphore:
                 return await process_with_progress(company)
 
-        results = await asyncio.gather(
-            *[process_with_semaphore(c) for c in companies],
-            return_exceptions=False
-        )
+        for chunk_idx, chunk in enumerate(chunks, start=1):
+            progress(
+                0.05 + 0.90 * (state["completed_count"] / max(total, 1)),
+                f"Starting batch {chunk_idx}/{num_chunks} ({len(chunk)} companies)…"
+            )
 
-        for name, job_rows, path_taken, elapsed, err in results:
-            all_jobs.extend(job_rows)
-            timing_log.append({
-                "company_name": name,
-                "path": path_taken,
-                "elapsed_seconds": round(elapsed, 2),
-                "jobs_found": len(job_rows),
-            })
+            results = await asyncio.gather(
+                *[process_with_semaphore(c) for c in chunk],
+                return_exceptions=False
+            )
 
-            if path_taken == "ats_api":
-                state["ats_hit_count"] += 1
-            elif path_taken == "career_scrape":
-                state["scraped_count"] += 1
-            else:
-                state["failed_count"] += 1
+            chunk_jobs: list[dict] = []
+            for name, job_rows, path_taken, elapsed, err in results:
+                chunk_jobs.extend(job_rows)
+                all_timing_log.append({
+                    "company_name": name,
+                    "path": path_taken,
+                    "elapsed_seconds": round(elapsed, 2),
+                    "jobs_found": len(job_rows),
+                })
 
-            if err:
-                errors.append(err)
+                if path_taken == "ats_api":
+                    state["ats_hit_count"] += 1
+                elif path_taken == "career_scrape":
+                    state["scraped_count"] += 1
+                elif path_taken == "timeout":
+                    state["timed_out_count"] += 1
+                else:
+                    state["failed_count"] += 1
+
+                if err:
+                    all_errors.append(err)
+
+            progress(
+                0.05 + 0.90 * (state["completed_count"] / max(total, 1)),
+                f"Batch {chunk_idx}/{num_chunks}: writing {len(chunk_jobs)} job(s) to sink…"
+            )
+            job_sink.write(chunk_jobs)
+            total_jobs_written += len(chunk_jobs)
+
+            # Recycle the shared browser between chunks so a long multi-batch
+            # run doesn't keep one Chromium process alive (and accumulating
+            # memory) for the whole run — see async_browser_pool.py's
+            # docstring. No tasks are in flight here (the gather() above has
+            # already resolved), so this is always safe. Skipped after the
+            # last chunk; the `finally` below closes it for good.
+            if chunk_idx < num_chunks:
+                await browser_pool.invalidate()
 
     finally:
         await browser_pool.close()
 
-    progress(0.97, f"Writing {len(all_jobs)} jobs to sink…")
-    job_sink.write(all_jobs)
-    progress(1.0, f"Done. {len(all_jobs)} jobs from {total} companies.")
+    timed_out_note = f" ({state['timed_out_count']} timed out)" if state["timed_out_count"] else ""
+    progress(1.0, f"Done. {total_jobs_written} jobs from {total} companies "
+                  f"across {num_chunks} batch(es){timed_out_note}.")
 
     return {
-        "companies_total":    total,
-        "companies_ats_hit":  state["ats_hit_count"],
-        "companies_scraped":  state["scraped_count"],
-        "companies_failed":   state["failed_count"],
-        "jobs_found":         len(all_jobs),
-        "errors":             errors,
-        "per_company_timing": timing_log,
+        "companies_total":     total,
+        "companies_ats_hit":   state["ats_hit_count"],
+        "companies_scraped":   state["scraped_count"],
+        "companies_failed":    state["failed_count"],
+        "companies_timed_out": state["timed_out_count"],
+        "jobs_found":          total_jobs_written,
+        "errors":              all_errors,
+        "per_company_timing":  all_timing_log,
     }
 
 

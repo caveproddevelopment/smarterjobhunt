@@ -6,15 +6,15 @@ Unlike run_ingestion.py (CSV in, CSV out — for local smoke tests), this
 reads the company list from the Postgres `companies` table and writes
 scraped jobs into the `jobs_staging` landing table (see
 agent/job_sink.py's StagingJobSink and backend/routes/staging.py),
-tagged with one uuid.uuid4() batch_id per run. jobs_staging is fully
-cleared (DELETE FROM jobs_staging) right before this run starts, so
-it only ever holds the current scrape's fresh rows -- any rows from a
-prior run still 'pending' review are lost when the next run kicks off,
-not just already-promoted ones. Jobs previously active
-for a company but not seen in this run still get closed out
-immediately (is_active=FALSE) — see StagingJobSink's docstring — but
-new/updated listings only reach the live `jobs` table (and the backend
-API / frontend search) once that batch is cleaned and promoted.
+tagged with one uuid.uuid4() batch_id per run. jobs_staging is NOT
+cleared before a run by default (changed 2026-09-10 — it used to be,
+unconditionally, every run). Rows accumulate across runs until you
+explicitly wipe it with --clear-staging, or promote what you want to
+keep via /api/admin/staging/promote. Jobs previously active for a
+company but not seen in this run still get closed out immediately
+(is_active=FALSE) — see StagingJobSink's docstring — but new/updated
+listings only reach the live `jobs` table (and the backend API /
+frontend search) once a batch is cleaned and promoted.
 
 Pass --auto-clean and/or --auto-promote to call the backend's
 staging-review endpoints for this batch once ingestion finishes:
@@ -35,6 +35,7 @@ plugin to this service; set it yourself for local runs):
     export DATABASE_URL=postgresql://user:pass@host:5432/dbname
     python run_ingestion_db.py
     python run_ingestion_db.py --max-workers 15 --limit 50   # smoke test
+    python run_ingestion_db.py --clear-staging                # old default behavior
     python run_ingestion_db.py --auto-clean --auto-promote \
         --backend-url https://api.example.com --admin-key <ADMIN_API_KEY>
 
@@ -113,6 +114,13 @@ def main():
                          help="Base URL of the backend API (required for --auto-clean/--auto-promote)")
     parser.add_argument("--admin-key", default=os.environ.get("ADMIN_API_KEY"),
                          help="X-Admin-Key value for the backend's staging endpoints (required for --auto-clean/--auto-promote)")
+    parser.add_argument("--clear-staging", action="store_true",
+                         help="DELETE FROM jobs_staging before this run, wiping every row -- pending, "
+                              "approved-unpromoted, rejected, and already-promoted alike -- regardless "
+                              "of batch. Off by default as of 2026-09-10: jobs_staging now accumulates "
+                              "across runs until you promote what you want to keep (see "
+                              "backend/routes/staging.py's /promote). Pass this only when you "
+                              "deliberately want a clean slate.")
     args = parser.parse_args()
 
     if not args.database_url:
@@ -130,23 +138,22 @@ def main():
 
     conn = psycopg2.connect(args.database_url)
     try:
-        # Clear jobs_staging before this run starts, so the table only ever
-        # holds the current scrape's fresh dataset -- no leftover rows from
-        # prior batches (pending, approved-unpromoted, rejected, or already
-        # promoted all get wiped equally). If you're not running with
-        # --auto-clean/--auto-promote every time, anything still sitting
-        # 'pending' from the last run is lost here, not just old batches.
-        cur = conn.cursor()
-        try:
-            cur.execute("DELETE FROM jobs_staging")
-            cleared = cur.rowcount
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()
-        print(f"[run_ingestion_db] Cleared {cleared} row(s) from jobs_staging before this run.", flush=True)
+        if args.clear_staging:
+            cur = conn.cursor()
+            try:
+                cur.execute("DELETE FROM jobs_staging")
+                cleared = cur.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+            print(f"[run_ingestion_db] --clear-staging passed: cleared {cleared} row(s) "
+                  f"from jobs_staging before this run.", flush=True)
+        else:
+            print("[run_ingestion_db] jobs_staging left untouched (pass --clear-staging "
+                  "to wipe it first).", flush=True)
 
         source = PostgresCompanySource(conn, limit=args.limit, company_type=args.company_type)
         sink = StagingJobSink(conn, batch_id=batch_id)

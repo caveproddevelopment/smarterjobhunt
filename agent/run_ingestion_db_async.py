@@ -8,15 +8,18 @@ This is the recommended entry point for Railway deployments.
 
 Writes scraped jobs into the `jobs_staging` landing table (see
 agent/job_sink.py's StagingJobSink and backend/routes/staging.py),
-tagged with one uuid.uuid4() batch_id per run. jobs_staging is fully
-cleared (DELETE FROM jobs_staging) right before this run starts, so
-it only ever holds the current scrape's fresh rows -- any rows from a
-prior run still 'pending' review are lost when the next run kicks off,
-not just already-promoted ones. Jobs previously active
-for a company but not seen in this run still get closed out
-immediately (is_active=FALSE) — see StagingJobSink's docstring — but
-new/updated listings only reach the live `jobs` table (and the backend
-API / frontend search) once that batch is cleaned and promoted.
+tagged with one uuid.uuid4() batch_id per run, in sequential chunks of
+--batch-size companies at a time (default 500) — see
+async_ingestion_orchestrator.py's module docstring for why.
+
+jobs_staging is NOT cleared before a run by default (changed 2026-09-10
+— it used to be, unconditionally). Rows accumulate across runs until
+you explicitly wipe it with --clear-staging, or promote what you want
+to keep via /api/admin/staging/promote. Jobs previously active for a
+company but not seen in this run still get closed out immediately
+(is_active=FALSE) — see StagingJobSink's docstring — but new/updated
+listings only reach the live `jobs` table (and the backend API /
+frontend search) once a batch is cleaned and promoted.
 
 Pass --auto-clean and/or --auto-promote to call the backend's
 staging-review endpoints for this batch once ingestion finishes:
@@ -35,9 +38,25 @@ Usage (Railway sets DATABASE_URL automatically):
     export DATABASE_URL=postgresql://user:pass@host:5432/dbname
     python run_ingestion_db_async.py
     python run_ingestion_db_async.py --max-workers 10 --limit 50
-    python run_ingestion_db_async.py --companies-file retry_timeouts.txt --skip-clean-staging
+    python run_ingestion_db_async.py --batch-size 500
+    python run_ingestion_db_async.py --clear-staging   # old default behavior
+    python run_ingestion_db_async.py --companies-file retry_timeouts.txt
     python run_ingestion_db_async.py --auto-clean --auto-promote \
         --backend-url https://api.example.com --admin-key <ADMIN_API_KEY>
+
+Forced-exit fix (2026-09-10, matching run_ingestion_db.py's existing
+fix for the sync pipeline): asyncio.to_thread() calls in
+async_ingestion_orchestrator.py (added the same day, see that module's
+docstring) mean a hung detect_ats()/fetch_jobs() call now only strands
+its own background thread instead of freezing the whole event loop --
+but that thread isn't forcibly killed either. Left alone, Python's
+concurrent.futures.thread module registers an atexit hook that joins
+*every* thread pool worker thread ever created (including asyncio's
+default to_thread executor) at normal interpreter shutdown, so the
+process would still hang at exit waiting on that one leaked thread even
+though every batch had already been written successfully. The
+__main__ block below calls os._exit() after asyncio.run(main())
+finishes, which skips that shutdown sequence entirely.
 """
 
 import argparse
@@ -45,6 +64,7 @@ import asyncio
 import os
 import sys
 import time
+import traceback
 import uuid
 
 import psycopg2
@@ -74,7 +94,12 @@ def _call_staging_endpoint(backend_url: str, admin_key: str, path: str, batch_id
 
 async def main():
     parser = argparse.ArgumentParser(description="SJH.com ingestion agent — DB-backed async run")
-    parser.add_argument("--max-workers", type=int, default=10, help="Concurrent companies to process (default 10)")
+    parser.add_argument("--max-workers", type=int, default=10, help="Concurrent companies to process per batch (default 10)")
+    parser.add_argument("--batch-size", type=int, default=500,
+                         help="Companies processed and written to jobs_staging per sequential chunk "
+                              "(default 500). The shared browser is recycled between chunks. Set this "
+                              ">= the total company count to reproduce the old one-shot-at-the-end "
+                              "behavior.")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N companies (for smoke tests)")
     parser.add_argument(
         "--company-type",
@@ -103,11 +128,13 @@ async def main():
                          help="Base URL of the backend API (required for --auto-clean/--auto-promote)")
     parser.add_argument("--admin-key", default=os.environ.get("ADMIN_API_KEY"),
                          help="X-Admin-Key value for the backend's staging endpoints (required for --auto-clean/--auto-promote)")
-    parser.add_argument("--skip-clean-staging", action="store_true",
-                         help="Do not run DELETE FROM jobs_staging before this run. Use for a scoped/partial "
-                              "run (e.g. --companies-file) where you don't want to wipe out staging rows "
-                              "belonging to a different, still-pending batch. Default behavior (full wipe "
-                              "every run) is unchanged unless this is passed.")
+    parser.add_argument("--clear-staging", action="store_true",
+                         help="DELETE FROM jobs_staging before this run, wiping every row -- pending, "
+                              "approved-unpromoted, rejected, and already-promoted alike -- regardless "
+                              "of batch. Off by default as of 2026-09-10: jobs_staging now accumulates "
+                              "across runs until you promote what you want to keep (see "
+                              "backend/routes/staging.py's /promote). Pass this only when you "
+                              "deliberately want a clean slate.")
     args = parser.parse_args()
 
     if not args.database_url:
@@ -132,17 +159,7 @@ async def main():
 
     conn = psycopg2.connect(args.database_url)
     try:
-        # Clear jobs_staging before this run starts, so the table only ever
-        # holds the current scrape's fresh dataset -- no leftover rows from
-        # prior batches (pending, approved-unpromoted, rejected, or already
-        # promoted all get wiped equally). If you're not running with
-        # --auto-clean/--auto-promote every time, anything still sitting
-        # 'pending' from the last run is lost here, not just old batches.
-        # Skipped entirely when --skip-clean-staging is passed (e.g. a
-        # scoped retry run that shouldn't touch another batch's rows).
-        if args.skip_clean_staging:
-            print("[run_ingestion_db_async] --skip-clean-staging passed: leaving jobs_staging untouched.", flush=True)
-        else:
+        if args.clear_staging:
             cur = conn.cursor()
             try:
                 cur.execute("DELETE FROM jobs_staging")
@@ -153,7 +170,11 @@ async def main():
                 raise
             finally:
                 cur.close()
-            print(f"[run_ingestion_db_async] Cleared {cleared} row(s) from jobs_staging before this run.", flush=True)
+            print(f"[run_ingestion_db_async] --clear-staging passed: cleared {cleared} row(s) "
+                  f"from jobs_staging before this run.", flush=True)
+        else:
+            print("[run_ingestion_db_async] jobs_staging left untouched (pass --clear-staging "
+                  "to wipe it first).", flush=True)
 
         source = PostgresCompanySource(conn, limit=args.limit, company_type=args.company_type, names=company_names)
         sink = StagingJobSink(conn, batch_id=batch_id)
@@ -162,7 +183,12 @@ async def main():
             print(f"[{int(pct*100):3d}%] {msg}", flush=True)
 
         start = time.time()
-        summary = await run(source, sink, max_workers=args.max_workers, progress_callback=progress)
+        summary = await run(
+            source, sink,
+            max_workers=args.max_workers,
+            batch_size=args.batch_size,
+            progress_callback=progress,
+        )
         total_elapsed = time.time() - start
 
         print("\n" + "==" * 30)
@@ -173,6 +199,7 @@ async def main():
         print(f"  -> ATS API hit:        {summary['companies_ats_hit']}")
         print(f"  -> Career page scrape: {summary['companies_scraped']}")
         print(f"  -> Failed/unknown:     {summary['companies_failed']}")
+        print(f"  -> Timed out/abandoned:{summary['companies_timed_out']}")
         print(f"Jobs staged:             {summary['jobs_found']}")
         print(f"Total wall-clock time:   {total_elapsed:.1f}s")
         print(f"Errors:                  {len(summary['errors'])}")
@@ -207,4 +234,25 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        _exit_code = asyncio.run(main())
+    except SystemExit as _e:
+        _exit_code = _e.code
+    except Exception:
+        traceback.print_exc()
+        _exit_code = 1
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    # Force real process termination — see the module docstring's
+    # "Forced-exit fix" note. A normal script exit here would still hang
+    # if a detect_ats()/fetch_jobs() call got stuck on this run, because
+    # Python's own thread-pool cleanup tries to join that leaked thread
+    # at interpreter shutdown no matter what.
+    if _exit_code is None:
+        _exit_code = 0
+    elif not isinstance(_exit_code, int):
+        print(_exit_code, file=sys.stderr)
+        _exit_code = 1
+    os._exit(_exit_code)
