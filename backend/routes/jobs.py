@@ -32,6 +32,40 @@ COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare"}
 HAS_DEPT_OR_LOCATION = "(NULLIF(j.department, '') IS NOT NULL OR NULLIF(j.location, '') IS NOT NULL)"
 
 
+def _has_full_search_access(user_id):
+    """Server-side backstop for the title-driven search paywall: true only
+    for a logged-in user who is either a paying subscriber or still inside
+    their 24-hour trial window. Anonymous callers (user_id is None) always
+    come back False.
+
+    This mirrors the `plan === 'pro' || trial_active` check the frontend
+    already does before it lets someone submit a title search (see
+    JobListings.jsx / AccessExpiredModal) -- but that frontend check only
+    decides whether the React app *bothers* to call this endpoint. Nothing
+    previously stopped a direct request to /api/jobs?title=... from
+    getting the exact same paid results for free, since @optional_auth
+    only resolves who's calling, not what they're allowed to search for.
+    This function -- and the reset in list_jobs() below -- closes that
+    gap by re-checking access here, independent of whatever the frontend
+    did or didn't send.
+    """
+    if user_id is None:
+        return False
+    cur = get_cursor()
+    cur.execute(
+        """
+        SELECT plan, (created_at + interval '24 hours' > now()) AS trial_active
+        FROM users
+        WHERE id = %s
+        """,
+        (user_id,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return False
+    return row["plan"] == "pro" or bool(row["trial_active"])
+
+
 def _tokenize_title(title):
     """Split a search title into whitespace-separated terms for word-overlap
     scoring. e.g. "Senior Project Manager" -> ["Senior", "Project", "Manager"].
@@ -228,6 +262,20 @@ def list_jobs():
     remote_only = request.args.get("remote_only", "").strip().lower() in {"1", "true", "yes"}
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
+
+    # Server-side paywall enforcement: title-driven search (typed title or
+    # a variant pill) is the paid feature -- gated in the UI once someone's
+    # trial has ended, but that gate is only ever a frontend decision not
+    # to call this endpoint with a title. A direct request bypasses it
+    # entirely otherwise. Anonymous/expired-trial/non-pro callers still get
+    # a normal response here -- title and variant_titles are just dropped,
+    # falling back to the same plain, unscored browse view a logged-out
+    # visitor gets with no title typed at all (kept deliberately non-fatal
+    # rather than a 401/402 so bookmarked/shared search links and SEO
+    # crawling of the plain listings still work).
+    if (title or variant_titles) and not _has_full_search_access(g.user_id):
+        title = ""
+        variant_titles = []
 
     where = []
     params = []
