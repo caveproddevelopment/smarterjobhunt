@@ -7,6 +7,17 @@ function authHeaders() {
 
 // Maps a /api/jobs row (snake_case, DB shape) to the camelCase shape
 // JobCard / JobListings already render.
+//
+// company, department, location, and applyUrl are premium fields: the
+// backend now redacts them (sends null) for anyone who isn't a subscriber,
+// rather than sending the real values and relying on the frontend to blur
+// them with CSS. JobCard already falls back to placeholder text when these
+// are falsy, so that part needs no change here. applyUrl needs one,
+// though: it used to double as "is there a link at all" (`!job.applyUrl`),
+// but null now also means "redacted, subscribe to see it" -- those are
+// different states, so hasApplyUrl (unredacted by the backend; it's just a
+// boolean, never the real URL) carries the "does a link exist" signal
+// instead. See JobCard.jsx.
 function mapJob(row) {
   return {
     id: row.id,
@@ -28,8 +39,14 @@ function mapJob(row) {
     matchPercent: row.search_match_percent ?? null,
     // Prefer the specific posting URL; fall back to the company's site if
     // this posting doesn't have one on file (some career-page scrapes miss
-    // a per-job link). Null means we genuinely have nowhere to send them.
+    // a per-job link). Null means either we genuinely have nowhere to send
+    // them, or (see hasApplyUrl) the backend redacted it pending subscribe.
     applyUrl: row.source_url || row.company_website || null,
+    // Whether *some* apply link exists on the backend, independent of
+    // whether we were actually sent it -- use this, not `applyUrl`, to
+    // decide between the disabled "no application link" button and the
+    // blurred "subscribe to apply" one.
+    hasApplyUrl: Boolean(row.has_apply_url),
   }
 }
 

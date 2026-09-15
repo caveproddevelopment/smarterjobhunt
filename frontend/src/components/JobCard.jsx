@@ -112,7 +112,7 @@ export default function JobCard({
       </div>
 
       <div className="flex flex-col items-start gap-2 sm:items-end">
-        {!job.applyUrl ? (
+        {!job.hasApplyUrl ? (
           <button
             type="button"
             disabled

@@ -32,22 +32,33 @@ COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare"}
 HAS_DEPT_OR_LOCATION = "(NULLIF(j.department, '') IS NOT NULL OR NULLIF(j.location, '') IS NOT NULL)"
 
 
-def _has_full_search_access(user_id):
-    """Server-side backstop for the title-driven search paywall: true only
-    for a logged-in user who is either a paying subscriber or still inside
-    their 24-hour trial window. Anonymous callers (user_id is None) always
-    come back False.
+def _has_premium_access(user_id):
+    """Server-side backstop for every paywalled thing this API does: true
+    only for a logged-in user who is either a paying subscriber or still
+    inside their 24-hour trial window. Anonymous callers (user_id is None)
+    always come back False.
 
     This mirrors the `plan === 'pro' || trial_active` check the frontend
-    already does before it lets someone submit a title search (see
-    JobListings.jsx / AccessExpiredModal) -- but that frontend check only
-    decides whether the React app *bothers* to call this endpoint. Nothing
-    previously stopped a direct request to /api/jobs?title=... from
-    getting the exact same paid results for free, since @optional_auth
-    only resolves who's calling, not what they're allowed to search for.
-    This function -- and the reset in list_jobs() below -- closes that
-    gap by re-checking access here, independent of whatever the frontend
-    did or didn't send.
+    already does (see JobListings.jsx / AccessExpiredModal for the
+    title-search gate, JobCard.jsx's `isSubscribed = canApply` for the
+    job-card-field blur) -- but a frontend check only decides whether the
+    React app *bothers* to ask for the gated data. Nothing previously
+    stopped a direct request to /api/jobs (title-driven or not) from
+    getting the exact same paid results for free: title-driven search
+    results were gated nowhere but the UI, and -- separately, and worse --
+    company, department, location and the real application URL
+    (source_url/company_website) were always included in the plain-JSON
+    /api/jobs response regardless of who was asking, with the "blur" that
+    hides them from a non-subscriber being pure CSS the browser applies
+    to already-delivered, DOM-readable plaintext. Anyone could read the
+    real values straight out of the API response or the page DOM without
+    ever subscribing.
+
+    This function -- used both by the title-search reset and by the
+    field-redaction step in list_jobs()/company_jobs() below -- closes
+    both gaps by re-checking access here, independent of whatever the
+    frontend did or didn't send, so the data itself never leaves the
+    server for a caller who isn't entitled to see it.
     """
     if user_id is None:
         return False
@@ -263,6 +274,11 @@ def list_jobs():
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
 
+    # Computed once and reused for both paywall checks below: the
+    # title-driven-search reset, and the job-card field redaction applied
+    # to the response just before it's returned.
+    has_premium_access = _has_premium_access(g.user_id)
+
     # Server-side paywall enforcement: title-driven search (typed title or
     # a variant pill) is the paid feature -- gated in the UI once someone's
     # trial has ended, but that gate is only ever a frontend decision not
@@ -273,7 +289,7 @@ def list_jobs():
     # visitor gets with no title typed at all (kept deliberately non-fatal
     # rather than a 401/402 so bookmarked/shared search links and SEO
     # crawling of the plain listings still work).
-    if (title or variant_titles) and not _has_full_search_access(g.user_id):
+    if (title or variant_titles) and not has_premium_access:
         title = ""
         variant_titles = []
 
@@ -422,6 +438,7 @@ def list_jobs():
                 j.location,
                 j.date_posted,
                 j.source_url,
+                (j.source_url IS NOT NULL OR c.website IS NOT NULL) AS has_apply_url,
                 c.id AS company_id,
                 c.name AS company,
                 c.website AS company_website,
@@ -467,6 +484,28 @@ def list_jobs():
 
     cur.execute(query, full_params)
     jobs = cur.fetchall()
+
+    # Server-side enforcement of the job-card blur: company, department,
+    # location, and the real application link (source_url/company_website)
+    # are premium fields. Previously these were always included in this
+    # JSON response and the frontend merely styled them with a CSS blur --
+    # meaning the real values sat in plaintext in the API response and the
+    # page DOM for anyone to read, subscribed or not. They're now redacted
+    # here, at the source, for anyone who isn't a subscriber (or still in
+    # their trial), so an unauthenticated/unsubscribed caller genuinely
+    # cannot obtain them -- not from the DOM, not from calling the API
+    # directly, not from a browser extension. has_apply_url is computed in
+    # SQL above and deliberately left untouched: it only says whether an
+    # application link exists at all, not what it is, so the frontend can
+    # still tell "no link on file" apart from "link exists, subscribe to
+    # see it" without the real URL ever being sent.
+    if not has_premium_access:
+        for job in jobs:
+            job["company"] = None
+            job["company_website"] = None
+            job["department"] = None
+            job["location"] = None
+            job["source_url"] = None
 
     return jsonify({"jobs": jobs, "count": len(jobs), "total_count": total_count})
 
@@ -632,4 +671,15 @@ def company_jobs(company_id):
         """,
         (g.user_id, company_id),
     )
-    return jsonify({"jobs": cur.fetchall()})
+    jobs = cur.fetchall()
+
+    # Same premium-field redaction as list_jobs above -- department and
+    # location are blurred on the card here too ("See them all" only
+    # renders for subscribers in the UI, but that's a frontend decision;
+    # this endpoint is directly callable by anyone who has a company_id).
+    if not _has_premium_access(g.user_id):
+        for job in jobs:
+            job["department"] = None
+            job["location"] = None
+
+    return jsonify({"jobs": jobs})
