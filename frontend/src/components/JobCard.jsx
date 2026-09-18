@@ -29,7 +29,7 @@ export default function JobCard({
     day: 'numeric',
   })
 
-  // Subscribers see the full card; everyone else only gets the title.
+  // Subscribers see the full card; non-subscribers see an inert blurred card.
   const isSubscribed = canApply
 
   function handleApplyClick(event) {
@@ -91,9 +91,12 @@ export default function JobCard({
           </>
         ) : (
           <>
+            <p aria-hidden="true" className="mt-1 select-none text-sm text-ink blur-[5px]">
+              Posted on [date] - Match: [score]
+            </p>
             <p
               aria-hidden="true"
-              className="mt-3 select-none whitespace-nowrap text-sm text-ink blur-[5px]"
+              className="mt-1 select-none whitespace-nowrap text-sm text-ink blur-[5px]"
             >
               Company Name &nbsp;&nbsp; Department &nbsp;&nbsp; Location
             </p>
@@ -140,7 +143,15 @@ export default function JobCard({
               Apply
             </a>
           )
-        ) : null}
+        ) : (
+          <span
+            aria-hidden="true"
+            tabIndex={-1}
+            className="select-none whitespace-nowrap rounded-md bg-moss px-8 py-2 text-center text-sm font-semibold text-white blur-[5px]"
+          >
+            Apply
+          </span>
+        )}
 
         {isSubscribed ? (
           <>
@@ -183,7 +194,19 @@ export default function JobCard({
               </div>
             )}
           </>
-        ) : null}
+        ) : (
+          <div aria-hidden="true" className="select-none blur-[5px]">
+            <p className="text-xs font-medium text-ink-soft">Did/Will You Apply?</p>
+            <label className="flex items-center gap-1.5 text-sm text-ink">
+              <input type="radio" disabled tabIndex={-1} />
+              Applied
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-ink">
+              <input type="radio" disabled tabIndex={-1} />
+              Rejected
+            </label>
+          </div>
+        )}
       </div>
     </article>
   )

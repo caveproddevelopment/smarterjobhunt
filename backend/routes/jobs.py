@@ -273,9 +273,6 @@ def list_jobs():
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
 
-    # Non-subscribers may browse titles, but premium fields are redacted below.
-    has_premium_access = _has_premium_access(g.user_id)
-
     where = []
     params = []
 
@@ -463,9 +460,10 @@ def list_jobs():
     cur.execute(query, full_params)
     jobs = cur.fetchall()
 
-    # Keep only the title for non-subscribers. Premium fields must not be
-    # shipped to the browser and then hidden with CSS.
-    if not has_premium_access:
+    # Non-subscribers receive only the title. The frontend renders synthetic
+    # blurred placeholders for every other field, so real details and URLs
+    # cannot be recovered from the browser or the network response.
+    if not _has_premium_access(g.user_id):
         for job in jobs:
             job_id = job["id"]
             title = job["title"]
