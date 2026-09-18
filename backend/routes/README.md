@@ -61,18 +61,17 @@ Serves on `http://localhost:5000`. `GET /api/health` should return `{"status": "
 | POST   | `/api/auth/register`          | —        | Create an account |
 | POST   | `/api/auth/login`             | —        | Returns a bearer token |
 | GET    | `/api/auth/me`                | required | Current user |
-| GET    | `/api/jobs`                   | optional | List/filter jobs — `?title=&posted_days=&funding=both\|a\|b&limit=&offset=` |
-| GET    | `/api/companies/<id>/jobs`    | optional | All jobs at one company ("See them all") |
+| GET    | `/api/jobs`                   | subscription | List/filter jobs — weekly trial or active plan required |
+| GET    | `/api/companies/<id>/jobs`    | subscription | All jobs at one company ("See them all") |
 | PUT    | `/api/job-status/<job_id>`    | required | Set Applied/Rejected (+ reason) |
 | DELETE | `/api/job-status/<job_id>`    | required | Clear a status |
 | GET    | `/api/saved-searches`         | required | List saved searches |
 | POST   | `/api/saved-searches`         | required | Save a new search |
 | DELETE | `/api/saved-searches/<id>`    | required | Delete a saved search |
 
-Send the token from login/register as `Authorization: Bearer <token>`. Match
-percentages and applied/rejected status only appear on `/api/jobs` when
-authenticated — logged-out browsing still returns listings, just without
-personalization.
+Send the token from login/register as `Authorization: Bearer <token>`. Job
+discovery endpoints return `402` until the account has an active weekly
+subscription or its seven-day trial. The landing-page statistics remain public.
 
 ## Where the scraping agent plugs in
 

@@ -119,7 +119,7 @@ export default function Landing() {
                 to="/login?mode=register"
                 className="mt-6 inline-block font-display text-lg font-bold text-blue-600 underline"
               >
-                Register Now For Full Site Access — Start Your Free Trial
+                Register Now For Full Site Access — Start Your 1 Week Free Trial
               </Link>
 
               <div className="mt-6 flex items-center justify-center gap-3">
@@ -147,7 +147,7 @@ export default function Landing() {
               <div className="mt-8 flex items-center justify-center gap-4">
                 <span className="h-1 w-8 rounded-full bg-line sm:w-12" aria-hidden />
                 <p className="font-display text-[1.6875rem] italic text-[#019c58]">
-                  One Day Free No Card No Catch
+                  One Week Free With Full Access
                 </p>
                 <span className="h-1 w-8 rounded-full bg-line sm:w-12" aria-hidden />
               </div>

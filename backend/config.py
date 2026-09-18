@@ -67,15 +67,15 @@ class Config:
     # saved to contact_messages, just without a notification email going out.
     CONTACT_TO_EMAIL = os.environ.get("CONTACT_TO_EMAIL")
 
-    # Stripe billing. Weekly/monthly are separate Stripe Price objects — create
-    # both (same Product, two recurring prices) in the Stripe Dashboard and
-    # drop their IDs in here. STRIPE_WEBHOOK_SECRET comes from the webhook
-    # endpoint's "Signing secret" once you register it (or from `stripe
-    # listen` while testing locally).
+    # Stripe billing. Weekly is the only plan -- every new subscription
+    # starts with a 7-day free trial (set in routes/billing.py's
+    # create_checkout_session). STRIPE_WEBHOOK_SECRET comes from the
+    # webhook endpoint's "Signing secret" once you register it (or from
+    # `stripe listen` while testing locally).
     STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
     STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
     STRIPE_PRICE_WEEKLY = os.environ.get("STRIPE_PRICE_WEEKLY")
-    STRIPE_PRICE_MONTHLY = os.environ.get("STRIPE_PRICE_MONTHLY")
+    STRIPE_PORTAL_CONFIGURATION = os.environ.get("STRIPE_PORTAL_CONFIGURATION")
 
     # Claude-powered title-variant agent (title_variant_agent.py, called from
     # routes/title_variants.py on a job_title_variants cache miss). Required

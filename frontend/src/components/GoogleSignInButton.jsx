@@ -8,6 +8,8 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 // why this polls briefly rather than assuming it's ready on mount.
 export default function GoogleSignInButton({ onCredential, disabled }) {
   const containerRef = useRef(null)
+  const callbackRef = useRef(onCredential)
+  callbackRef.current = onCredential
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID || disabled) return
@@ -20,7 +22,7 @@ export default function GoogleSignInButton({ onCredential, disabled }) {
 
       window.google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
-        callback: (response) => onCredential(response.credential),
+        callback: (response) => callbackRef.current(response.credential),
       })
 
       containerRef.current.innerHTML = ''
@@ -49,7 +51,7 @@ export default function GoogleSignInButton({ onCredential, disabled }) {
       cancelled = true
       if (pollId) clearInterval(pollId)
     }
-  }, [disabled, onCredential])
+  }, [disabled])
 
   if (!GOOGLE_CLIENT_ID) return null
 

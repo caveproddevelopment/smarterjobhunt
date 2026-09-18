@@ -81,13 +81,12 @@ export default function JobListings() {
   const [bookmarkError, setBookmarkError] = useState(null)
   const [showDefaultsModal, setShowDefaultsModal] = useState(false)
   const [showSubscribeModal, setShowSubscribeModal] = useState(false)
-  // Pro subscribers always have access; new signups also get it for their
-  // first 24 hours (trial_active, computed server-side from created_at --
-  // see USER_FIELDS in routes/auth.py). Automatically turns off once the
-  // window passes, no separate expiry logic needed here.
+  // Pro subscribers (including those still inside their 7-day Stripe trial,
+  // which already sets plan='pro' with subscription_status='trialing' --
+  // see USER_FIELDS in routes/auth.py) have access; everyone else doesn't.
   // Also gates job-title search itself (see AccessExpiredModal below), not
   // just the per-job "Apply" action.
-  const canApply = user?.plan === 'pro' || user?.trial_active
+  const canApply = user?.plan === 'pro'
   const [showAccessExpiredModal, setShowAccessExpiredModal] = useState(false)
   const [savingDefaults, setSavingDefaults] = useState(false)
   const [titleVariants, setTitleVariants] = useState([])
@@ -201,7 +200,10 @@ export default function JobListings() {
           return next
         })
       } catch (err) {
-        if (!cancelled) setError(err.message)
+        if (!cancelled) {
+          if (err.status === 402) setShowAccessExpiredModal(true)
+          else setError(err.message)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -335,9 +337,8 @@ export default function JobListings() {
   }
 
   function handleUpdateListings() {
-    // Searching by job title (as opposed to just adjusting company/date/
-    // remote filters) is gated once the free trial has ended and there's
-    // no subscription -- show the popup instead of running the search.
+    // Avoid a request when a title search is clearly unavailable; the API
+    // still enforces this for direct requests and non-title browse paths.
     if (filters.title.trim() && !canApply) {
       setShowAccessExpiredModal(true)
       return

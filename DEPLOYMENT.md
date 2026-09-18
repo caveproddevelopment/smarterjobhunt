@@ -101,7 +101,8 @@ CORS allows it.
 
 - `job_matches` (the "Match %" ring) stays empty until match scoring is built — search/filtering
   by title works now via `jobs.title ILIKE`, match-scoring is a separate, later piece.
-- Registering now requires clicking an emailed verification link before login works. Without a
-  real `SMTP_HOST` configured, the link is only logged server-side (check Railway's logs) — set
-  real SMTP credentials before sharing the site with anyone but yourself.
+- Registration immediately opens Stripe Checkout for the weekly plan's seven-day free trial and
+  requires a payment method. Email verification is still sent, but it is not required before
+  Checkout. Without a real `SMTP_HOST` configured, the link is only logged server-side (check
+  Railway's logs) — set real SMTP credentials before sharing the site with anyone but yourself.
 - `data/sampleJobs.js` in the frontend is now dead code, safe to delete whenever.

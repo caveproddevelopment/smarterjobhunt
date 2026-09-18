@@ -1,9 +1,9 @@
 import json
 import re
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 
-from auth_utils import optional_auth
+from auth_utils import require_auth
 from db.connection import get_cursor
 from title_variant_agent import get_title_variants as ask_variant_agent
 
@@ -38,15 +38,19 @@ def generate_variants(job_title):
 
 
 @bp.get("")
-@optional_auth
+@require_auth
 def get_title_variants():
+    cur = get_cursor()
+    cur.execute("SELECT plan FROM users WHERE id = %s", (g.user_id,))
+    user = cur.fetchone()
+    if user is None or user["plan"] != "pro":
+        return jsonify({"error": "An active weekly subscription or trial is required."}), 402
+
     job_title = (request.args.get("title") or "").strip()
     if not job_title:
         return jsonify({"error": "title query param is required"}), 400
 
     normalized = normalize_title(job_title)
-    cur = get_cursor()
-
     # 1. Exact-title cache hit (shared across all users) -> serve straight
     #    from the DB, no agent call needed.
     cur.execute(

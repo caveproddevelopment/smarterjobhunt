@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { trackCompleteRegistration, trackGoogleAuthLead } from './pixel'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
@@ -13,6 +13,7 @@ async function parseErrorOr(res, fallback) {
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
+  const tokenRef = useRef(token)
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(Boolean(token))
   const [sessionMessage, setSessionMessage] = useState(null)
@@ -32,6 +33,7 @@ export function AuthProvider({ children }) {
       .then(setUser)
       .catch(() => {
         localStorage.removeItem(TOKEN_KEY)
+        tokenRef.current = null
         setToken(null)
         setUser(null)
         setSessionMessage('Your session has expired. Please log in again.')
@@ -39,6 +41,12 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false))
   }, [token])
 
+  // Registration now logs the account straight in (same {token, user}
+  // shape as login/loginWithGoogle below) so the caller can immediately
+  // chain into startCheckout() -- see Login.jsx, which sends every new
+  // signup into Stripe Checkout for the weekly plan's 7-day free trial
+  // right after this resolves. The account is still unverified by email
+  // at this point; that no longer blocks using the app.
   async function register(fullName, email, password) {
     const res = await fetch(`${API_URL}/api/auth/register`, {
       method: 'POST',
@@ -46,7 +54,11 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ full_name: fullName, email, password }),
     })
     if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not create account'))
-    const data = await res.json() // { message, user } — account is unverified, no session yet
+    const data = await res.json()
+    localStorage.setItem(TOKEN_KEY, data.token)
+    tokenRef.current = data.token
+    setToken(data.token)
+    setUser(data.user)
     trackCompleteRegistration()
     return data
   }
@@ -65,8 +77,10 @@ export function AuthProvider({ children }) {
     }
     const data = await res.json()
     localStorage.setItem(TOKEN_KEY, data.token)
+    tokenRef.current = data.token
     setToken(data.token)
     setUser(data.user)
+    return data
   }
 
   // credential is the ID token Google's Sign in with Google button hands
@@ -84,9 +98,11 @@ export function AuthProvider({ children }) {
     if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not sign in with Google'))
     const data = await res.json()
     localStorage.setItem(TOKEN_KEY, data.token)
+    tokenRef.current = data.token
     setToken(data.token)
     setUser(data.user)
     trackGoogleAuthLead()
+    return data
   }
 
   async function resendVerification(email) {
@@ -169,12 +185,13 @@ export function AuthProvider({ children }) {
     setUser(await res.json())
   }
 
-  // interval is 'week' or 'month'. Redirects the whole page to Stripe
-  // Checkout — there's no need for a Stripe.js dependency for this.
-  async function startCheckout(interval) {
+  // interval is 'week' (the only plan offered). Redirects the whole page to
+  // Stripe Checkout — there's no need for a Stripe.js dependency for this.
+  async function startCheckout(interval, checkoutToken = tokenRef.current || localStorage.getItem(TOKEN_KEY)) {
+    if (!checkoutToken) throw new Error('Please sign in again before starting checkout')
     const res = await fetch(`${API_URL}/api/billing/checkout`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${checkoutToken}` },
       body: JSON.stringify({ interval }),
     })
     if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not start checkout'))
@@ -204,8 +221,15 @@ export function AuthProvider({ children }) {
     return res.json()
   }
 
-  function logout() {
+  async function logout() {
+    if (token) {
+      await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {})
+    }
     localStorage.removeItem(TOKEN_KEY)
+    tokenRef.current = null
     setToken(null)
     setUser(null)
   }

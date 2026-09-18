@@ -7,7 +7,6 @@ from db.connection import get_cursor
 
 bp = Blueprint("jobs", __name__, url_prefix="/api")
 
-FUNDING_FILTER_MAP = {"a": "series_a", "b": "series_b"}  # 'both' applies no filter
 
 # The backend's list of real Company Database categories (distinct from the
 # 'both' filter value, which means "no restriction" rather than being a
@@ -34,19 +33,21 @@ HAS_DEPT_OR_LOCATION = "(NULLIF(j.department, '') IS NOT NULL OR NULLIF(j.locati
 
 def _has_premium_access(user_id):
     """Server-side backstop for every paywalled thing this API does: true
-    only for a logged-in user who is either a paying subscriber or still
-    inside their 24-hour trial window. Anonymous callers (user_id is None)
-    always come back False.
+    only for a logged-in user with an active or trialing subscription
+    (plan == 'pro' -- see _apply_subscription in routes/billing.py, which
+    sets plan = 'pro' for both an active paid subscription and someone
+    still inside their 7-day Stripe trial). Anonymous callers (user_id is
+    None) always come back False.
 
-    This mirrors the `plan === 'pro' || trial_active` check the frontend
-    already does (see JobListings.jsx / AccessExpiredModal for the
-    title-search gate, JobCard.jsx's `isSubscribed = canApply` for the
-    job-card-field blur) -- but a frontend check only decides whether the
-    React app *bothers* to ask for the gated data. Nothing previously
-    stopped a direct request to /api/jobs (title-driven or not) from
-    getting the exact same paid results for free: title-driven search
-    results were gated nowhere but the UI, and -- separately, and worse --
-    company, department, location and the real application URL
+    This mirrors the `plan === 'pro'` check the frontend already does
+    (see JobListings.jsx / AccessExpiredModal for the title-search gate,
+    JobCard.jsx's `isSubscribed = canApply` for the job-card-field blur)
+    -- but a frontend check only decides whether the React app *bothers*
+    to ask for the gated data. Nothing previously stopped a direct
+    request to /api/jobs (title-driven or not) from getting the exact
+    same paid results for free: title-driven search results were gated
+    nowhere but the UI, and -- separately, and worse -- company,
+    department, location and the real application URL
     (source_url/company_website) were always included in the plain-JSON
     /api/jobs response regardless of who was asking, with the "blur" that
     hides them from a non-subscriber being pure CSS the browser applies
@@ -63,18 +64,17 @@ def _has_premium_access(user_id):
     if user_id is None:
         return False
     cur = get_cursor()
-    cur.execute(
-        """
-        SELECT plan, (created_at + interval '24 hours' > now()) AS trial_active
-        FROM users
-        WHERE id = %s
-        """,
-        (user_id,),
-    )
+    cur.execute("SELECT plan FROM users WHERE id = %s", (user_id,))
     row = cur.fetchone()
     if row is None:
         return False
-    return row["plan"] == "pro" or bool(row["trial_active"])
+    return row["plan"] == "pro"
+
+
+def _premium_access_error(user_id):
+    if _has_premium_access(user_id):
+        return None
+    return jsonify({"error": "An active weekly subscription or trial is required."}), 402
 
 
 def _tokenize_title(title):
@@ -259,10 +259,13 @@ def _top_tier_expr(effective_title_expr, effective_title_params, desc_score_expr
 @bp.get("/jobs")
 @optional_auth
 def list_jobs():
+    access_error = _premium_access_error(g.user_id)
+    if access_error:
+        return access_error
+
     title = request.args.get("title", "").strip()
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
-    funding = request.args.get("funding", "both").strip().lower()
     # Handle multiple company_type parameters - get all of them as a list
     company_types = [ct.strip().lower() for ct in request.args.getlist("company_type") if ct.strip()]
     # If no company types specified, treat as all types
@@ -274,24 +277,8 @@ def list_jobs():
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
 
-    # Computed once and reused for both paywall checks below: the
-    # title-driven-search reset, and the job-card field redaction applied
-    # to the response just before it's returned.
-    has_premium_access = _has_premium_access(g.user_id)
-
-    # Server-side paywall enforcement: title-driven search (typed title or
-    # a variant pill) is the paid feature -- gated in the UI once someone's
-    # trial has ended, but that gate is only ever a frontend decision not
-    # to call this endpoint with a title. A direct request bypasses it
-    # entirely otherwise. Anonymous/expired-trial/non-pro callers still get
-    # a normal response here -- title and variant_titles are just dropped,
-    # falling back to the same plain, unscored browse view a logged-out
-    # visitor gets with no title typed at all (kept deliberately non-fatal
-    # rather than a 401/402 so bookmarked/shared search links and SEO
-    # crawling of the plain listings still work).
-    if (title or variant_titles) and not has_premium_access:
-        title = ""
-        variant_titles = []
+    # Keep this as a single access decision for the query and response.
+    has_premium_access = True
 
     where = []
     params = []
@@ -354,10 +341,6 @@ def list_jobs():
     if posted_days:
         where.append("j.date_posted >= CURRENT_DATE - %s::interval")
         params.append(f"{int(posted_days)} days")
-
-    if funding in FUNDING_FILTER_MAP:
-        where.append("c.funding_stage = %s")
-        params.append(FUNDING_FILTER_MAP[funding])
 
     # Handle multiple company types - filter to only valid ones
     valid_company_types = [ct for ct in company_types if ct in COMPANY_TYPES]
@@ -442,7 +425,6 @@ def list_jobs():
                 c.id AS company_id,
                 c.name AS company,
                 c.website AS company_website,
-                c.funding_stage AS funding,
                 c.company_type AS company_type,
                 (
                     SELECT count(*) FROM jobs j2
@@ -522,9 +504,12 @@ def variant_counts():
     accepted so the counts match whatever's currently applied everywhere
     else on the page.
     """
+    access_error = _premium_access_error(g.user_id)
+    if access_error:
+        return access_error
+
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
-    funding = request.args.get("funding", "both").strip().lower()
     # Handle multiple company_type parameters
     company_types = [ct.strip().lower() for ct in request.args.getlist("company_type") if ct.strip()]
     if not company_types:
@@ -543,10 +528,6 @@ def variant_counts():
     if posted_days:
         where.append("j.date_posted >= CURRENT_DATE - %s::interval")
         params.append(f"{int(posted_days)} days")
-
-    if funding in FUNDING_FILTER_MAP:
-        where.append("c.funding_stage = %s")
-        params.append(FUNDING_FILTER_MAP[funding])
 
     # Handle multiple company types - filter to only valid ones
     valid_company_types = [ct for ct in company_types if ct in COMPANY_TYPES]
@@ -627,6 +608,10 @@ def company_type_counts():
     (see HAS_DEPT_OR_LOCATION), so these counts stay in sync with what a
     user would actually see if they browsed that database.
     """
+    access_error = _premium_access_error(g.user_id)
+    if access_error:
+        return access_error
+
     cur = get_cursor()
     cur.execute(
         f"""
@@ -657,6 +642,10 @@ def company_type_counts():
 @bp.get("/companies/<int:company_id>/jobs")
 @optional_auth
 def company_jobs(company_id):
+    access_error = _premium_access_error(g.user_id)
+    if access_error:
+        return access_error
+
     cur = get_cursor()
     cur.execute(
         f"""
@@ -677,9 +666,4 @@ def company_jobs(company_id):
     # location are blurred on the card here too ("See them all" only
     # renders for subscribers in the UI, but that's a frontend decision;
     # this endpoint is directly callable by anyone who has a company_id).
-    if not _has_premium_access(g.user_id):
-        for job in jobs:
-            job["department"] = None
-            job["location"] = None
-
     return jsonify({"jobs": jobs})

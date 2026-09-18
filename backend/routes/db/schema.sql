@@ -163,16 +163,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS has_set_default_filters BOOLEAN NOT N
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free'
     CHECK (plan IN ('free', 'pro'));
 
--- Stripe subscription billing (weekly/monthly plans). subscription_status
+-- Stripe subscription billing (weekly plan). subscription_status
 -- mirrors Stripe's own status string (active, trialing, past_due, canceled,
 -- unpaid, incomplete, incomplete_expired, paused) — left unconstrained since
--- Stripe can add new values. billing_interval is 'week' or 'month', matching
--- the Stripe Price's recurring.interval for whichever plan the user is on.
+-- Stripe can add new values. billing_interval is 'week', matching the Stripe
+-- Price's recurring.interval.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_interval TEXT
-    CHECK (billing_interval IN ('week', 'month'));
+    CHECK (billing_interval IN ('week'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_users_stripe_customer_id ON users (stripe_customer_id)

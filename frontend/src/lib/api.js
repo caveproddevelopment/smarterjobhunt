@@ -71,7 +71,11 @@ export async function fetchJobs(filters) {
   const res = await fetch(`${API_URL}/api/jobs?${params.toString()}`, {
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error(`Failed to load jobs (${res.status})`)
+  if (!res.ok) {
+    const error = new Error(`Failed to load jobs (${res.status})`)
+    error.status = res.status
+    throw error
+  }
 
   const data = await res.json()
   return {
@@ -167,7 +171,11 @@ export async function fetchTitleVariants(title) {
   const res = await fetch(`${API_URL}/api/title-variants?${params.toString()}`, {
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to load title variants (${res.status})`))
+  if (!res.ok) {
+    const error = new Error(await parseErrorOr(res, `Failed to load title variants (${res.status})`))
+    error.status = res.status
+    throw error
+  }
   const data = await res.json()
   return data.variants
 }

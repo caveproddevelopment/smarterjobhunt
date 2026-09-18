@@ -16,7 +16,7 @@ export const faqs = [
   },
   {
     q: 'Can I cancel anytime?',
-    a: "Of course. There's no trap. You pay for either a week or a month. If you're job hunting, locking into anything longer than a month is kind of silly anyway. Cancel anytime.",
+    a: "Of course. There's no trap. Your first week is free, then the subscription renews weekly at $1.99. Cancel anytime.",
   },
   {
     q: 'What happens if I find a broken listing?',

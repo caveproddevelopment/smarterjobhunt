@@ -5,9 +5,6 @@ from db.connection import get_cursor
 
 bp = Blueprint("preferences", __name__, url_prefix="/api/preferences")
 
-FUNDING_FILTERS = {"both", "a", "b"}
-
-
 @bp.get("")
 @require_auth
 def get_preferences():
@@ -15,7 +12,7 @@ def get_preferences():
     cur.execute(
         """
         SELECT default_job_title, default_variants, default_posted_within_days,
-               default_funding_filter, has_set_default_filters
+               has_set_default_filters
         FROM users
         WHERE id = %s
         """,
@@ -32,10 +29,6 @@ def update_preferences():
     # Variants count is no longer a user-adjustable filter — always 15.
     variants = 15
 
-    funding_filter = body.get("funding_filter", "both")
-    if funding_filter not in FUNDING_FILTERS:
-        return jsonify({"error": "funding_filter must be 'both', 'a', or 'b'"}), 400
-
     posted_within_days = body.get("posted_within_days") or None
     if posted_within_days is not None:
         try:
@@ -50,17 +43,15 @@ def update_preferences():
         SET default_job_title = %s,
             default_variants = %s,
             default_posted_within_days = %s,
-            default_funding_filter = %s,
             has_set_default_filters = true
         WHERE id = %s
         RETURNING default_job_title, default_variants, default_posted_within_days,
-                  default_funding_filter, has_set_default_filters
+                  has_set_default_filters
         """,
         (
             (body.get("job_title") or "").strip() or None,
             variants,
             posted_within_days,
-            funding_filter,
             g.user_id,
         ),
     )

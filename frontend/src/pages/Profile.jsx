@@ -30,28 +30,26 @@ function calculateRemainingTime(targetDate) {
 function PlanStatusBox({ user }) {
   const [remainingTime, setRemainingTime] = useState(null)
 
+  // A user is in their 7-day Stripe trial (subscribed at registration, card
+  // on file, not charged yet) when plan is already 'pro' but the
+  // subscription status is still 'trialing'. current_period_end holds the
+  // trial end date in that case, and the renewal date once it converts.
+  const isStripeTrialing = user.plan === 'pro' && user.subscription_status === 'trialing'
+
   useEffect(() => {
-    if (user.trial_active) {
-      // Calculate time remaining until trial ends (24 hours from created_at)
-      const trialEndDate = new Date(user.created_at)
-      trialEndDate.setHours(trialEndDate.getHours() + 24)
-      setRemainingTime(calculateRemainingTime(trialEndDate))
-    } else if (user.plan === 'pro' && user.current_period_end) {
-      // Calculate time remaining until subscription renews
+    if (user.plan === 'pro' && user.current_period_end) {
+      // Covers both the Stripe trial countdown (isStripeTrialing) and a
+      // regular paid renewal -- current_period_end is the right date either way.
       setRemainingTime(calculateRemainingTime(user.current_period_end))
     }
   }, [user])
 
   // Update remaining time every minute
   useEffect(() => {
-    if (!user.trial_active && !user.plan === 'pro') return
+    if (user.plan !== 'pro') return
 
     const interval = setInterval(() => {
-      if (user.trial_active) {
-        const trialEndDate = new Date(user.created_at)
-        trialEndDate.setHours(trialEndDate.getHours() + 24)
-        setRemainingTime(calculateRemainingTime(trialEndDate))
-      } else if (user.plan === 'pro' && user.current_period_end) {
+      if (user.current_period_end) {
         setRemainingTime(calculateRemainingTime(user.current_period_end))
       }
     }, 60000) // Update every minute
@@ -62,15 +60,14 @@ function PlanStatusBox({ user }) {
   let statusText = ''
   let statusColor = ''
 
-  if (user.trial_active) {
-    statusText = 'Free Access'
+  if (isStripeTrialing) {
+    statusText = 'Free Trial'
     statusColor = 'text-moss'
   } else if (user.plan === 'pro') {
-    const interval = user.billing_interval === 'week' ? 'Weekly' : 'Monthly'
-    statusText = interval
+    statusText = 'Weekly'
     statusColor = 'text-ember'
   } else {
-    statusText = 'Basic Free'
+    statusText = 'Subscription required'
     statusColor = 'text-ink-soft'
   }
 
@@ -81,7 +78,8 @@ function PlanStatusBox({ user }) {
           <p className={`text-sm font-semibold ${statusColor}`}>{statusText}</p>
           {remainingTime && (
             <p className="mt-1 text-xs text-ink-soft">
-              {user.trial_active ? 'Free access ends in' : 'Renews in'}: <span className="font-medium text-ink">{remainingTime}</span>
+              {isStripeTrialing ? 'Free trial ends in' : 'Renews in'}:{' '}
+              <span className="font-medium text-ink">{remainingTime}</span>
             </p>
           )}
         </div>
@@ -500,16 +498,14 @@ export default function Profile() {
             <div className="mt-4 flex items-center justify-between gap-4 rounded-lg bg-mist px-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-ink">
-                  {user.plan === 'pro'
-                    ? `Pro plan — billed ${user.billing_interval === 'week' ? 'weekly' : 'monthly'}`
-                    : 'Free plan'}
+                  {user.plan === 'pro' ? 'Weekly plan' : 'No active subscription'}
                 </p>
                 <p className="text-xs text-ink-soft">
                   {user.plan === 'pro'
                     ? user.current_period_end
                       ? `Renews ${new Date(user.current_period_end).toLocaleDateString()}.`
                       : 'You have full access to all features.'
-                    : 'Basic access to job listings and saved searches.'}
+                    : 'Start your free week to access job listings and full job details.'}
                 </p>
               </div>
               {user.plan === 'pro' && (
@@ -525,24 +521,17 @@ export default function Profile() {
             </div>
 
             {user.plan !== 'pro' && (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="mt-4">
                 <button
                   type="button"
                   onClick={() => handleSubscribe('week')}
                   disabled={billingLoading}
-                  className="rounded-lg border border-line px-4 py-3 text-left transition-colors hover:bg-mist disabled:opacity-60"
+                  className="w-full rounded-lg border border-line px-4 py-3 text-left transition-colors hover:bg-mist disabled:opacity-60 sm:w-auto"
                 >
-                  <p className="text-sm font-semibold text-ink">Weekly</p>
-                  <p className="text-xs text-ink-soft">Billed every week, cancel anytime.</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSubscribe('month')}
-                  disabled={billingLoading}
-                  className="rounded-lg border border-line px-4 py-3 text-left transition-colors hover:bg-mist disabled:opacity-60"
-                >
-                  <p className="text-sm font-semibold text-ink">Monthly</p>
-                  <p className="text-xs text-ink-soft">Billed every month, cancel anytime.</p>
+                  <p className="text-sm font-semibold text-ink">Weekly — $1.99</p>
+                  <p className="text-xs text-ink-soft">
+                    {billingLoading ? 'Redirecting…' : 'Billed every week after a 7-day free trial, cancel anytime.'}
+                  </p>
                 </button>
               </div>
             )}

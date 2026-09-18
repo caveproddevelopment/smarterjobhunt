@@ -35,24 +35,17 @@ export default function SubscribeModal({ onClose }) {
         {error && <p className="mt-3 text-sm text-ember">{error}</p>}
 
         {user ? (
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="mt-5">
             <button
               type="button"
               onClick={() => handleSubscribe('week')}
               disabled={loading}
-              className="rounded-lg border border-line px-4 py-3 text-left transition-colors hover:bg-mist disabled:opacity-60"
+              className="w-full rounded-lg border border-line px-4 py-3 text-left transition-colors hover:bg-mist disabled:opacity-60"
             >
-              <p className="text-sm font-semibold text-ink">Weekly</p>
-              <p className="text-xs text-ink-soft">Billed every week, cancel anytime.</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSubscribe('month')}
-              disabled={loading}
-              className="rounded-lg border border-line px-4 py-3 text-left transition-colors hover:bg-mist disabled:opacity-60"
-            >
-              <p className="text-sm font-semibold text-ink">Monthly</p>
-              <p className="text-xs text-ink-soft">Billed every month, cancel anytime.</p>
+              <p className="text-sm font-semibold text-ink">Weekly — $1.99</p>
+              <p className="text-xs text-ink-soft">
+                {loading ? 'Redirecting…' : 'Billed every week after a 7-day free trial, cancel anytime.'}
+              </p>
             </button>
           </div>
         ) : (

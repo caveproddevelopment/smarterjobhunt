@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
@@ -18,13 +18,14 @@ export default function Login() {
   const [error, setError] = useState(null)
   const [errorCode, setErrorCode] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const [pendingVerificationEmail, setPendingVerificationEmail] = useState(null)
   const [pendingResetEmail, setPendingResetEmail] = useState(null)
   const [resendStatus, setResendStatus] = useState(null)
+  const googleAuthInFlight = useRef(false)
   const {
     login,
     loginWithGoogle,
     register,
+    startCheckout,
     resendVerification,
     forgotPassword,
     sessionMessage,
@@ -47,19 +48,26 @@ export default function Login() {
   // is correct here.
   const handleGoogleCredential = useCallback(
     async (credential) => {
+      if (googleAuthInFlight.current) return
+      googleAuthInFlight.current = true
       setError(null)
       setErrorCode(null)
       setSubmitting(true)
       try {
-        await loginWithGoogle(credential)
-        navigate('/dashboard')
+        const data = await loginWithGoogle(credential)
+        if (data.user.plan === 'pro') {
+          navigate('/dashboard')
+        } else {
+          await startCheckout('week', data.token)
+        }
       } catch (err) {
         setError(err.message)
       } finally {
+        googleAuthInFlight.current = false
         setSubmitting(false)
       }
     },
-    [loginWithGoogle, navigate]
+    [loginWithGoogle, navigate, startCheckout]
   )
 
   async function handleSubmit(event) {
@@ -69,11 +77,15 @@ export default function Login() {
     setSubmitting(true)
     try {
       if (mode === 'login') {
-        await login(email, password)
-        navigate('/dashboard')
+        const data = await login(email, password)
+        if (data.user.plan === 'pro') {
+          navigate('/dashboard')
+        } else {
+          await startCheckout('week', data.token)
+        }
       } else if (mode === 'register') {
-        await register(fullName, email, password)
-        setPendingVerificationEmail(email)
+        const data = await register(fullName, email, password) // logs the account in
+        await startCheckout('week', data.token) // redirects the browser to Stripe on success
       } else {
         await forgotPassword(email)
         setPendingResetEmail(email)
@@ -90,34 +102,6 @@ export default function Login() {
     setResendStatus('sending')
     const message = await resendVerification(email)
     setResendStatus(message)
-  }
-
-  if (pendingVerificationEmail) {
-    return (
-      <div className="min-h-screen flame-gradient">
-        <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
-          <Navbar />
-          <main className="mx-auto flex max-w-md flex-col px-6 pb-24 pt-8">
-            <h1 className="font-display text-2xl font-semibold text-ink">Check your email</h1>
-            <p className="mt-3 text-sm text-ink-soft">
-              We sent a verification link to <strong>{pendingVerificationEmail}</strong>. Click it
-              to activate your account, then come back and log in.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setMode('login')
-                setPendingVerificationEmail(null)
-              }}
-              className="mt-6 w-full rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.03]"
-            >
-              Back to log in
-            </button>
-          </main>
-          <Footer />
-        </div>
-      </div>
-    )
   }
 
   if (pendingResetEmail) {

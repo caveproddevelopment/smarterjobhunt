@@ -9,17 +9,10 @@ const plans = [
   {
     id: 'week',
     name: 'Weekly',
-    price: '$3.99',
-    cadence: '/ week',
+    price: '$1.99',
+    cadence: '/ week after trial',
     blurb:
       "You're that awesome, and so are we. You'll have that job before your next bill collector calls.",
-  },
-  {
-    id: 'month',
-    name: 'Monthly',
-    price: '$9.99',
-    cadence: '/ month',
-    blurb: 'The more realistic, easier-on-your-budget decision.',
   },
 ]
 
@@ -32,7 +25,7 @@ export default function Pricing() {
 
   const isSubscribed = user?.plan === 'pro'
 
-  // Clicking "Choose weekly/monthly" or "Manage subscription" navigates the
+  // Clicking "Choose weekly" or "Manage subscription" navigates the
   // browser away to Stripe. If the user hits the back button, some browsers
   // (Chrome, Firefox, Safari) restore this page from the back/forward cache
   // instead of remounting it -- so the loading state from before the redirect
@@ -80,8 +73,8 @@ export default function Pricing() {
     <div className="min-h-screen flame-gradient">
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
         <SEO
-          title="JobBeggar Pricing - $3.99/week or $9.99/month"
-          description="Simple JobBeggar pricing: $3.99 a week or $9.99 a month, cancel anytime. No free tier, no ads -- just direct access to company career pages ranked by match score."
+          title="JobBeggar Pricing - $1.99/week after a free week"
+          description="Simple JobBeggar pricing: one week free, then $1.99 a week, cancel anytime. No free tier, no ads -- just direct access to company career pages ranked by match score."
           path="/pricing"
         />
         <Navbar />
@@ -89,15 +82,15 @@ export default function Pricing() {
         <main className="mx-auto max-w-3xl px-6 py-16">
           <p className="text-sm font-semibold uppercase tracking-wide text-ember">Pricing</p>
           <h1 className="mt-2 font-display text-3xl font-semibold text-ink md:text-4xl">
-            JobBeggar is going to make you make a choice.
+            JobBeggar isn't free forever. Here's the deal.
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-ink-soft">
-            We give you a day to see how valuable this tool is. Then you choose.
+            One week free, full access. Then it's $1.99 a week.
           </p>
 
           {error && <p className="mt-4 text-sm text-ember">{error}</p>}
 
-          <div className="mt-10 grid gap-6 sm:grid-cols-2">
+          <div className="mt-10 grid gap-6 sm:max-w-sm">
             {plans.map((plan) => {
               const isCurrentPlan = isSubscribed && user.billing_interval === plan.id
               return (
@@ -173,8 +166,8 @@ export default function Pricing() {
             </h2>
             <p>
               <strong className="font-semibold text-ink">Giving it away for free, or with a
-              longer trial.</strong> This tool has value, and while $3.99 or $9.99 won't break the
-              bank, paying for it means you'll actually use it. That's called incentive. You're
+              longer trial.</strong> This tool has value, and while $1.99 won't break the bank,
+              paying for it means you'll actually use it. That's called incentive. You're
               welcome.
             </p>
             <p>
@@ -183,7 +176,7 @@ export default function Pricing() {
               then neither of us is doing as good a job as we should.
             </p>
             <p>
-              Still worried it's not worth trying for $3.99 a week? Then you really need to stick with
+              Still worried it's not worth trying for $1.99 a week? Then you really need to stick with
               the free tools, and join that crowd.
             </p>
           </div>

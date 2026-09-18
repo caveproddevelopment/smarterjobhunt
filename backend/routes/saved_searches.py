@@ -54,7 +54,7 @@ def list_saved_searches():
         """
         SELECT
             ss.id, ss.name, ss.view_type, ss.job_title, ss.variant_title,
-            ss.posted_within_days, ss.company_type, ss.funding_filter,
+            ss.posted_within_days, ss.company_type,
             ss.status_filter, ss.company_id, c.name AS company_name,
             ss.remote_only, ss.created_at
         FROM saved_searches ss
@@ -110,11 +110,11 @@ def create_saved_search():
             """
             INSERT INTO saved_searches
                 (user_id, name, view_type, job_title, variant_title, variants,
-                 posted_within_days, company_type, funding_filter, status_filter,
+                 posted_within_days, company_type, status_filter,
                  company_id, remote_only)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id, name, view_type, job_title, variant_title,
-                      posted_within_days, company_type, funding_filter,
+                      posted_within_days, company_type,
                       status_filter, company_id, remote_only, created_at
             """,
             (
@@ -126,7 +126,6 @@ def create_saved_search():
                 15,  # variants count is no longer user-adjustable — always 15
                 body.get("posted_within_days"),
                 company_types_str,
-                body.get("funding_filter", "both"),
                 status_filter,
                 body.get("company_id"),
                 bool(body.get("remote_only")),

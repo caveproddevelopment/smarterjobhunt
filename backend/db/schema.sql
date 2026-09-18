@@ -10,13 +10,6 @@ CREATE TABLE IF NOT EXISTS companies (
     id             SERIAL PRIMARY KEY,
     name           TEXT NOT NULL UNIQUE,
     website        TEXT,
-    funding_stage  TEXT NOT NULL DEFAULT 'unknown'
-                   CHECK (funding_stage IN (
-                       'seed', 'series_a', 'series_b', 'series_c_plus',
-                       'public', 'bootstrapped', 'unknown'
-                   )),
-    funding_amount TEXT,               -- raw display string, e.g. "$25,000,000"
-    funding_date   DATE,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -30,12 +23,10 @@ CREATE TABLE IF NOT EXISTS companies (
 -- The scraping agent is the source of truth for this value: whichever
 -- list it's currently working through, it should set company_type
 -- accordingly on insert/upsert, e.g.:
---   INSERT INTO companies (name, website, funding_stage, company_type)
---   VALUES (%s, %s, 'public', 'fortune500')
+--   INSERT INTO companies (name, website, company_type)
+--   VALUES (%s, %s, 'fortune500')
 --   ON CONFLICT (name) DO UPDATE SET company_type = EXCLUDED.company_type;
--- Fortune 500 companies are almost always 'public' under funding_stage
--- too, but company_type is the field that actually drives the list
--- toggle below -- funding_stage keeps its original meaning otherwise.
+-- company_type is the field that drives the company-list toggle.
 --
 -- Kept in sync BY HAND with two other places when a database is added:
 --   - COMPANY_TYPES in backend/routes/jobs.py
@@ -122,12 +113,14 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash  TEXT NOT NULL,
     is_verified    BOOLEAN NOT NULL DEFAULT false,
     resume_text    TEXT,               -- used later to compute match scores
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at  TIMESTAMPTZ
 );
 
 -- Safe to re-run: adds the column if this schema.sql is being re-applied
 -- against a DB created before email verification existed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 
 -- Holds a requested new email address from the profile page until the user
 -- clicks the confirmation link sent to it -- `email` itself only changes at
@@ -137,6 +130,20 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT 
 -- have the same address pending -- only `email` needs to stay unique, and
 -- that's enforced when the change is confirmed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email TEXT;
+
+-- One row per successful login. logout_at is filled by POST /api/auth/logout;
+-- keeping both timestamps makes returning-user analysis possible without
+-- relying on the browser remaining open.
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    login_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    logout_at   TIMESTAMPTZ,
+    auth_method TEXT NOT NULL CHECK (auth_method IN ('password', 'google'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_login
+    ON user_sessions (user_id, login_at DESC);
 
 -- Google Sign-In: password_hash becomes optional (accounts created via
 -- Google have none), google_id stores the Google account's stable "sub"
@@ -189,8 +196,6 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS default_variants SMALLINT NOT NULL DE
 -- any rows written back when the default (and the UI selector) was 10/5.
 UPDATE users SET default_variants = 15 WHERE default_variants <> 15;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS default_posted_within_days INTEGER;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS default_funding_filter TEXT NOT NULL DEFAULT 'both'
-    CHECK (default_funding_filter IN ('both', 'a', 'b'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS has_set_default_filters BOOLEAN NOT NULL DEFAULT false;
 
 -- Plan tier for the profile page's billing section. 'plan' is the simple
@@ -199,16 +204,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS has_set_default_filters BOOLEAN NOT N
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free'
     CHECK (plan IN ('free', 'pro'));
 
--- Stripe subscription billing (weekly/monthly plans). subscription_status
+-- Stripe subscription billing (weekly plan only). subscription_status
 -- mirrors Stripe's own status string (active, trialing, past_due, canceled,
 -- unpaid, incomplete, incomplete_expired, paused) — left unconstrained since
--- Stripe can add new values. billing_interval is 'week' or 'month', matching
--- the Stripe Price's recurring.interval for whichever plan the user is on.
+-- Stripe can add new values. billing_interval is 'week', matching the
+-- Stripe Price's recurring.interval.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_interval TEXT
-    CHECK (billing_interval IN ('week', 'month'));
+    CHECK (billing_interval IN ('week'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_users_stripe_customer_id ON users (stripe_customer_id)
@@ -250,8 +255,6 @@ CREATE TABLE IF NOT EXISTS saved_searches (
     job_title            TEXT,
     variants            SMALLINT NOT NULL DEFAULT 15,
     posted_within_days  INTEGER,
-    funding_filter      TEXT NOT NULL DEFAULT 'both'
-                        CHECK (funding_filter IN ('both', 'a', 'b')),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, name)
 );
@@ -263,7 +266,7 @@ UPDATE saved_searches SET variants = 15 WHERE variants <> 15;
 -- Job Listings page's scoped views, not just a plain title+days search --
 -- a drilled-into title variant, a single company's "See them all" list, or
 -- an Applied/Rejected tracking view. view_type says which shape applies;
--- job_title/variants/posted_within_days/funding_filter keep their existing
+-- job_title/variants/posted_within_days keep their existing
 -- meaning for 'search' (and job_title + posted_within_days double up for
 -- 'variant', see variant_title below); the other columns stay NULL for
 -- whichever shapes don't use them. Safe to re-run against a DB created
@@ -374,3 +377,12 @@ CREATE TABLE IF NOT EXISTS contact_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_contact_messages_created_at ON contact_messages (created_at DESC);
+
+-- Funding-stage filtering is no longer part of the product. Drop the legacy
+-- columns after the CREATE statements above so this remains safe to re-run
+-- against both old and fresh databases.
+ALTER TABLE companies DROP COLUMN IF EXISTS funding_stage;
+ALTER TABLE companies DROP COLUMN IF EXISTS funding_amount;
+ALTER TABLE companies DROP COLUMN IF EXISTS funding_date;
+ALTER TABLE users DROP COLUMN IF EXISTS default_funding_filter;
+ALTER TABLE saved_searches DROP COLUMN IF EXISTS funding_filter;

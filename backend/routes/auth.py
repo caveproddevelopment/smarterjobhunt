@@ -34,20 +34,38 @@ FULL_NAME_PATTERN = re.compile(r"^[A-Za-z]+( [A-Za-z]+)*$")
 # (the "Change password" section, the "Forgot password" link) -- Google-only
 # accounts have password_hash = NULL and can't use either.
 #
-# trial_active: the 24-hour full-access window every new signup gets,
-# gated purely by created_at -- no separate trial table, no cron job to
-# expire it. It's just re-evaluated on every request, so it silently
-# turns itself off once 24h have passed. Deliberately kept separate from
-# `plan` (which stays exactly what Stripe's webhook says) so this can
-# never interfere with real billing state -- the frontend is expected to
-# treat access as unlocked when EITHER plan == 'pro' OR trial_active.
+# No separate trial flag here -- access is unlocked purely by plan == 'pro',
+# which covers both a paid subscriber and someone still inside the 7-day
+# Stripe trial every signup starts at registration (Stripe sets the
+# subscription status to 'trialing', which _apply_subscription in
+# routes/billing.py already maps to plan = 'pro').
 USER_FIELDS = """
-    id, full_name, email, pending_email, created_at, plan, subscription_status,
+    id, full_name, email, pending_email, created_at, last_login_at, plan, subscription_status,
     billing_interval, current_period_end, default_job_title, default_variants,
-    default_posted_within_days, default_funding_filter, has_set_default_filters,
-    (password_hash IS NOT NULL) AS has_password,
-    (created_at + interval '24 hours' > now()) AS trial_active
+    default_posted_within_days, has_set_default_filters,
+    (password_hash IS NOT NULL) AS has_password
 """
+
+
+def _record_login(cur, user_id, auth_method):
+    cur.execute(
+        """
+        UPDATE users
+        SET last_login_at = now()
+        WHERE id = %s
+        RETURNING last_login_at
+        """,
+        (user_id,),
+    )
+    last_login_at = cur.fetchone()["last_login_at"]
+    cur.execute(
+        """
+        INSERT INTO user_sessions (user_id, auth_method)
+        VALUES (%s, %s)
+        """,
+        (user_id, auth_method),
+    )
+    return last_login_at
 
 
 def _valid_full_name(full_name):
@@ -76,6 +94,14 @@ def _sanitize_google_name(raw_name, email):
 
 @bp.post("/register")
 def register():
+    """Creates the account and immediately logs it in (same {token, user}
+    shape as /login and /google) rather than requiring email verification
+    first. Registration now always continues straight into Stripe
+    Checkout on the frontend -- see AuthProvider.register() and
+    Login.jsx -- so the session needs to exist right away for that
+    authenticated /api/billing/checkout call. A verification email is
+    still sent, but is no longer required before logging in; the /login
+    endpoint's is_verified check is untouched and still applies there."""
     body = request.get_json(silent=True) or {}
     full_name = (body.get("full_name") or "").strip()
     email = (body.get("email") or "").strip().lower()
@@ -96,25 +122,25 @@ def register():
             """
             INSERT INTO users (full_name, email, password_hash, is_verified)
             VALUES (%s, %s, %s, false)
-            RETURNING id, full_name, email, created_at
+            RETURNING id
             """,
             (full_name, email, generate_password_hash(password)),
         )
-        user = cur.fetchone()
+        new_user_id = cur.fetchone()["id"]
         cur.connection.commit()
     except psycopg2.errors.UniqueViolation:
         cur.connection.rollback()
         return jsonify({"error": "An account with that email already exists"}), 409
 
-    token = issue_verification_token(user["id"])
-    send_verification_email(user["email"], token, name=user["full_name"])
+    verification_token = issue_verification_token(new_user_id)
+    send_verification_email(email, verification_token, name=full_name)
 
-    return jsonify(
-        {
-            "message": "Account created. Check your email for a link to verify your address before logging in.",
-            "user": {"id": user["id"], "full_name": user["full_name"], "email": user["email"]},
-        }
-    ), 201
+    cur.execute(f"SELECT {USER_FIELDS} FROM users WHERE id = %s", (new_user_id,))
+    user = cur.fetchone()
+    user["last_login_at"] = _record_login(cur, new_user_id, "password")
+    cur.connection.commit()
+
+    return jsonify({"token": issue_token(new_user_id), "user": user}), 201
 
 
 @bp.post("/login")
@@ -152,6 +178,8 @@ def login():
             {"error": "Please verify your email before logging in.", "code": "email_not_verified"}
         ), 403
 
+    user["last_login_at"] = _record_login(cur, user["id"], "password")
+    cur.connection.commit()
     user.pop("password_hash")
     user.pop("is_verified")
     return jsonify({"token": issue_token(user["id"]), "user": user})
@@ -226,7 +254,68 @@ def google_login():
             cur.connection.rollback()
             return jsonify({"error": "An account with that email already exists"}), 409
 
+    user["last_login_at"] = _record_login(cur, user["id"], "google")
+    cur.connection.commit()
     return jsonify({"token": issue_token(user["id"]), "user": user})
+
+
+@bp.post("/logout")
+@require_auth
+def logout():
+    cur = get_cursor()
+    cur.execute(
+        """
+        UPDATE user_sessions
+        SET logout_at = now()
+        WHERE id = (
+            SELECT id
+            FROM user_sessions
+            WHERE user_id = %s AND logout_at IS NULL
+            ORDER BY login_at DESC
+            LIMIT 1
+        )
+        """,
+        (g.user_id,),
+    )
+    cur.connection.commit()
+    return jsonify({"message": "Logged out"})
+
+
+@bp.get("/activity")
+@require_auth
+def activity():
+    cur = get_cursor()
+    cur.execute(
+        """
+        WITH stats AS (
+            SELECT min(login_at) AS first_login_at
+            FROM user_sessions
+            WHERE user_id = %s
+        )
+        SELECT
+            count(us.id)::integer AS login_count,
+            stats.first_login_at,
+            max(us.login_at) AS last_login_at,
+            COALESCE(bool_or(us.login_at >= stats.first_login_at + interval '24 hours'), false)
+                AS returned_after_first_day
+        FROM user_sessions us
+        CROSS JOIN stats
+        WHERE us.user_id = %s
+        GROUP BY stats.first_login_at
+        """,
+        (g.user_id, g.user_id),
+    )
+    summary = cur.fetchone()
+    cur.execute(
+        """
+        SELECT login_at, logout_at, auth_method
+        FROM user_sessions
+        WHERE user_id = %s
+        ORDER BY login_at DESC
+        """,
+        (g.user_id,),
+    )
+    return jsonify({"summary": summary, "sessions": cur.fetchall()})
 
 
 @bp.get("/verify/<token>")

@@ -7,11 +7,11 @@ INSERT INTO users (email, password_hash) VALUES
      'scrypt:32768:8:1$7zFd1Z2yvKgq8ce7$2d8da1f36a4697ea9ad39c5781bd54b0cf74936d8d0be7aaf37066538192df4c46a34283063389558a8cbc463de4c7ba947c28e12f337dd13ac4893e7141163c')
 ON CONFLICT (email) DO NOTHING;
 
-INSERT INTO companies (name, funding_stage) VALUES
-    ('Northlane Robotics', 'series_b'),
-    ('Fielded', 'series_a'),
-    ('Harborline', 'seed'),
-    ('Kestrel Health', 'series_b')
+INSERT INTO companies (name) VALUES
+    ('Northlane Robotics'),
+    ('Fielded'),
+    ('Harborline'),
+    ('Kestrel Health')
 ON CONFLICT DO NOTHING;
 
 -- Headline jobs (one per company, matching the frontend mock)
@@ -70,7 +70,7 @@ WHERE u.email = 'demo@smarterjobhunt.dev'
 ON CONFLICT (user_id, job_id) DO NOTHING;
 
 -- Saved searches, matching the frontend mock
-INSERT INTO saved_searches (user_id, name, job_title, funding_filter)
+INSERT INTO saved_searches (user_id, name, job_title)
 SELECT u.id, s.name, s.job_title, 'both'
 FROM users u
 JOIN LATERAL (

@@ -16,34 +16,49 @@ def _set_stripe_key():
 
 
 def _price_id_for(interval):
+    # Weekly is the only plan offered.
     return {
         "week": current_app.config["STRIPE_PRICE_WEEKLY"],
-        "month": current_app.config["STRIPE_PRICE_MONTHLY"],
     }.get(interval)
 
 
 def _plan_label(interval):
-    """'week'/'month' (Stripe's recurring.interval, also what we store in
+    """'week' (Stripe's recurring.interval, also what we store in
     users.billing_interval) -> a human label for emails."""
-    return {"week": "Weekly", "month": "Monthly"}.get(interval, interval)
+    return {"week": "Weekly"}.get(interval, interval)
 
 
 @bp.post("/checkout")
 @require_auth
 def create_checkout_session():
-    """Start a Stripe Checkout session for the weekly or monthly plan and
-    hand back the URL to redirect the browser to."""
+    """Start a Stripe Checkout session for the weekly plan -- used both for
+    the mandatory subscribe-at-registration flow (see routes/auth.py's
+    register(), which logs the new user in and the frontend immediately
+    calls this) and for anyone re-subscribing later from Pricing/Profile.
+    Every new subscription includes a 7-day free trial (a card is required
+    up front, but nothing is charged until the trial ends) and hands back
+    the URL to redirect the browser to."""
     body = request.get_json(silent=True) or {}
-    interval = body.get("interval")
+    interval = body.get("interval", "week")
     price_id = _price_id_for(interval)
     if price_id is None:
-        return jsonify({"error": "interval must be 'week' or 'month'"}), 400
+        return jsonify({"error": "interval must be 'week'"}), 400
 
     cur = get_cursor()
-    cur.execute("SELECT email, stripe_customer_id FROM users WHERE id = %s", (g.user_id,))
+    cur.execute(
+        """
+        SELECT email, stripe_customer_id, stripe_subscription_id, subscription_status
+        FROM users WHERE id = %s
+        """,
+        (g.user_id,),
+    )
     user = cur.fetchone()
     if user is None:
         return jsonify({"error": "User not found"}), 404
+    if user["stripe_subscription_id"] and user["subscription_status"] not in {
+        "canceled", "incomplete_expired"
+    }:
+        return jsonify({"error": "You already have a subscription. Manage it from your profile."}), 409
 
     customer_id = user["stripe_customer_id"]
 
@@ -68,10 +83,14 @@ def create_checkout_session():
                 mode="subscription",
                 customer=customer_id,
                 client_reference_id=str(g.user_id),
+                payment_method_collection="always",
                 line_items=[{"price": price_id, "quantity": 1}],
                 success_url=f"{frontend_origin}/profile?checkout=success",
                 cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
-                subscription_data={"metadata": {"user_id": str(g.user_id)}},
+                subscription_data={
+                    "trial_period_days": 7,
+                    "metadata": {"user_id": str(g.user_id)},
+                },
             )
         except stripe.error.InvalidRequestError as e:
             # The stored customer_id doesn't exist on Stripe's side anymore --
@@ -88,10 +107,14 @@ def create_checkout_session():
                 mode="subscription",
                 customer=customer_id,
                 client_reference_id=str(g.user_id),
+                payment_method_collection="always",
                 line_items=[{"price": price_id, "quantity": 1}],
                 success_url=f"{frontend_origin}/profile?checkout=success",
                 cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
-                subscription_data={"metadata": {"user_id": str(g.user_id)}},
+                subscription_data={
+                    "trial_period_days": 7,
+                    "metadata": {"user_id": str(g.user_id)},
+                },
             )
     except stripe.error.StripeError as e:
         return jsonify({"error": str(e)}), 502
@@ -109,11 +132,15 @@ def create_portal_session():
     user = cur.fetchone()
     if user is None or user["stripe_customer_id"] is None:
         return jsonify({"error": "No billing account on file yet — subscribe first."}), 400
+    portal_configuration = current_app.config.get("STRIPE_PORTAL_CONFIGURATION")
+    if not portal_configuration:
+        return jsonify({"error": "Billing management is not configured yet."}), 503
 
     frontend_origin = current_app.config["FRONTEND_ORIGIN"]
     try:
         portal_session = stripe.billing_portal.Session.create(
             customer=user["stripe_customer_id"],
+            configuration=portal_configuration,
             return_url=f"{frontend_origin}/profile",
         )
     except stripe.error.StripeError as e:
@@ -208,10 +235,14 @@ def _handle_checkout_completed(session):
     # Same .to_dict() treatment — stripe.Subscription.retrieve() returns a
     # live StripeObject, not a plain dict.
     subscription = stripe.Subscription.retrieve(subscription_id).to_dict()
+    cur = get_cursor()
+    cur.execute("SELECT stripe_subscription_id FROM users WHERE id = %s", (user_id,))
+    current = cur.fetchone()
+    already_applied = current and current["stripe_subscription_id"] == subscription_id
     _apply_subscription(user_id, session.get("customer"), subscription)
 
     email, name = _get_user_contact(user_id)
-    if email:
+    if email and not already_applied:
         send_payment_setup_email(email, name, _plan_label(_interval_from_subscription(subscription)))
 
 

@@ -71,9 +71,9 @@ export function trackGoogleAuthLead(params = {}) {
 }
 
 // Dollar value per billing interval -- kept in sync by hand with the
-// backend's Stripe prices (STRIPE_PRICE_WEEKLY / STRIPE_PRICE_MONTHLY in
-// config.py). Update here if pricing ever changes.
-const PLAN_VALUES = { week: 3.99, month: 9.99 }
+// backend's Stripe price (STRIPE_PRICE_WEEKLY in config.py). Weekly is the
+// only plan offered now. Update here if pricing ever changes.
+const PLAN_VALUES = { week: 1.99 }
 
 // Fires once a Stripe Checkout session has actually completed and the
 // webhook has flipped the account to plan='pro' (see Profile.jsx, which

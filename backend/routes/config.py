@@ -61,15 +61,15 @@ class Config:
     # keeping this URL private, so treat it like a credential.
     APPS_SCRIPT_URL = os.environ.get("APPS_SCRIPT_URL")
 
-    # Stripe billing. Weekly/monthly are separate Stripe Price objects — create
-    # both (same Product, two recurring prices) in the Stripe Dashboard and
-    # drop their IDs in here. STRIPE_WEBHOOK_SECRET comes from the webhook
+    # Stripe billing. Weekly is the only plan — create one recurring Price in
+    # the Stripe Dashboard and drop its ID in here. STRIPE_WEBHOOK_SECRET comes
+    # from the webhook
     # endpoint's "Signing secret" once you register it (or from `stripe
     # listen` while testing locally).
     STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
     STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
     STRIPE_PRICE_WEEKLY = os.environ.get("STRIPE_PRICE_WEEKLY")
-    STRIPE_PRICE_MONTHLY = os.environ.get("STRIPE_PRICE_MONTHLY")
+    STRIPE_PORTAL_CONFIGURATION = os.environ.get("STRIPE_PORTAL_CONFIGURATION")
 
     # Claude-powered title-variant agent (title_variant_agent.py, called from
     # routes/title_variants.py on a job_title_variants cache miss). Required
