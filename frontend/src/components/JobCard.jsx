@@ -29,8 +29,7 @@ export default function JobCard({
     day: 'numeric',
   })
 
-  // Subscribed users see everything; everyone else only gets the title and
-  // posted date, with the rest blurred out behind a subscribe hint.
+  // Subscribers see the full card; everyone else only gets the title.
   const isSubscribed = canApply
 
   function handleApplyClick(event) {
@@ -65,15 +64,14 @@ export default function JobCard({
 
       <div className="flex-1">
         <h3 className="text-base font-semibold text-ink">{job.title}</h3>
-        <p className="mt-1 text-sm text-ink">
-          Posted on {formattedDate}
-          {typeof job.matchPercent === 'number' && (
-            <span className="text-ink-soft"> · Match: {job.matchPercent}%</span>
-          )}
-        </p>
-
         {isSubscribed ? (
           <>
+            <p className="mt-1 text-sm text-ink">
+              Posted on {formattedDate}
+              {typeof job.matchPercent === 'number' && (
+                <span className="text-ink-soft"> · Match: {job.matchPercent}%</span>
+              )}
+            </p>
             <p className="mt-1 text-sm text-ink">
               {job.company} &nbsp;&nbsp; {job.department} &nbsp;&nbsp; {job.location}
             </p>
@@ -95,10 +93,9 @@ export default function JobCard({
           <>
             <p
               aria-hidden="true"
-              className="mt-1 select-none whitespace-nowrap text-sm text-ink blur-[5px]"
+              className="mt-3 select-none whitespace-nowrap text-sm text-ink blur-[5px]"
             >
-              {job.company || 'Company Name'} &nbsp;&nbsp; {job.department || 'Department'} &nbsp;&nbsp;{' '}
-              {job.location || 'Location'}
+              Company Name &nbsp;&nbsp; Department &nbsp;&nbsp; Location
             </p>
             <button
               type="button"
@@ -112,7 +109,7 @@ export default function JobCard({
       </div>
 
       <div className="flex flex-col items-start gap-2 sm:items-end">
-        {!job.hasApplyUrl ? (
+        {isSubscribed && !job.hasApplyUrl ? (
           <button
             type="button"
             disabled
@@ -121,7 +118,7 @@ export default function JobCard({
           >
             Apply
           </button>
-        ) : canApply ? (
+        ) : isSubscribed ? (
           status.value === 'applied' ? (
             <a
               href={job.applyUrl}
@@ -143,57 +140,50 @@ export default function JobCard({
               Apply
             </a>
           )
-        ) : (
-          // Not html-disabled on purpose: it needs to stay clickable so we
-          // can prompt the subscribe modal instead of just looking inert.
-          <button
-            type="button"
-            onClick={onRequireSubscription}
-            title="Subscribe to apply"
-            className="rounded-md bg-moss/40 px-8 py-2 text-sm font-semibold text-white blur-[1.5px]"
-          >
-            Apply
-          </button>
-        )}
+        ) : null}
 
-        <p className="text-xs font-medium text-ink-soft">Did/Will You Apply?</p>
+        {isSubscribed ? (
+          <>
+            <p className="text-xs font-medium text-ink-soft">Did/Will You Apply?</p>
 
-        <label className="flex items-center gap-1.5 text-sm text-ink">
-          <input
-            type="radio"
-            name={`status-${job.id}`}
-            checked={status.value === 'applied'}
-            onChange={() => onStatusChange({ value: 'applied', reason: status.reason })}
-          />
-          Applied
-        </label>
-        <label className="flex items-center gap-1.5 text-sm text-ink">
-          <input
-            type="radio"
-            name={`status-${job.id}`}
-            checked={status.value === 'rejected'}
-            onChange={() => onStatusChange({ value: 'rejected', reason: status.reason })}
-          />
-          Rejected
-        </label>
+            <label className="flex items-center gap-1.5 text-sm text-ink">
+              <input
+                type="radio"
+                name={`status-${job.id}`}
+                checked={status.value === 'applied'}
+                onChange={() => onStatusChange({ value: 'applied', reason: status.reason })}
+              />
+              Applied
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-ink">
+              <input
+                type="radio"
+                name={`status-${job.id}`}
+                checked={status.value === 'rejected'}
+                onChange={() => onStatusChange({ value: 'rejected', reason: status.reason })}
+              />
+              Rejected
+            </label>
 
-        {status.value === 'rejected' && (
-          <div className="w-full sm:w-44">
-            <label className="text-xs text-ink-soft">Reason Rejected</label>
-            <select
-              value={status.reason}
-              onChange={(event) => onStatusChange({ value: status.value, reason: event.target.value })}
-              className="mt-1 w-full border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
-            >
-              <option value="">Select a reason…</option>
-              {rejectReasons.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+            {status.value === 'rejected' && (
+              <div className="w-full sm:w-44">
+                <label className="text-xs text-ink-soft">Reason Rejected</label>
+                <select
+                  value={status.reason}
+                  onChange={(event) => onStatusChange({ value: status.value, reason: event.target.value })}
+                  className="mt-1 w-full border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
+                >
+                  <option value="">Select a reason…</option>
+                  {rejectReasons.map((reason) => (
+                    <option key={reason} value={reason}>
+                      {reason}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </>
+        ) : null}
       </div>
     </article>
   )

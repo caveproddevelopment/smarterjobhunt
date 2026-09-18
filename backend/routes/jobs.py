@@ -259,10 +259,6 @@ def _top_tier_expr(effective_title_expr, effective_title_params, desc_score_expr
 @bp.get("/jobs")
 @optional_auth
 def list_jobs():
-    access_error = _premium_access_error(g.user_id)
-    if access_error:
-        return access_error
-
     title = request.args.get("title", "").strip()
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
@@ -277,8 +273,8 @@ def list_jobs():
     limit = min(int(request.args.get("limit", 50)), 500)
     offset = int(request.args.get("offset", 0))
 
-    # Keep this as a single access decision for the query and response.
-    has_premium_access = True
+    # Non-subscribers may browse titles, but premium fields are redacted below.
+    has_premium_access = _has_premium_access(g.user_id)
 
     where = []
     params = []
@@ -467,27 +463,15 @@ def list_jobs():
     cur.execute(query, full_params)
     jobs = cur.fetchall()
 
-    # Server-side enforcement of the job-card blur: company, department,
-    # location, and the real application link (source_url/company_website)
-    # are premium fields. Previously these were always included in this
-    # JSON response and the frontend merely styled them with a CSS blur --
-    # meaning the real values sat in plaintext in the API response and the
-    # page DOM for anyone to read, subscribed or not. They're now redacted
-    # here, at the source, for anyone who isn't a subscriber (or still in
-    # their trial), so an unauthenticated/unsubscribed caller genuinely
-    # cannot obtain them -- not from the DOM, not from calling the API
-    # directly, not from a browser extension. has_apply_url is computed in
-    # SQL above and deliberately left untouched: it only says whether an
-    # application link exists at all, not what it is, so the frontend can
-    # still tell "no link on file" apart from "link exists, subscribe to
-    # see it" without the real URL ever being sent.
+    # Keep only the title for non-subscribers. Premium fields must not be
+    # shipped to the browser and then hidden with CSS.
     if not has_premium_access:
         for job in jobs:
-            job["company"] = None
-            job["company_website"] = None
-            job["department"] = None
-            job["location"] = None
-            job["source_url"] = None
+            job_id = job["id"]
+            title = job["title"]
+            job.clear()
+            job["id"] = job_id
+            job["title"] = title
 
     return jsonify({"jobs": jobs, "count": len(jobs), "total_count": total_count})
 
@@ -504,10 +488,6 @@ def variant_counts():
     accepted so the counts match whatever's currently applied everywhere
     else on the page.
     """
-    access_error = _premium_access_error(g.user_id)
-    if access_error:
-        return access_error
-
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
     posted_days = request.args.get("posted_days", "").strip()
     # Handle multiple company_type parameters
@@ -608,10 +588,6 @@ def company_type_counts():
     (see HAS_DEPT_OR_LOCATION), so these counts stay in sync with what a
     user would actually see if they browsed that database.
     """
-    access_error = _premium_access_error(g.user_id)
-    if access_error:
-        return access_error
-
     cur = get_cursor()
     cur.execute(
         f"""
@@ -642,10 +618,6 @@ def company_type_counts():
 @bp.get("/companies/<int:company_id>/jobs")
 @optional_auth
 def company_jobs(company_id):
-    access_error = _premium_access_error(g.user_id)
-    if access_error:
-        return access_error
-
     cur = get_cursor()
     cur.execute(
         f"""
@@ -662,8 +634,12 @@ def company_jobs(company_id):
     )
     jobs = cur.fetchall()
 
-    # Same premium-field redaction as list_jobs above -- department and
-    # location are blurred on the card here too ("See them all" only
-    # renders for subscribers in the UI, but that's a frontend decision;
-    # this endpoint is directly callable by anyone who has a company_id).
+    if not _has_premium_access(g.user_id):
+        for job in jobs:
+            job_id = job["id"]
+            title = job["title"]
+            job.clear()
+            job["id"] = job_id
+            job["title"] = title
+
     return jsonify({"jobs": jobs})
