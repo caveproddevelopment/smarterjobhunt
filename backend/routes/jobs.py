@@ -21,15 +21,6 @@ bp = Blueprint("jobs", __name__, url_prefix="/api")
 # quietly doing nothing instead of a visible failure.
 COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare"}
 
-# A job card needs at least a department OR a location to be worth showing.
-# Scraped rows sometimes store an empty string ('') rather than a true SQL
-# NULL for a missing field, so NULLIF(col, '') normalizes both cases to NULL
-# before the IS NOT NULL check -- '' and NULL are treated identically here.
-# Reused verbatim in three places (list_jobs, company_jobs, and
-# company_type_counts) so the sidebar counts and both job-listing endpoints
-# always agree on which jobs are "displayable".
-HAS_DEPT_OR_LOCATION = "(NULLIF(j.department, '') IS NOT NULL OR NULLIF(j.location, '') IS NOT NULL)"
-
 
 def _has_premium_access(user_id):
     """Server-side backstop for every paywalled thing this API does: true
@@ -290,13 +281,6 @@ def list_jobs():
     if status_filter not in {"applied", "rejected", "tracked"}:
         where.append("j.is_active = true")
 
-    # Data-quality guard: a job scraped with NEITHER a department nor a
-    # location is missing too much to render a useful card -- exclude it.
-    # A job with only one of the two still has something to show, so this
-    # only drops rows where both are missing (not either/or). Treats an
-    # empty string the same as a true NULL (see HAS_DEPT_OR_LOCATION).
-    where.append(HAS_DEPT_OR_LOCATION)
-
     # Title-driven search is active whenever either a typed title or at
     # least one variant pill is present -- same gate the old code used.
     # variant_titles is already pre-filtered to non-empty strings above,
@@ -551,20 +535,17 @@ def site_stats():
     previously undercounted badly, e.g. ~27 instead of ~5,500+, since most
     tracked companies don't have a matching job at any given moment).
 
-    job_count stays scoped to active jobs with a department or location
-    (see HAS_DEPT_OR_LOCATION, shared with list_jobs and
-    company_type_counts), so it still matches what a visitor sees once
-    they click through.
+    job_count is every active job, including ones with no department or
+    location, so it matches what a visitor sees once they click through.
     """
     cur = get_cursor()
     cur.execute(
-        f"""
+        """
         SELECT
             (SELECT count(*) FROM companies) AS company_count,
             (SELECT count(*)
                FROM jobs j
-              WHERE j.is_active = true
-                AND {HAS_DEPT_OR_LOCATION}) AS job_count
+              WHERE j.is_active = true) AS job_count
         """
     )
     row = cur.fetchone()
@@ -581,19 +562,16 @@ def company_type_counts():
     {"funded": 1025, "fortune500": 1500, "both": 2525}. Powers the counts
     shown next to "Funded Startups" / "Fortune 500" / "Both" in the
     sidebar. Not scoped to title, posted_days, or any other search filter --
-    just the total size of each database -- but IS scoped by the same
-    department/location displayability guard as list_jobs and company_jobs
-    (see HAS_DEPT_OR_LOCATION), so these counts stay in sync with what a
-    user would actually see if they browsed that database.
+    just the total size of each database (every active job, including ones
+    with no department or location).
     """
     cur = get_cursor()
     cur.execute(
-        f"""
+        """
         SELECT c.company_type, count(*) AS job_count
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE j.is_active = true
-          AND {HAS_DEPT_OR_LOCATION}
         GROUP BY c.company_type
         """
     )
@@ -618,14 +596,13 @@ def company_type_counts():
 def company_jobs(company_id):
     cur = get_cursor()
     cur.execute(
-        f"""
+        """
         SELECT
             j.id, j.title, j.department, j.location, j.date_posted,
             m.match_percent AS match
         FROM jobs j
         LEFT JOIN job_matches m ON m.job_id = j.id AND m.user_id = %s
         WHERE j.company_id = %s AND j.is_active = true
-          AND {HAS_DEPT_OR_LOCATION}
         ORDER BY j.date_posted DESC
         """,
         (g.user_id, company_id),
