@@ -542,9 +542,12 @@ def _classify_outcome(path: str, jobs_found: int, err: Optional[str], d: dict) -
             return "scrape_page_has_no_links", after_api + (
                 "page loaded but nothing matched — JS-rendered, iframe, or blocked?")
         if scrape.get("kept_links", 0) == 0:
+            samples = " | ".join(scrape.get("reject_samples") or [])
             return "scrape_all_links_filtered_out", after_api + (
                 f"{scrape.get('candidate_links')} candidate link(s) via "
-                f"{scrape.get('listing_selector')}, 0 passed the job-link filter")
+                f"{scrape.get('listing_selector')}, 0 passed the job-link filter; "
+                f"reasons={scrape.get('reject_counts')}; empty_text={scrape.get('empty_text_links')}; "
+                f"samples: {samples}")
         return "scrape_zero_jobs_other", after_api.strip()
 
     # path == "unknown": neither the API path nor the scrape path ran.
@@ -565,7 +568,7 @@ def _build_result_row(name: str, website: str, path: str, elapsed: float,
         "company_name":    name,
         "website":         website,
         "stage":           stage,
-        "detail":          (detail or "")[:500],
+        "detail":          (detail or "")[:1200],
         "path":            path,
         "ats":             a.get("ats"),
         "ats_token":       a.get("token"),

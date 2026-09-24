@@ -135,12 +135,18 @@ async def _extract_links(page, careers_url: str, base_domain: str,
         diag["candidate_links"] = len(links)
 
     seen_hrefs = set()
+    # Diagnostics only: why candidate links were rejected (see _job_link_reject_reason).
+    reject_counts: dict[str, int] = {}
+    reject_samples: list[str] = []
+    empty_text = 0
     for el in links:
         try:
             href = await el.get_attribute("href") or ""
             text = (await el.inner_text() or "").strip()
 
             if not text or not href:
+                if href and not text:
+                    empty_text += 1   # e.g. image/logo-only anchors
                 continue
 
             if href.startswith("/"):
@@ -148,7 +154,12 @@ async def _extract_links(page, careers_url: str, base_domain: str,
             elif not href.startswith("http"):
                 href = urljoin(careers_url, href)
 
-            if not _looks_like_job_link(href, text):
+            reason = _job_link_reject_reason(href, text)
+            if reason:
+                reject_counts[reason] = reject_counts.get(reason, 0) + 1
+                if len(reject_samples) < 6:
+                    one_line = re.sub(r"\s+", " ", text)[:50]
+                    reject_samples.append(f"[{reason}] {one_line!r} -> {href[:80]}")
                 continue
 
             if href in seen_hrefs:
@@ -168,6 +179,9 @@ async def _extract_links(page, careers_url: str, base_domain: str,
 
     if diag is not None:
         diag["kept_links"] = len(jobs)
+        diag["reject_counts"] = reject_counts
+        diag["reject_samples"] = reject_samples
+        diag["empty_text_links"] = empty_text
     return jobs
 
 
@@ -541,15 +555,23 @@ NOISE_WORDS = re.compile(
 MAX_TITLE_WORDS = 8
 
 
-def _looks_like_job_link(href: str, text: str) -> bool:
+def _job_link_reject_reason(href: str, text: str) -> Optional[str]:
+    """None if the link looks like a job link, else a short reason code.
+    (Same rules as before — split out so rejections can be diagnosed.)"""
     stripped = text.strip()
     if NOISE_WORDS.match(stripped):
-        return False
+        return "noise_word"
     if len(stripped) < 5 or len(stripped) > 150:
-        return False
+        return "title_length"
     if len(stripped.split()) > MAX_TITLE_WORDS:
-        return False
-    return bool(JOB_LINK_KEYWORDS.search(href) or JOB_LINK_KEYWORDS.search(text))
+        return "too_many_words"
+    if not (JOB_LINK_KEYWORDS.search(href) or JOB_LINK_KEYWORDS.search(text)):
+        return "no_job_keyword"
+    return None
+
+
+def _looks_like_job_link(href: str, text: str) -> bool:
+    return _job_link_reject_reason(href, text) is None
 
 
 def _clean_title(text: str) -> str:
