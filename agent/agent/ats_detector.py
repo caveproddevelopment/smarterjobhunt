@@ -33,6 +33,26 @@ HEADERS = {
     )
 }
 
+# Path segments that are NOT a company's board token. Without this list the
+# patterns below happily capture "embed" from boards.greenhouse.io/embed/...,
+# "j" from apply.workable.com/j/<shortcode>, "api" from apply.workable.com/api/...,
+# and then the ATS API 404s on a board that doesn't exist.
+_RESERVED_TOKENS = {
+    "greenhouse": {"embed", "v1", "jobs", "api", "boards", "job_board", "js", "assets", "static", "widget"},
+    "lever":      {"jobs", "api", "v0", "postings", "assets", "static"},
+    "ashby":      {"api", "jobs", "embed", "assets", "static"},
+    "workable":   {"j", "api", "jobs", "assets", "static", "widget"},
+}
+
+# Greenhouse's embed form keeps the real board token in a query parameter:
+#   boards.greenhouse.io/embed/job_board?for=<token>   (or .../job_board/js?for=<token>)
+_GH_EMBED_FOR = re.compile(
+    r"greenhouse\.io/embed/job_board[^\"'\s<>]*?[?&;]for=([A-Za-z0-9_-]+)", re.IGNORECASE
+)
+
+# Careers subdomains tried (in addition to CAREER_PATHS) when hunting for a careers page.
+CAREER_SUBDOMAINS = ("careers", "jobs")
+
 ATS_PATTERNS = [
     (r"boards\.greenhouse\.io/([a-z0-9_-]+)", "greenhouse"),
     (r"job-boards\.greenhouse\.io/([a-z0-9_-]+)", "greenhouse"),
@@ -61,21 +81,34 @@ class ATSResult:
         return f"ATSResult(ats={self.ats}, token={self.token}, can_api={self.can_api})"
 
 
-def detect_ats(company_name: str, website: Optional[str] = None) -> ATSResult:
+def detect_ats(company_name: str, website: Optional[str] = None,
+               diag: Optional[dict] = None) -> ATSResult:
     """
     Detect ATS for a company. All independent network probes (known ATS
     APIs by guessed slug, plus career-page path guesses) run concurrently.
+
+    `diag` (optional, diagnostics only — never changes behavior): a dict
+    that gets filled in with how the decision was reached:
+      slug_tried       the name-derived slug probed against Greenhouse/Lever/Ashby
+      homepage_status  HTTP status (or "error: <ExcType>") of the homepage GET
+      detected_via     known_api_probe | homepage_scan |
+                       career_path_guess+page_scan | career_path_guess | none
     """
+    if diag is None:
+        diag = {}
     slug = _slugify(company_name)
+    diag["slug_tried"] = slug
 
     known = _probe_known_apis_parallel(slug)
     if known:
         ats, token = known
+        diag["detected_via"] = "known_api_probe"
         return ATSResult(ats=ats, token=token, can_api=True)
 
     if website:
-        result = _scan_website(website)
+        result = _scan_website(website, diag=diag)
         if result:
+            diag["detected_via"] = "homepage_scan"
             return result
 
     careers_url = _find_careers_page_parallel(website or f"https://www.{slug}.com")
@@ -83,9 +116,12 @@ def detect_ats(company_name: str, website: Optional[str] = None) -> ATSResult:
         result = _scan_page(careers_url)
         if result:
             result.careers_url = careers_url
+            diag["detected_via"] = "career_path_guess+page_scan"
             return result
+        diag["detected_via"] = "career_path_guess"
         return ATSResult(ats="unknown", token=None, can_api=False, careers_url=careers_url)
 
+    diag["detected_via"] = "none"
     return ATSResult(ats="unknown", token=None, can_api=False)
 
 
@@ -135,13 +171,17 @@ def _probe_known_apis_parallel(slug: str) -> Optional[tuple[str, str]]:
     return results[0]
 
 
-def _scan_website(url: str) -> Optional[ATSResult]:
+def _scan_website(url: str, diag: Optional[dict] = None) -> Optional[ATSResult]:
     try:
         r = requests.get(url, headers=HEADERS, timeout=10, allow_redirects=True)
+        if diag is not None:
+            diag["homepage_status"] = str(r.status_code)
         if r.status_code != 200:
             return None
         return _extract_ats_from_html(r.text, r.url)
-    except Exception:
+    except Exception as e:
+        if diag is not None:
+            diag["homepage_status"] = f"error: {type(e).__name__}"
         return None
 
 
@@ -149,13 +189,53 @@ def _scan_page(url: str) -> Optional[ATSResult]:
     return _scan_website(url)
 
 
+def _url_around(html: str, idx: int) -> str:
+    """The full URL surrounding position `idx` in `html` (delimited by quotes,
+    whitespace, brackets)."""
+    delims = "\"'<> \t\r\n()\\"
+    lo = idx
+    while lo > 0 and html[lo - 1] not in delims:
+        lo -= 1
+    hi = idx
+    while hi < len(html) and html[hi] not in delims:
+        hi += 1
+    url = html[lo:hi].replace("&amp;", "&")
+    if url.startswith("http"):
+        return url
+    return "https://" + url.lstrip("/")
+
+
 def _extract_ats_from_html(html: str, base_url: str) -> Optional[ATSResult]:
+    # 1) Greenhouse embed: the token lives in ?for=, not in the path.
+    m = _GH_EMBED_FOR.search(html)
+    if m:
+        return ATSResult(ats="greenhouse", token=m.group(1), can_api=True)
+
     for pattern, ats_name in ATS_PATTERNS:
-        match = re.search(pattern, html, re.IGNORECASE)
-        if match:
+        for match in re.finditer(pattern, html, re.IGNORECASE):
             token = match.group(1) if match.lastindex and match.lastindex >= 1 else None
             can_api = ats_name in ("greenhouse", "lever", "ashby", "workable")
-            return ATSResult(ats=ats_name, token=token, can_api=can_api)
+
+            if can_api:
+                # Skip path segments that aren't board tokens ("embed", "j", "api", ...).
+                if not token or token.lower() in _RESERVED_TOKENS.get(ats_name, ()):
+                    continue
+                return ATSResult(ats=ats_name, token=token, can_api=True)
+
+            # Workday / Rippling / BambooHR: no public API here, but hand back the
+            # URL we found so the page scraper has something to scrape (before,
+            # careers_url was left empty and these companies were silently skipped).
+            return ATSResult(ats=ats_name, token=None, can_api=False,
+                             careers_url=_url_around(html, match.start()))
+    return None
+
+
+def detect_ats_from_url(url: str) -> Optional[ATSResult]:
+    """If `url` itself is (or embeds) a supported ATS board URL, return the
+    API-capable ATSResult for it; otherwise None."""
+    res = _extract_ats_from_html(url or "", url or "")
+    if res and res.can_api and res.token:
+        return res
     return None
 
 
@@ -192,14 +272,21 @@ def _find_careers_page_parallel(base_url: str) -> Optional[str]:
     if not base_url.startswith("http"):
         base_url = "https://" + base_url
 
-    with ThreadPoolExecutor(max_workers=len(CAREER_PATHS)) as ex:
-        futures = {ex.submit(_try_career_path, base_url, path): path for path in CAREER_PATHS}
+    # Candidates in priority order: the usual paths on the same host, then
+    # careers./jobs. subdomains (many companies host careers there, so the
+    # path guesses on the main site 404).
+    bare_host = re.sub(r"^www\.", "", urlparse(base_url).netloc.lower())
+    candidates = [(base_url, path) for path in CAREER_PATHS]
+    if bare_host:
+        candidates += [(f"https://{sub}.{bare_host}", "/") for sub in CAREER_SUBDOMAINS]
+
+    with ThreadPoolExecutor(max_workers=len(candidates)) as ex:
+        futures = {ex.submit(_try_career_path, base, path): i for i, (base, path) in enumerate(candidates)}
         results = {}
         for fut in as_completed(futures):
-            path = futures[fut]
-            results[path] = fut.result()
+            results[futures[fut]] = fut.result()
 
-    for path in CAREER_PATHS:
-        if results.get(path):
-            return results[path]
+    for i in range(len(candidates)):
+        if results.get(i):
+            return results[i]
     return None

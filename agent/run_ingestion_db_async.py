@@ -61,11 +61,13 @@ finishes, which skips that shutdown sequence entirely.
 
 import argparse
 import asyncio
+import csv
 import os
 import sys
 import time
 import traceback
 import uuid
+from collections import Counter
 
 import psycopg2
 import requests
@@ -73,6 +75,85 @@ import requests
 from agent.company_source import PostgresCompanySource
 from agent.job_sink import StagingJobSink
 from agent.async_ingestion_orchestrator import run
+
+
+RESULT_COLUMNS = [
+    "company_name", "website", "stage", "detail", "path", "ats", "ats_token",
+    "careers_url", "detected_via", "homepage_status", "jobs_found",
+    "elapsed_seconds", "candidate_links", "kept_links", "links_before_descriptions",
+]
+
+_RESULTS_DDL = """
+CREATE TABLE IF NOT EXISTS scrape_company_results (
+    id                         SERIAL PRIMARY KEY,
+    batch_id                   TEXT NOT NULL,
+    company_name               TEXT NOT NULL,
+    website                    TEXT,
+    stage                      TEXT NOT NULL,
+    detail                     TEXT,
+    path                       TEXT,
+    ats                        TEXT,
+    ats_token                  TEXT,
+    careers_url                TEXT,
+    detected_via               TEXT,
+    homepage_status            TEXT,
+    jobs_found                 INTEGER,
+    elapsed_seconds            REAL,
+    candidate_links            INTEGER,
+    kept_links                 INTEGER,
+    links_before_descriptions  INTEGER,
+    created_at                 TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scrape_company_results_batch
+    ON scrape_company_results (batch_id);
+"""
+
+
+def _ensure_results_table(conn) -> bool:
+    """Creates scrape_company_results if needed. Diagnostics only: returns
+    False (and the run carries on without the table) if that fails."""
+    cur = conn.cursor()
+    try:
+        cur.execute(_RESULTS_DDL)
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"[run_ingestion_db_async] Could not create scrape_company_results "
+              f"({e}); per-company results will not be saved to the DB.", flush=True)
+        return False
+    finally:
+        cur.close()
+
+
+def _save_results_to_db(conn, batch_id: str, rows: list) -> None:
+    if not rows:
+        return
+    from psycopg2.extras import execute_values
+    cur = conn.cursor()
+    try:
+        execute_values(
+            cur,
+            "INSERT INTO scrape_company_results (batch_id, " + ", ".join(RESULT_COLUMNS) + ") VALUES %s",
+            [(batch_id, *[r.get(c) for c in RESULT_COLUMNS]) for r in rows],
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def _append_results_to_csv(path: str, rows: list) -> None:
+    if not rows:
+        return
+    is_new = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=RESULT_COLUMNS, extrasaction="ignore")
+        if is_new:
+            w.writeheader()
+        w.writerows(rows)
 
 
 def _call_staging_endpoint(backend_url: str, admin_key: str, path: str, batch_id: str) -> dict:
@@ -128,6 +209,11 @@ async def main():
                          help="Base URL of the backend API (required for --auto-clean/--auto-promote)")
     parser.add_argument("--admin-key", default=os.environ.get("ADMIN_API_KEY"),
                          help="X-Admin-Key value for the backend's staging endpoints (required for --auto-clean/--auto-promote)")
+    parser.add_argument("--results-csv", default=None,
+                         help="Also append per-company outcome rows (why each company did or didn't "
+                              "produce jobs) to this CSV. They are always saved to the "
+                              "scrape_company_results table too. Note Railway's disk is ephemeral, "
+                              "so use the table there.")
     parser.add_argument("--clear-staging", action="store_true",
                          help="DELETE FROM jobs_staging before this run, wiping every row -- pending, "
                               "approved-unpromoted, rejected, and already-promoted alike -- regardless "
@@ -182,12 +268,32 @@ async def main():
         def progress(pct, msg):
             print(f"[{int(pct*100):3d}%] {msg}", flush=True)
 
+        # Per-company outcome rows -> scrape_company_results (+ optional CSV).
+        # Saved chunk by chunk, so a run that dies partway still leaves the
+        # results for every finished chunk. Never allowed to affect the run.
+        results_table_ok = _ensure_results_table(conn)
+
+        def save_results(rows):
+            if results_table_ok:
+                try:
+                    _save_results_to_db(conn, batch_id, rows)
+                except Exception as e:
+                    print(f"[run_ingestion_db_async] Saving per-company results to DB failed: {e}",
+                          flush=True)
+            if args.results_csv:
+                try:
+                    _append_results_to_csv(args.results_csv, rows)
+                except Exception as e:
+                    print(f"[run_ingestion_db_async] Saving per-company results to CSV failed: {e}",
+                          flush=True)
+
         start = time.time()
         summary = await run(
             source, sink,
             max_workers=args.max_workers,
             batch_size=args.batch_size,
             progress_callback=progress,
+            result_callback=save_results,
         )
         total_elapsed = time.time() - start
 
@@ -203,6 +309,16 @@ async def main():
         print(f"Jobs staged:             {summary['jobs_found']}")
         print(f"Total wall-clock time:   {total_elapsed:.1f}s")
         print(f"Errors:                  {len(summary['errors'])}")
+
+        stage_counts = Counter(r["stage"] for r in summary.get("company_results", []))
+        if stage_counts:
+            print("\nOUTCOME BY STAGE (why each company did or didn't produce jobs):")
+            for stage, n in stage_counts.most_common():
+                print(f"  {n:6d}  {stage}")
+            if results_table_ok:
+                print(f"  (per-company rows: SELECT * FROM scrape_company_results "
+                      f"WHERE batch_id = '{batch_id}';)")
+
         if summary["errors"]:
             print("\nFirst 10 errors:")
             for e in summary["errors"][:10]:

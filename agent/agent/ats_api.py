@@ -47,7 +47,8 @@ HEADERS = {
 # Public dispatcher
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_jobs(ats: str, token: str, fetch_descriptions: bool = True) -> list[dict]:
+def fetch_jobs(ats: str, token: str, fetch_descriptions: bool = True,
+               diag: Optional[dict] = None) -> list[dict]:
     """Fetch all open jobs from the given ATS.
 
     `fetch_descriptions`: when True (default), populate description_snippet.
@@ -64,12 +65,20 @@ def fetch_jobs(ats: str, token: str, fetch_descriptions: bool = True) -> list[di
     }.get(ats)
 
     if fn is None:
+        if diag is not None:
+            diag["fetch_error"] = f"unsupported ats: {ats}"
         return []
 
     try:
         return fn(token, fetch_descriptions=fetch_descriptions)
     except Exception as e:
         print(f"[ats_api] Error fetching from {ats}/{token}: {e}")
+        if diag is not None:
+            # `diag` is diagnostics only: records what went wrong so the
+            # orchestrator can tell 404 (bad token) from 429 (rate limit).
+            resp = getattr(e, "response", None)
+            diag["fetch_status"] = getattr(resp, "status_code", None)
+            diag["fetch_error"] = f"{type(e).__name__}: {e}"[:200]
         return []
 
 
