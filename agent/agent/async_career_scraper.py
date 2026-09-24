@@ -413,9 +413,115 @@ _KNOWN_ATS_HOSTS = (
     "personio.com", "eightfold.ai", "phenompeople.com", "zohorecruit.com", "zohorecruit.in",
 )
 
+# (2026-09-24) Careers links that only live inside a nav dropdown (e.g. a
+# "Company" menu that renders "Careers" as a child on hover/click) were
+# invisible to the plain a[href] scan below — the anchor doesn't exist in
+# the DOM until the menu is opened, so those companies fell through to
+# no_careers_url_found even though a human finds the link in two clicks.
+# _open_dropdowns_and_collect_anchors() tries hover first (desktop mega-menus),
+# then click (menus that only open on click) for triggers that aren't
+# themselves a real link elsewhere, and re-scans after each; it's only used
+# when the first pass finds nothing.
+NAV_TRIGGER_TEXT = re.compile(
+    r"^\s*(company|about( us)?|who we are|our company|resources|product s?|"
+    r"solutions?|platform|services|more|team)\s*[▾▼⌄\u25be\u25bc]?\s*$",
+    re.IGNORECASE,
+)
+MAX_DROPDOWN_TRIGGERS = 8
+# Internal soft budget for the whole dropdown scan (hover+click across up to
+# MAX_DROPDOWN_TRIGGERS triggers). Enforced ourselves, independently of the
+# caller's asyncio.wait_for(DISCOVERY_TIMEOUT_SECONDS) — if we let the outer
+# timeout be the only thing that stops this, a slow run gets cancelled
+# outright and throws away any careers link already found, instead of
+# returning gracefully with whatever was collected so far.
+DROPDOWN_SCAN_BUDGET_SECONDS = 8
+NAV_TRIGGER_SELECTOR = (
+    "header a, header button, header [role='button'], header li, "
+    "nav a, nav button, nav [role='button'], nav li, "
+    "[class*='navbar'] a, [class*='navbar'] button, [class*='navbar'] li"
+)
+
 
 def _host_matches(host: str, domains) -> bool:
     return any(host == d or host.endswith("." + d) for d in domains)
+
+
+async def _open_dropdowns_and_collect_anchors(page, existing_anchors: list[dict]) -> list[dict]:
+    """Hover, then click, likely nav-dropdown triggers (Company/About/
+    Resources/...) and re-scan a[href] after each, to catch careers links
+    that only render once the menu is open. Best-effort: any interaction
+    failure is swallowed so one bad trigger can't abort discovery, and every
+    candidate must first match NAV_TRIGGER_TEXT so we're not blindly
+    hovering/clicking the whole nav."""
+    all_anchors = list(existing_anchors)
+    try:
+        triggers = page.locator(NAV_TRIGGER_SELECTOR)
+        count = await triggers.count()
+    except Exception:
+        return all_anchors
+
+    base_url = page.url
+    scan_deadline = time.monotonic() + DROPDOWN_SCAN_BUDGET_SECONDS
+    tried = 0
+    for i in range(min(count, 40)):
+        if tried >= MAX_DROPDOWN_TRIGGERS or time.monotonic() >= scan_deadline:
+            break
+        try:
+            el = triggers.nth(i)
+            text = (await el.inner_text() or "").strip()
+        except Exception:
+            continue
+        if not NAV_TRIGGER_TEXT.match(text):
+            continue
+        tried += 1
+
+        # Hover first — the common case for desktop mega-menus.
+        try:
+            await el.hover(timeout=1200)
+            await page.wait_for_timeout(400)
+            all_anchors.extend(await page.eval_on_selector_all("a[href]", _ANCHOR_JS))
+        except Exception:
+            pass
+
+        if time.monotonic() >= scan_deadline:
+            break
+
+        # Some menus only open on click rather than hover. Only click
+        # triggers that aren't themselves a real link elsewhere — clicking a
+        # genuine <a href="/about"> would navigate us off the homepage
+        # instead of opening a submenu.
+        try:
+            href = await el.get_attribute("href")
+        except Exception:
+            href = None
+        safe_to_click = (
+            not href or href.strip() in ("", "#") or href.strip().lower().startswith("javascript:")
+        )
+
+        if safe_to_click:
+            try:
+                await el.click(timeout=1200)
+                await page.wait_for_timeout(400)
+                if page.url != base_url:
+                    # Navigated away despite the href check (e.g. a JS
+                    # router) — go back rather than lose the homepage.
+                    await page.go_back(timeout=3000)
+                    await page.wait_for_timeout(300)
+                else:
+                    all_anchors.extend(await page.eval_on_selector_all("a[href]", _ANCHOR_JS))
+            except Exception:
+                pass
+
+        # Close whatever's open before the next trigger, so menus don't
+        # stack and shadow each other.
+        try:
+            await page.keyboard.press("Escape")
+            await page.mouse.move(0, 0)
+            await page.wait_for_timeout(150)
+        except Exception:
+            pass
+
+    return all_anchors
 
 
 def _pick_careers_link(anchors: list[dict], page_url: str) -> Optional[str]:
@@ -505,6 +611,12 @@ async def find_careers_url_via_playwright(base_url: str, browser=None,
                 anchors = await page.eval_on_selector_all("a[href]", _ANCHOR_JS)
                 diag["anchors_seen"] = len(anchors)
                 best = _pick_careers_link(anchors, page.url)
+
+                if not best:
+                    anchors = await _open_dropdowns_and_collect_anchors(page, anchors)
+                    diag["anchors_seen_after_dropdown_scan"] = len(anchors)
+                    best = _pick_careers_link(anchors, page.url)
+
                 diag["outcome"] = "found" if best else "no_careers_link_on_homepage"
                 return best
             except ScraperBrowserDeadError:

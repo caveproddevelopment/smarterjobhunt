@@ -91,7 +91,13 @@ DEFAULT_MAX_WORKERS = 10
 DEFAULT_SCRAPE_RETRIES = 2   # attempts per company against the career-scrape path
 DEFAULT_BATCH_SIZE = 500     # companies processed, then written to job_sink, per sequential chunk
 MAX_PROGRESS_LINES = 200     # roughly how many "[n/total] Scraped X" lines to print for the whole run
-DISCOVERY_TIMEOUT_SECONDS = 25   # real-browser homepage scan for a careers link
+DISCOVERY_TIMEOUT_SECONDS = 35   # real-browser homepage scan for a careers link,
+# including the hover+click dropdown scan in async_career_scraper.py (which
+# has its own internal ~8s budget). Raised from 25 (2026-09-24) — worst case
+# is now goto (20s) + the dropdown scan (~11s worst case incl. in-flight
+# overrun past its own budget) ≈ 33s, so 25s risked asyncio.wait_for
+# cancelling the whole discovery outright and losing a careers link the
+# dropdown scan had already found.
 API_RETRY_ATTEMPTS = 3           # ATS API calls, retried (with backoff) only on HTTP 429
 # Hard cap on how long a single company can take. Now covers, in the worst
 # case: detect_ats (~20s of plain requests) + the real-browser careers-link
