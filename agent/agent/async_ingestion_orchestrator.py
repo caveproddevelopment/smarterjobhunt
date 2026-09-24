@@ -284,13 +284,26 @@ async def run(
                 path_taken = "ats_api"
 
                 f = diags["fetch"]
-                if not raw_jobs and f.get("fetch_error") and f.get("fetch_status") != 429:
-                    # The API call failed outright (typically 404 = a wrong or stale
-                    # board token). Previously the company just ended here with 0
-                    # jobs. Fall back to finding + scraping its careers page — which
-                    # may itself lead to the correct ATS board.
-                    diags["api_failed_first"] = (
-                        f"{ats_result.ats}/{ats_result.token} -> HTTP {f.get('fetch_status')}")
+                if not raw_jobs and f.get("fetch_status") != 429:
+                    # (2026-09-24) Was: only fall back when the API call itself
+                    # errored (f.get("fetch_error") truthy — typically a 404 = a
+                    # wrong/stale board token). But fetch_jobs() in ats_api.py
+                    # only sets fetch_error inside its except block — a stale
+                    # token that still resolves to a *real but abandoned* board
+                    # returns a clean 200 with an empty jobs array, which looks
+                    # identical to a genuinely-empty board and set no
+                    # fetch_error. That company was accepted as "0 jobs" and
+                    # never got a chance at homepage discovery — see Moveworks:
+                    # an abandoned Workable board answers 200/empty while the
+                    # real, active careers page lives on their own domain.
+                    # Now both cases (outright error AND clean-but-empty) fall
+                    # back to homepage discovery — which may itself lead to the
+                    # correct ATS board or a career page with real listings.
+                    diags["api_empty_or_failed"] = (
+                        f"{ats_result.ats}/{ats_result.token} -> "
+                        + (f"HTTP {f.get('fetch_status')}" if f.get("fetch_error")
+                           else "empty board (0 jobs, no error)")
+                    )
                     url = ats_result.careers_url
                     if not url and website:
                         url = await discover_careers_url(website, diags)
@@ -298,7 +311,7 @@ async def run(
                             diags["ats"]["careers_url"] = url
                     if url:
                         raw_jobs, path_taken, via = await scrape_or_switch_to_api(url, name, diags)
-                        diags["recovered_via"] = via or "scrape_after_api_failure"
+                        diags["recovered_via"] = via or "scrape_after_empty_or_failed_api"
 
             elif ats_result.careers_url:
                 raw_jobs, path_taken, via = await scrape_or_switch_to_api(
@@ -500,7 +513,7 @@ def _classify_outcome(path: str, jobs_found: int, err: Optional[str], d: dict) -
 
     For "ok_*" stages, `detail` says how the company was recovered when one of
     the fallbacks did the work (recovered_via=...): playwright_homepage_scan,
-    scrape_after_api_failure, embedded_ats_on_careers_page,
+    scrape_after_empty_or_failed_api, embedded_ats_on_careers_page,
     careers_url_is_ats_board, or <ats>_careers_url (Workday etc.).
     """
     detect = d.get("detect", {})
@@ -510,7 +523,7 @@ def _classify_outcome(path: str, jobs_found: int, err: Optional[str], d: dict) -
     ats = (d.get("ats") or {}).get("ats") or "unknown"
     rv = d.get("recovered_via")
     rv_note = f"recovered_via={rv}" if rv else ""
-    after_api = f"after_api_failure=[{d['api_failed_first']}] " if d.get("api_failed_first") else ""
+    after_api = f"after_api_empty_or_failed=[{d['api_empty_or_failed']}] " if d.get("api_empty_or_failed") else ""
 
     if path == "timeout":
         return f"timeout_in_{d.get('phase', 'unknown')}", err or ""
