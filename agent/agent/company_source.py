@@ -156,8 +156,8 @@ class PostgresCompanySource(CompanySource):
             clauses.append("COALESCE(listing_status, 'active') = ANY(%s)")
             params.append(list(self.listing_statuses))
         if self.company_type:
-            clauses.append("company_type = %s")
-            params.append(self.company_type)
+            clauses.append("company_type = ANY(%s)")
+            params.append(company_type_db_values(self.company_type))
         if self.names:
             clauses.append("name = ANY(%s)")
             params.append(self.names)
@@ -179,8 +179,9 @@ class PostgresCompanySource(CompanySource):
             cur = self.connection.cursor()
             try:
                 cur.execute("SELECT COUNT(*) FROM companies WHERE NOT (COALESCE(listing_status, 'active') = ANY(%s))"
-                            + (" AND company_type = %s" if self.company_type else ""),
-                            tuple([list(self.listing_statuses)] + ([self.company_type] if self.company_type else [])))
+                            + (" AND company_type = ANY(%s)" if self.company_type else ""),
+                            tuple([list(self.listing_statuses)]
+                                  + ([company_type_db_values(self.company_type)] if self.company_type else [])))
                 self.skipped_by_status = cur.fetchone()[0]
             except Exception:
                 self.connection.rollback()
@@ -213,6 +214,15 @@ def normalize_company_type(value: Optional[str]) -> Optional[str]:
     if not value:
         return value
     return _COMPANY_TYPE_ALIASES.get(value, value)
+
+
+def company_type_db_values(value: str) -> list[str]:
+    """Values to match in companies.company_type. Production rows seeded
+    before 2026-10-13 are tagged 'midsize' (the old CLI value), newer ones
+    'midmarket', so either name selects both."""
+    if value in ("midsize", "midmarket"):
+        return ["midmarket", "midsize"]
+    return [value]
 
 
 def _to_iso_str(value) -> str:

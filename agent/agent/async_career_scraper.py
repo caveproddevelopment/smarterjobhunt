@@ -413,7 +413,8 @@ def filter_job_anchors(anchors: list[dict], page_url: str, diag: Optional[dict] 
             if reason:
                 rc[reason] = rc.get(reason, 0) + 1
                 if len(samples) < 6:
-                    samples.append(f"[{reason}] {re.sub(r'\s+', ' ', raw)[:50]!r} -> {href[:80]}")
+                    raw_compact = re.sub(r'\s+', ' ', raw)[:50]   # py3.11: no backslash inside f-string
+                    samples.append(f"[{reason}] {raw_compact!r} -> {href[:80]}")
                 continue
             if hbase in seen:
                 continue
