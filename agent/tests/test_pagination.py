@@ -123,15 +123,94 @@ NOT_LISTING = """<html><head><title>Careers at Paged</title></head><body><h1>Car
 <a href="/careers-info?page=2" class="next">Next</a></body></html>"""
 
 
+# ── Patterns seen on real sites in the 14 Oct test run ──────────────────────
+
+# Axis Bank (RippleHire) / ZingHR: jobs arrive as JSON, one page per request,
+# rendered as cards with no links; every click also fires an analytics call.
+JSON_PAGED = """<html><head><title>Careers</title></head><body><h1>Current job openings</h1>
+<div id="list"></div><a id="more" class="view-more">View more</a>
+<script>
+let p = 0;
+function load() {
+  p++;
+  fetch('/track?e=click').then(r => r.json());
+  fetch('/api/jobs?page=' + p).then(r => r.json()).then(d => {
+    for (const j of d.jobs) {
+      const div = document.createElement('div'); div.className = 'job-card';
+      div.textContent = j.title + ' | Job ID: ' + j.jobId + ' | ' + j.location; document.getElementById('list').appendChild(div);
+    }
+    if (p >= d.pages) document.getElementById('more').remove();
+  });
+}
+document.getElementById('more').onclick = load;
+load();
+</script></body></html>"""
+
+# Same, but the button never loads jobs — only analytics JSON (must stop fast).
+JSON_NOISE = JSON_PAGED.replace("fetch('/api/jobs?page=' + p)", "fetch(p === 1 ? '/api/jobs?page=1' : '/track?e=more')") \
+                       .replace("for (const j of d.jobs)", "for (const j of (d.jobs || []))") \
+                       .replace("if (p >= d.pages)", "if (d.pages && p >= d.pages && false)")
+
+# AU Small Finance Bank: job links plus an FAQ whose "See more" buttons must
+# not be clicked.
+FAQ_DECOY = """<html><head><title>Careers</title></head><body><h1>Careers - open positions</h1>
+<section class="openings"><ul>""" + "".join(
+    f'<li class="job"><a href="/jobs/faq-{i}">{t}</a></li>' for i, t in enumerate(["Branch Manager", "Credit Analyst", "Teller"])) + \
+"""</ul></section>
+<section class="faq-items"><div class="faq-item"><p>How do I apply?</p><button class="see">See more</button></div>
+<div class="faq-item"><p>What is the process?</p><button class="see">See more</button></div></section>
+<script>document.querySelectorAll('.see').forEach(b => b.onclick = () => {
+  const a = document.createElement('a'); a.href = '/jobs/faq-junk'; a.textContent = 'Junk Role Engineer';
+  document.querySelector('.openings ul').appendChild(a); });</script></body></html>"""
+
+# Aditya Birla Fashion: "View More Openings" is a target=_blank link to the
+# group careers portal on another domain, which lists the rest of the jobs.
+OFFSITE_MORE = """<html><head><title>Careers</title></head><body><h1>Careers - current openings</h1>
+<ul>""" + "".join(f'<li class="job"><a href="/jobs/abf-{i}">{t}</a></li>' for i, t in enumerate(["Store Manager", "Visual Merchandiser"])) + \
+"""</ul><a class="viewmoreopening" href="http://careers.paged.test/apparel-retail" target="_blank">View More Openings</a>
+</body></html>"""
+PORTAL = """<html><head><title>Careers - Fashion and Retail</title></head><body><h1>Job openings - Fashion and Retail</h1>
+<ul>""" + "".join(f'<li class="job"><a href="/jobs/portal-{i}">{t}</a></li>' for i, t in enumerate(
+    ["Assistant Buyer", "Senior Executive Sourcing", "Area Manager", "Design Lead"])) + "</ul></body></html>"
+
+
 class _H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
+
+    def _json(self, obj):
+        b = json.dumps(obj).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
 
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         page = int((q.get("page") or ["1"])[0])
+        host = (self.headers.get("Host") or "").split(":")[0]
+        if host == "careers.paged.test" and u.path == "/apparel-retail":
+            body = PORTAL.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if u.path == "/api/jobs":
+            return self._json({"pages": 3, "jobs": [
+                {"jobId": f"77{page}{i}", "title": f"{TITLES[(page * 3 + i) % len(TITLES)]} J{page}{i}",
+                 "location": "Mumbai", "experience": "2 - 4 Years", "department": "Branch Banking"}
+                for i in range(3)]})
+        if u.path == "/track":
+            return self._json({"ok": 1, "events": [{"name": "click", "ts": 1}]})
         routes = {
+            "/jsonpaged": lambda: JSON_PAGED,
+            "/jsonnoise": lambda: JSON_NOISE,
+            "/faq": lambda: FAQ_DECOY,
+            "/offsite": lambda: OFFSITE_MORE,
             "/numbered": lambda: _numbered(page),
             "/numonly": lambda: _numbers_only(page),
             "/loadmore": lambda: LOADMORE,
@@ -168,7 +247,7 @@ def paged_port():
 
 @pytest.fixture
 def paged(paged_port, monkeypatch):
-    monkeypatch.setattr(BP, "_BASE_ARGS", BP._BASE_ARGS + [f"--host-resolver-rules=MAP paged.test 127.0.0.1:{paged_port}"])
+    monkeypatch.setattr(BP, "_BASE_ARGS", BP._BASE_ARGS + [f"--host-resolver-rules=MAP paged.test 127.0.0.1:{paged_port}, MAP *.paged.test 127.0.0.1:{paged_port}"])
     # Description fetches are not what we're testing; skip them for speed.
     async def _no_desc(ctx, jobs):
         return None
@@ -203,7 +282,7 @@ def test_numbered_pages(paged):
 def test_page_numbers_only(paged):
     jobs, diag = _scrape("/numonly")
     assert _urls(jobs) == {f"/jobs/no-p{p}-{i}" for p in (1, 2, 3, 4) for i in range(2)}, diag
-    assert [c.split(" ")[0] for c in diag["pagination"]["clicks"]] == [
+    assert [c.split(" ")[0].split("(")[0] for c in diag["pagination"]["clicks"]] == [
         "page_number:2", "page_number:3", "page_number:4"], diag["pagination"]
 
 
@@ -241,3 +320,37 @@ def test_no_pagination_on_page_without_jobs(paged):
     jobs, diag = _scrape("/careers-info")
     assert jobs == []
     assert diag.get("pagination", {}).get("skipped") == "no_jobs_on_first_page", diag
+
+
+# ── Real-site patterns (14 Oct run) ─────────────────────────────────────────
+
+def test_json_pages_are_merged(paged):
+    # Axis Bank / ZingHR: each "View more" returns another JSON page; all pages count.
+    jobs, diag = _scrape("/jsonpaged")
+    assert len(jobs) == 9, (len(jobs), diag.get("pagination"))
+    assert diag.get("used_json_capture") is True
+    assert "json+3" in " ".join(diag["pagination"]["clicks"]), diag["pagination"]
+
+
+def test_analytics_json_does_not_keep_clicking(paged):
+    # A button that only fires non-job JSON must stop after 2 clicks, not 15.
+    jobs, diag = _scrape("/jsonnoise")
+    assert len(jobs) == 3, (len(jobs), diag.get("pagination"))
+    pg = diag["pagination"]
+    assert pg["stopped"] == "no_new_jobs_after_2_clicks" and len(pg["clicks"]) == 2, pg
+
+
+def test_faq_see_more_not_clicked(paged):
+    # AU Small Finance Bank: "See more" in an FAQ is not a pager.
+    jobs, diag = _scrape("/faq")
+    assert _urls(jobs) == {"/jobs/faq-0", "/jobs/faq-1", "/jobs/faq-2"}, diag
+    assert diag["pagination"]["clicks"] == [], diag["pagination"]
+
+
+def test_view_more_link_to_other_careers_site_is_followed(paged):
+    # Aditya Birla Fashion: target=_blank "View More Openings" -> group careers portal.
+    jobs, diag = _scrape("/offsite")
+    urls = {j["apply_url"] for j in jobs}
+    assert {"http://paged.test/jobs/abf-0", "http://paged.test/jobs/abf-1"} <= urls, diag
+    assert {f"http://careers.paged.test/jobs/portal-{i}" for i in range(4)} <= urls, diag["pagination"]
+    assert "opened_link" in diag["pagination"]["clicks"][0], diag["pagination"]

@@ -267,3 +267,13 @@ def test_classify_invalid_page_and_bot_wall():
     assert _classify_outcome("career_scrape", 0, None, d)[0] == "blocked_bot_wall"
     d = {"detect": {"homepage_status": "error: SSLError"}, "discover": {"outcome": "homepage_load_failed: Error: net::ERR_SSL_VERSION_OR_CIPHER_MISMATCH"}, "ats": {}}
     assert _classify_outcome("unknown", 0, None, d)[0] == "website_ssl_error"
+
+
+def test_vendor_marketing_site_is_not_a_job_board():
+    from agent.platforms import platform_for_url
+    assert platform_for_url("https://www.darwinbox.com/?utm_source=x") is None
+    assert platform_for_url("https://keka.com/") is None
+    assert platform_for_url("https://bharatpe.darwinbox.in/ms/candidate/careers") == "darwinbox"
+    assert platform_for_url("https://acciojob.keka.com/careers") == "keka"
+    assert platform_for_url("https://wellfound.com/company/acme/jobs") == "wellfound"
+    assert platform_for_url("https://job-boards.greenhouse.io/able") == "greenhouse"

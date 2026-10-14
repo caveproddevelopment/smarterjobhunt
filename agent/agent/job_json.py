@@ -15,7 +15,7 @@ Pure functions only — unit-testable without a browser.
 
 import re
 from typing import Any, Optional
-from urllib.parse import urljoin, quote
+from urllib.parse import urlsplit, urljoin, quote
 
 from .text_extract import make_snippet
 
@@ -186,7 +186,11 @@ def harvest_jobs_from_json(responses: list[tuple[str, Any]], page_url: str,
     must come from a job-ish URL, or the page must be a known hiring
     platform, or the list must have 3+ job objects with 2+ job-ish keys each.
     """
-    best: list[dict] = []
+    # Paginated JSON boards (Axis Bank/RippleHire, ZingHR, ...) return each
+    # page as a separate response from the same endpoint. Jobs are merged per
+    # endpoint (host + path, query ignored), and the endpoint with the most
+    # unique jobs wins — not just the single biggest response (2026-10-14).
+    groups: dict = {}
     for api_url, data in responses:
         jobby_source = on_platform or bool(_JOBBY_URL.search(api_url or ""))
         for lst in _candidate_lists(data):
@@ -200,6 +204,17 @@ def harvest_jobs_from_json(responses: list[tuple[str, Any]], page_url: str,
                 if strong < 3:
                     continue
             jobs = _jobs_from_list(lst, page_url, api_url)
-            if len(jobs) > len(best):
-                best = jobs
+            if not jobs:
+                continue
+            parts = urlsplit(api_url or "")
+            key = (parts.netloc.lower(), parts.path.rstrip("/"))
+            g = groups.setdefault(key, {"jobs": [], "seen": set()})
+            for j in jobs:
+                if j["apply_url"] not in g["seen"]:
+                    g["seen"].add(j["apply_url"])
+                    g["jobs"].append(j)
+    best: list[dict] = []
+    for g in groups.values():
+        if len(g["jobs"]) > len(best):
+            best = g["jobs"]
     return best

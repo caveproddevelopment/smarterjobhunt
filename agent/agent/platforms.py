@@ -208,12 +208,22 @@ def host_matches(host: str, suffixes) -> bool:
     return any(host == s or host.endswith("." + s) for s in suffixes)
 
 
+# Platforms whose tenant job boards live on the bare/www host under a path
+# (wellfound.com/company/x/jobs, instahyre.com/jobs-at-x). For every other
+# platform the bare or www host is the vendor's own marketing site — e.g. the
+# "Powered by Darwinbox" footer link -> www.darwinbox.com that BharatPe's
+# 14 Oct scrape followed and took 2 "jobs" from (2026-10-14).
+PATH_BOARD_HOSTS = {"wellfound.com", "instahyre.com", "jobs.gem.com", "hire.trakstar.com"}
+
+
 def platform_for_url(url: str) -> Optional[str]:
     h = host_of(url)
     if not h:
         return None
     for suffix, name in PLATFORM_HOSTS:
         if h == suffix or h.endswith("." + suffix):
+            if h in (suffix, "www." + suffix) and suffix not in PATH_BOARD_HOSTS:
+                return None   # vendor marketing site, not a company's job board
             return name
     return None
 
