@@ -114,16 +114,47 @@ class PostgresCompanySource(CompanySource):
     """
 
     def __init__(self, connection, limit: Optional[int] = None, company_type: Optional[str] = None,
-                 names: Optional[list[str]] = None):
+                 names: Optional[list[str]] = None, listing_statuses: Optional[list[str]] = None):
         self.connection = connection
         self.limit = limit
-        self.company_type = company_type
+        self.company_type = normalize_company_type(company_type)
         self.names = names
+        # Which companies.listing_status values to scrape (2026-10-13, see
+        # db/migrations/2026-10-13_listing_status.sql). Default: only
+        # 'active'. Ignored if the column doesn't exist yet, so the agent
+        # still runs against a database that hasn't been migrated.
+        self.listing_statuses = listing_statuses or ["active"]
+        self.skipped_by_status = 0
+
+    def _has_listing_status(self) -> bool:
+        return self._has_column("listing_status")
+
+    def _has_column(self, column: str) -> bool:
+        cur = self.connection.cursor()
+        try:
+            cur.execute("""SELECT 1 FROM information_schema.columns
+                           WHERE table_name = 'companies' AND column_name = %s""", (column,))
+            return cur.fetchone() is not None
+        except Exception:
+            self.connection.rollback()
+            return False
+        finally:
+            cur.close()
 
     def load(self) -> list[dict]:
-        query = "SELECT name, website, funding_stage, funding_amount, funding_date FROM companies"
+        has_override = self._has_column("careers_url")
+        # backend/db/schema.sql drops the legacy funding_* columns; read
+        # them only if this database still has them.
+        funding_cols = ", ".join(c if self._has_column(c) else "NULL"
+                                 for c in ("funding_stage", "funding_amount", "funding_date"))
+        query = ("SELECT name, website, " + funding_cols
+                 + (", careers_url" if has_override else ", NULL") + " FROM companies")
         params: list = []
         clauses: list = []
+        status_filter = self._has_listing_status() and "all" not in self.listing_statuses
+        if status_filter:
+            clauses.append("COALESCE(listing_status, 'active') = ANY(%s)")
+            params.append(list(self.listing_statuses))
         if self.company_type:
             clauses.append("company_type = %s")
             params.append(self.company_type)
@@ -144,16 +175,44 @@ class PostgresCompanySource(CompanySource):
         finally:
             cur.close()
 
+        if status_filter:
+            cur = self.connection.cursor()
+            try:
+                cur.execute("SELECT COUNT(*) FROM companies WHERE NOT (COALESCE(listing_status, 'active') = ANY(%s))"
+                            + (" AND company_type = %s" if self.company_type else ""),
+                            tuple([list(self.listing_statuses)] + ([self.company_type] if self.company_type else [])))
+                self.skipped_by_status = cur.fetchone()[0]
+            except Exception:
+                self.connection.rollback()
+            finally:
+                cur.close()
+
         companies = []
-        for name, website, funding_stage, funding_amount, funding_date in rows:
+        for name, website, funding_stage, funding_amount, funding_date, careers_url in rows:
             companies.append({
                 "company_name":  name or "",
                 "website":       website or "",
                 "funding_round": funding_stage or "",
                 "funding_amount": funding_amount or "",
                 "funding_date":  _to_iso_str(funding_date),
+                # Optional manual override (companies.careers_url, added by
+                # db/migrations/2026-10-13_listing_status.sql): tried first.
+                "careers_url":   careers_url or "",
             })
         return companies
+
+
+# The DB CHECK constraint (backend db/schema.sql) allows 'midmarket'; the
+# agent's CLI used to offer 'midsize', which matches no row and fails the
+# CHECK on seeding. Accept both, store/query 'midmarket'.
+_COMPANY_TYPE_ALIASES = {"midsize": "midmarket"}
+COMPANY_TYPES = ("funded", "fortune500", "indianmajor", "midmarket", "healthcare")
+
+
+def normalize_company_type(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return value
+    return _COMPANY_TYPE_ALIASES.get(value, value)
 
 
 def _to_iso_str(value) -> str:

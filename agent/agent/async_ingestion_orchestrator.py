@@ -73,6 +73,19 @@ time). See run_ingestion_db_async.py's matching `os._exit()` fix and
 less useful if jobs_staging still gets wiped on the next scheduled run
 before anyone's reviewed it, or if a leaked thread still hangs the
 process at exit despite every chunk having saved successfully.
+
+Fallback chain (2026-10-13, from the 7 Oct India run analysis):
+  1. ATS API by name slug / homepage scan (detect_ats).
+  2. Careers URL -> if it is an API board, use the API; else scrape it.
+  3. While scraping: a careers page that redirects to, iframes, or links
+     out to a hiring platform is followed ("platform hop"): API when we
+     have an adapter, otherwise a second scrape on the platform page,
+     whose jobs win if it finds any.
+  4. A careers URL rejected by page validation (404/error/login/off-site,
+     see platforms.classify_page) no longer ends the company: the
+     real-browser homepage discovery runs and its link is tried next.
+  5. net::ERR_HTTP2_PROTOCOL_ERROR -> one retry on an HTTP/1.1 browser.
+Each ATS API fetch has its own API_FETCH_TIMEOUT_SECONDS cap.
 """
 
 import asyncio
@@ -82,6 +95,7 @@ from typing import Optional, Callable
 from .ats_detector import detect_ats, detect_ats_from_url
 from .ats_api import fetch_jobs
 from .async_career_scraper import scrape_careers_page, find_careers_url_via_playwright
+from .platforms import platform_for_url, parse_ats_url, API_ATS, host_of
 from .async_browser_pool import AsyncBrowserPool
 from .scraper_errors import ScraperBrowserDeadError
 from .company_source import CompanySource
@@ -105,7 +119,9 @@ API_RETRY_ATTEMPTS = 3           # ATS API calls, retried (with backoff) only on
 # (45s, in async_career_scraper.py) + an ATS API fetch with 429 backoff +
 # browser-relaunch buffer. Raised from 100 when the discovery/fallback steps
 # were added (2026-09-24).
-FUTURE_TIMEOUT_SECONDS = 150
+FUTURE_TIMEOUT_SECONDS = 210   # raised from 150 (2026-10-13): platform hop, HTTP/1.1
+                               # retry and sitemap lookup each add a bounded step
+API_FETCH_TIMEOUT_SECONDS = 60  # own cap for one ATS API fetch (incl. detail calls)
 
 
 async def run(
@@ -175,80 +191,153 @@ async def run(
     run_ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     async def scrape_with_retry(careers_url: str, domain: str, company_name: str,
-                                scrape_diag: Optional[dict] = None) -> list[dict]:
-        """Runs the Playwright fallback scrape. If the shared browser's
-        driver connection has died, discards it and retries once with a
-        freshly launched browser instead of leaving every other
-        concurrent task sharing it silently broken too."""
+                                scrape_diag: Optional[dict] = None,
+                                company_host: str = "") -> list[dict]:
+        """Runs the Playwright scrape. Dead browser -> relaunch and retry.
+        HTTP/2 protocol error -> one retry on the HTTP/1.1 browser."""
+        if scrape_diag is None:
+            scrape_diag = {}
         last_err = None
-        for attempt in range(1, DEFAULT_SCRAPE_RETRIES + 1):
-            browser = await browser_pool.get()
+        http1 = False
+        attempt = 0
+        while attempt < DEFAULT_SCRAPE_RETRIES + 1:
+            attempt += 1
+            browser = await browser_pool.get(http1=http1)
             try:
-                return await scrape_careers_page(careers_url, domain, browser=browser,
-                                                 diag=scrape_diag)
+                jobs = await scrape_careers_page(careers_url, domain, browser=browser,
+                                                 diag=scrape_diag, company_host=company_host)
             except ScraperBrowserDeadError as e:
                 last_err = e
                 print(f"[async_ingestion_orchestrator] Browser died while scraping {company_name} "
-                      f"(attempt {attempt}/{DEFAULT_SCRAPE_RETRIES}) — relaunching and retrying.")
+                      f"(attempt {attempt}) — relaunching and retrying.")
                 await browser_pool.invalidate()
+                if attempt >= DEFAULT_SCRAPE_RETRIES:
+                    break
+                continue
+            if scrape_diag.get("outcome") == "http2_error" and not http1:
+                scrape_diag.clear()
+                scrape_diag["retried_http1"] = True
+                http1 = True
+                continue
+            return jobs
         raise RuntimeError(f"browser kept dying while scraping {careers_url}: {last_err}")
 
     async def fetch_with_retry(ats: str, token: str, fetch_diag: dict) -> list[dict]:
-        """ATS API fetch that backs off and retries on HTTP 429 (Workable in
-        particular rate-limits) instead of giving up on the first one."""
+        """ATS API fetch that backs off and retries on HTTP 429, with its own
+        overall cap so a slow API can't eat the whole company budget."""
         jobs: list[dict] = []
         attempt = 0
         for attempt in range(1, API_RETRY_ATTEMPTS + 1):
             fetch_diag.clear()
-            jobs = await asyncio.to_thread(fetch_jobs, ats, token, True, fetch_diag)
+            try:
+                jobs = await asyncio.wait_for(
+                    asyncio.to_thread(fetch_jobs, ats, token, True, fetch_diag),
+                    timeout=API_FETCH_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                fetch_diag["fetch_error"] = f"api fetch exceeded {API_FETCH_TIMEOUT_SECONDS}s"
+                jobs = []
+                break
             if jobs or fetch_diag.get("fetch_status") != 429:
                 break
             await asyncio.sleep(2 * attempt)   # 2s, then 4s, then give up
         fetch_diag["attempts"] = attempt
+        fetch_diag["ats"] = f"{ats}/{token}"
         return jobs
 
     async def discover_careers_url(website: str, diags: dict) -> Optional[str]:
         """Real-browser homepage scan for a careers link — the fallback for
-        companies where detect_ats()'s plain-`requests` probing found nothing."""
+        companies where detect_ats()'s plain-`requests` probing found nothing
+        usable. Retries once on the HTTP/1.1 browser after an HTTP/2 error."""
+        if diags.get("discovery_ran"):
+            return None
+        diags["discovery_ran"] = True
         diags["phase"] = "discover_careers"
         dd = diags["discover"]
-        try:
-            browser = await browser_pool.get()
-            return await asyncio.wait_for(
-                find_careers_url_via_playwright(website, browser=browser, diag=dd),
-                timeout=DISCOVERY_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            dd["outcome"] = "timeout"
-        except ScraperBrowserDeadError:
-            dd["outcome"] = "browser_dead"
-            await browser_pool.invalidate()
-        except Exception as e:
-            dd["outcome"] = f"error: {e}"[:200]
+        for http1 in (False, True):
+            try:
+                browser = await browser_pool.get(http1=http1)
+                url = await asyncio.wait_for(
+                    find_careers_url_via_playwright(website, browser=browser, diag=dd),
+                    timeout=DISCOVERY_TIMEOUT_SECONDS,
+                )
+                if dd.get("outcome") == "http2_error" and not http1:
+                    dd.clear()
+                    dd["retried_http1"] = True
+                    continue
+                return url
+            except asyncio.TimeoutError:
+                dd["outcome"] = "timeout"
+            except ScraperBrowserDeadError:
+                dd["outcome"] = "browser_dead"
+                await browser_pool.invalidate()
+            except Exception as e:
+                dd["outcome"] = f"error: {e}"[:200]
+            return None
         return None
 
-    async def scrape_or_switch_to_api(careers_url: str, name: str, diags: dict):
-        """Scrapes a careers page — unless the URL is itself an ATS board, or
-        the page embeds one, in which case that ATS's API is used (it's
-        complete and structured; the link scraper can't see into iframes).
-        Returns (jobs, source, via) where source is "ats_api" | "career_scrape"."""
+    def _note_attempt(diags: dict, url: str, sd: dict, n: int):
+        diags.setdefault("attempts", []).append(
+            f"{url[:90]} -> {sd.get('outcome', '?')}"
+            + (f"/{sd['page_invalid']}" if sd.get("page_invalid") else "")
+            + f" kept={n}" + (" json" if sd.get("used_json_capture") else ""))
+
+    async def try_api(ats: str, token: str, diags: dict) -> list[dict]:
+        jobs = await fetch_with_retry(ats, token, diags["fetch"])
+        if jobs:
+            diags["ats"].update({"ats": ats, "token": token})
+        return jobs
+
+    async def scrape_or_switch_to_api(careers_url: str, name: str, diags: dict,
+                                      company_host: str = ""):
+        """Gets jobs for one careers URL. Returns (jobs, source, via) where
+        source is "ats_api" | "career_scrape". Order: the URL is itself an
+        API board -> API; scrape it; the page embeds an API board -> API;
+        the page hands off to another hiring-platform host -> follow it."""
         hit = detect_ats_from_url(careers_url)
         if hit:
-            jobs = await fetch_with_retry(hit.ats, hit.token, diags["fetch"])
+            jobs = await try_api(hit.ats, hit.token, diags)
             if jobs:
-                diags["ats"].update({"ats": hit.ats, "token": hit.token})
                 return jobs, "ats_api", "careers_url_is_ats_board"
 
         diags["phase"] = "career_scrape"
-        domain = _extract_domain(careers_url)
-        jobs = await scrape_with_retry(careers_url, domain, name, diags["scrape"])
+        sd: dict = {}
+        jobs = await scrape_with_retry(careers_url, _extract_domain(careers_url), name, sd,
+                                       company_host=company_host)
+        diags["scrape"] = sd
+        _note_attempt(diags, careers_url, sd, len(jobs))
 
-        emb = diags["scrape"].get("embedded_ats")
+        emb = sd.get("embedded_ats")
         if emb:
-            api_jobs = await fetch_with_retry(emb[0], emb[1], diags["fetch"])
+            api_jobs = await try_api(emb[0], emb[1], diags)
             if api_jobs:
-                diags["ats"].update({"ats": emb[0], "token": emb[1]})
                 return api_jobs, "ats_api", "embedded_ats_on_careers_page"
+
+        # Platform hop: careers page -> Darwinbox/Keka/PeopleStrong/... page.
+        scraped_host = host_of(sd.get("final_url") or careers_url)
+        on_platform = platform_for_url(sd.get("final_url") or careers_url) is not None
+        for purl in sd.get("platform_urls", [])[:2]:
+            if host_of(purl) == scraped_host:
+                continue
+            if jobs and on_platform:
+                break
+            plat = platform_for_url(purl) or "platform"
+            h = parse_ats_url(purl)
+            if h and h[0] in API_ATS:
+                api_jobs = await try_api(h[0], h[1], diags)
+                if api_jobs:
+                    return api_jobs, "ats_api", f"platform_hop_api:{h[0]}"
+                continue
+            diags["phase"] = "platform_hop"
+            hd: dict = {}
+            hop_jobs = await scrape_with_retry(purl, _extract_domain(purl), name, hd,
+                                               company_host=company_host)
+            _note_attempt(diags, purl, hd, len(hop_jobs))
+            if hop_jobs:
+                diags["scrape"] = hd
+                diags["ats"].update({"ats": plat, "careers_url": purl})
+                return hop_jobs, "career_scrape", f"platform_hop:{plat}"
+            if not jobs:
+                diags["scrape"] = hd if hd.get("outcome") not in (None, "ok") else sd
         return jobs, "career_scrape", None
 
     async def process_company(company: dict, diags: dict):
@@ -259,76 +348,108 @@ async def run(
         caller can still see how far it got (diags["phase"])."""
         name = company["company_name"]
         website = company["website"] or None
+        company_host = host_of(website) if website else ""
         started = datetime.now()
         diags["phase"] = "detect_ats"
 
         try:
-            # detect_ats() and fetch_jobs() are synchronous (requests-based)
-            # calls. Run them on a worker thread rather than inline, so a
-            # slow/hung DNS lookup or connection can't freeze the whole
-            # event loop — see the 2026-09-10 note in the module docstring.
-            ats_result = await asyncio.to_thread(detect_ats, name, website, diags["detect"])
-            diags["ats"] = {
-                "ats": ats_result.ats,
-                "token": ats_result.token,
-                "can_api": ats_result.can_api,
-                "careers_url": ats_result.careers_url,
-            }
+            diags["ats"] = {"ats": "unknown", "token": None, "can_api": False, "careers_url": None}
 
-            raw_jobs = []
+            raw_jobs: list[dict] = []
             path_taken = "unknown"
+            tried_urls: set = set()
 
-            if ats_result.can_api and ats_result.token:
+            async def via_url(url: str):
+                """Scrape/API one careers URL; returns (jobs, path, via)."""
+                tried_urls.add(url.split("#")[0].rstrip("/"))
+                return await scrape_or_switch_to_api(url, name, diags, company_host=company_host)
+
+            async def via_discovery():
+                if not website:
+                    return [], None, None
+                url = await discover_careers_url(website, diags)
+                if not url or url.split("#")[0].rstrip("/") in tried_urls:
+                    return [], None, None
+                diags["ats"]["careers_url"] = url
+                j, p, v = await via_url(url)
+                return j, p, "playwright_homepage_scan" + (f"+{v}" if v else "")
+
+            override = (company.get("careers_url") or "").strip()
+            if override:
+                if not override.startswith("http"):
+                    override = "https://" + override
+                # A careers URL set by hand in companies.careers_url wins over
+                # anything detected; detection only runs again if it yields nothing.
+                diags["careers_url_override"] = override
+                j, p, v = await via_url(override)
+                if j:
+                    raw_jobs, path_taken = j, p
+                    diags["ats"]["careers_url"] = override
+                    diags["recovered_via"] = "careers_url_override" + (f"+{v}" if v else "")
+
+            if not raw_jobs:
+                diags["phase"] = "detect_ats"
+                ats_result = await asyncio.to_thread(detect_ats, name, website, diags["detect"])
+                diags["ats"] = {
+                    "ats": ats_result.ats,
+                    "token": ats_result.token,
+                    "can_api": ats_result.can_api,
+                    "careers_url": ats_result.careers_url,
+                }
+            else:
+                ats_result = None
+
+            if ats_result is None:
+                pass
+            elif ats_result.can_api and ats_result.token:
                 diags["phase"] = "ats_fetch"
                 raw_jobs = await fetch_with_retry(ats_result.ats, ats_result.token, diags["fetch"])
                 path_taken = "ats_api"
 
                 f = diags["fetch"]
                 if not raw_jobs and f.get("fetch_status") != 429:
-                    # (2026-09-24) Was: only fall back when the API call itself
-                    # errored (f.get("fetch_error") truthy — typically a 404 = a
-                    # wrong/stale board token). But fetch_jobs() in ats_api.py
-                    # only sets fetch_error inside its except block — a stale
-                    # token that still resolves to a *real but abandoned* board
-                    # returns a clean 200 with an empty jobs array, which looks
-                    # identical to a genuinely-empty board and set no
-                    # fetch_error. That company was accepted as "0 jobs" and
-                    # never got a chance at homepage discovery — see Moveworks:
-                    # an abandoned Workable board answers 200/empty while the
-                    # real, active careers page lives on their own domain.
-                    # Now both cases (outright error AND clean-but-empty) fall
-                    # back to homepage discovery — which may itself lead to the
-                    # correct ATS board or a career page with real listings.
+                    # Errored OR clean-but-empty board (stale token, abandoned
+                    # board): fall back to the careers page / homepage discovery.
                     diags["api_empty_or_failed"] = (
                         f"{ats_result.ats}/{ats_result.token} -> "
                         + (f"HTTP {f.get('fetch_status')}" if f.get("fetch_error")
                            else "empty board (0 jobs, no error)")
                     )
                     url = ats_result.careers_url
-                    if not url and website:
-                        url = await discover_careers_url(website, diags)
-                        if url:
-                            diags["ats"]["careers_url"] = url
+                    if url and detect_ats_from_url(url):
+                        url = None   # the careers URL *is* the board we just asked
                     if url:
-                        raw_jobs, path_taken, via = await scrape_or_switch_to_api(url, name, diags)
+                        raw_jobs, path_taken, via = await via_url(url)
                         diags["recovered_via"] = via or "scrape_after_empty_or_failed_api"
+                    if not raw_jobs:
+                        j, p, v = await via_discovery()
+                        if j:
+                            raw_jobs, path_taken = j, p
+                            diags["recovered_via"] = v
+                        elif p and path_taken == "ats_api" and not url:
+                            path_taken = p
 
-            elif ats_result.careers_url:
-                raw_jobs, path_taken, via = await scrape_or_switch_to_api(
-                    ats_result.careers_url, name, diags)
+            elif ats_result.careers_url and (
+                    ats_result.careers_url.split("#")[0].rstrip("/") not in tried_urls):
+                raw_jobs, path_taken, via = await via_url(ats_result.careers_url)
                 if via:
                     diags["recovered_via"] = via
                 elif ats_result.ats not in ("unknown", "", None):
-                    # e.g. Workday/Rippling/BambooHR: detected, now handed a URL to scrape
                     diags["recovered_via"] = f"{ats_result.ats}_careers_url"
+                if not raw_jobs:
+                    # The guessed/scanned careers URL was wrong (error page,
+                    # login, off-site ...) or empty: let the real-browser
+                    # homepage scan find the link a human would click.
+                    j, p, v = await via_discovery()
+                    if j:
+                        raw_jobs, path_taken = j, p
+                        diags["recovered_via"] = v
 
             elif website:
-                # detect_ats() found no ATS and no careers page. Look in a real browser.
-                url = await discover_careers_url(website, diags)
-                if url:
-                    diags["ats"]["careers_url"] = url
-                    raw_jobs, path_taken, via = await scrape_or_switch_to_api(url, name, diags)
-                    diags["recovered_via"] = "playwright_homepage_scan" + (f"+{via}" if via else "")
+                j, p, v = await via_discovery()
+                if p:
+                    raw_jobs, path_taken = j, p
+                    diags["recovered_via"] = v
 
             elapsed = (datetime.now() - started).total_seconds()
 
@@ -350,6 +471,7 @@ async def run(
                     "scraped_at":     run_ts,
                 }
                 for job in raw_jobs
+                if (job.get("title") or "").strip() and (job.get("apply_url") or "").strip()
             ]
             return name, job_rows, path_taken, elapsed, None, diags
 
@@ -493,28 +615,31 @@ def _classify_outcome(path: str, jobs_found: int, err: Optional[str], d: dict) -
     Stages starting with "ok_" produced jobs. Everything else is a failure
     or a zero-job result, split by *where* in the pipeline it happened:
 
+      website_unreachable           DNS/connection failure on the stored website
+      website_ssl_error             TLS/certificate failure on the stored website
+      website_parked                stored website is parked / for sale / placeholder
+      blocked_bot_wall              Cloudflare / perfdrive / "Access Denied" wall
       no_careers_url_found          neither detect_ats() nor the real-browser
-                                    homepage scan found a careers page (detail
-                                    says what each saw)
+                                    homepage scan found a careers page
       ats_detected_not_scraped      (legacy) ATS detected but no URL to scrape
       ats_api_board_not_found       ATS API returned 404 (usually a wrong slug)
       ats_api_rate_limited          ATS API returned 429
       ats_api_error                 any other ATS API failure
       ats_api_empty_board           ATS API answered fine but listed 0 jobs
-      scrape_hard_timeout           45s cap hit and no links had been found yet
-                                    (if links HAD been found they are now kept:
-                                    ok_career_scrape, "partial: hard timeout")
+      scrape_invalid_page           every careers URL tried was rejected by
+                                    page validation (detail: reason, e.g.
+                                    not_found_page, login_page, off_site_redirect)
+      scrape_http2_error            HTTP/2 protocol error even after HTTP/1.1 retry
+      scrape_hard_timeout           hard cap hit and no links had been found yet
       scrape_page_load_timeout      page.goto() timed out
-      scrape_page_error             navigation error (HTTP2 protocol error, etc.)
-      scrape_page_has_no_links      page loaded, zero candidate links
+      scrape_page_error             navigation error
+      scrape_page_has_no_links      page loaded, zero candidate links, no job JSON
       scrape_all_links_filtered_out page had links, none looked like job links
       timeout_in_<phase>            whole-company cap hit; phase = where
       exception                     unexpected exception
 
-    For "ok_*" stages, `detail` says how the company was recovered when one of
-    the fallbacks did the work (recovered_via=...): playwright_homepage_scan,
-    scrape_after_empty_or_failed_api, embedded_ats_on_careers_page,
-    careers_url_is_ats_board, or <ats>_careers_url (Workday etc.).
+    `detail` always ends with attempts=[url -> outcome kept=N, ...] when
+    more than one URL was tried, so a failure can be traced end to end.
     """
     detect = d.get("detect", {})
     fetch = d.get("fetch", {})
@@ -524,58 +649,98 @@ def _classify_outcome(path: str, jobs_found: int, err: Optional[str], d: dict) -
     rv = d.get("recovered_via")
     rv_note = f"recovered_via={rv}" if rv else ""
     after_api = f"after_api_empty_or_failed=[{d['api_empty_or_failed']}] " if d.get("api_empty_or_failed") else ""
+    attempts = d.get("attempts") or []
+    att_note = (" attempts=[" + " | ".join(attempts[:5]) + "]") if len(attempts) > 1 else ""
+
+    def finish(stage, detail):
+        return stage, (detail + att_note).strip()
 
     if path == "timeout":
-        return f"timeout_in_{d.get('phase', 'unknown')}", err or ""
+        return finish(f"timeout_in_{d.get('phase', 'unknown')}", err or "")
     if path == "error":
-        return "exception", err or ""
+        return finish("exception", err or "")
 
     if path == "ats_api":
         if jobs_found > 0:
-            return "ok_ats_api", f"{ats} {rv_note}".strip()
+            return finish("ok_ats_api", f"{ats} {rv_note}".strip())
         status = fetch.get("fetch_status")
+        tok = f"{ats}/{(d.get('ats') or {}).get('token')}"
         if status == 404:
-            return "ats_api_board_not_found", f"{ats}/{(d.get('ats') or {}).get('token')}"
+            return finish("ats_api_board_not_found", tok)
         if status == 429:
-            return "ats_api_rate_limited", f"{ats}/{(d.get('ats') or {}).get('token')}"
+            return finish("ats_api_rate_limited", tok)
         if fetch.get("fetch_error"):
-            return "ats_api_error", fetch["fetch_error"]
-        return "ats_api_empty_board", f"{ats}/{(d.get('ats') or {}).get('token')}"
+            return finish("ats_api_error", fetch["fetch_error"])
+        return finish("ats_api_empty_board", tok)
 
     if path == "career_scrape":
         if jobs_found > 0:
             partial = ""
             if scrape.get("outcome") == "hard_timeout":
                 partial = f" partial: hard timeout, kept {scrape.get('partial_jobs_kept')} link(s)"
-            return "ok_career_scrape", f"{rv_note}{partial}".strip()
+            json_note = " via_json_capture" if scrape.get("used_json_capture") else ""
+            return finish("ok_career_scrape", f"{rv_note}{partial}{json_note}".strip())
         outcome = scrape.get("outcome", "")
+        if outcome == "invalid_page":
+            reason = scrape.get("page_invalid", "")
+            if reason == "bot_wall":
+                return finish("blocked_bot_wall", after_api + f"final_url={scrape.get('final_url')}")
+            if reason == "parked_domain":
+                return finish("website_parked", after_api + f"final_url={scrape.get('final_url')}")
+            return finish("scrape_invalid_page", after_api + f"reason={reason} final_url={scrape.get('final_url')}")
+        if outcome == "http2_error":
+            return finish("scrape_http2_error", after_api.strip())
         if outcome == "hard_timeout":
-            return "scrape_hard_timeout", after_api + f"stage={scrape.get('stage_reached')}"
+            return finish("scrape_hard_timeout", after_api + f"stage={scrape.get('stage_reached')}")
         if outcome == "goto_timeout":
-            return "scrape_page_load_timeout", after_api.strip()
+            return finish("scrape_page_load_timeout", after_api.strip())
+        if outcome.startswith("error: site_unreachable"):
+            return finish("website_unreachable", after_api + outcome)
+        if outcome.startswith("error: ssl"):
+            return finish("website_ssl_error", after_api + outcome)
         if outcome.startswith("error"):
-            return "scrape_page_error", after_api + outcome
+            return finish("scrape_page_error", after_api + outcome)
         if outcome == "context_error":
-            return "scrape_browser_error", after_api.strip()
+            return finish("scrape_browser_error", after_api.strip())
         if scrape.get("candidate_links", 0) == 0:
-            return "scrape_page_has_no_links", after_api + (
-                "page loaded but nothing matched — JS-rendered, iframe, or blocked?")
+            return finish("scrape_page_has_no_links", after_api + (
+                f"page loaded but no links; json_responses={scrape.get('json_responses', 0)} "
+                f"platform_urls={scrape.get('platform_urls', [])[:2]}"))
         if scrape.get("kept_links", 0) == 0:
             samples = " | ".join(scrape.get("reject_samples") or [])
-            return "scrape_all_links_filtered_out", after_api + (
+            return finish("scrape_all_links_filtered_out", after_api + (
                 f"{scrape.get('candidate_links')} candidate link(s) via "
                 f"{scrape.get('listing_selector')}, 0 passed the job-link filter; "
-                f"reasons={scrape.get('reject_counts')}; empty_text={scrape.get('empty_text_links')}; "
-                f"samples: {samples}")
-        return "scrape_zero_jobs_other", after_api.strip()
+                f"reasons={scrape.get('reject_counts')}; json_responses={scrape.get('json_responses', 0)}; "
+                f"samples: {samples}"))
+        return finish("scrape_zero_jobs_other", after_api.strip())
 
     # path == "unknown": neither the API path nor the scrape path ran.
+    hs = str(detect.get("homepage_status") or "")
+    dout = str(discover.get("outcome") or "")
+    if "bot_wall" in dout:
+        return finish("blocked_bot_wall", f"homepage_status={hs}; browser_discovery={dout}")
+    if "parked_domain" in dout:
+        return finish("website_parked", f"homepage_status={hs}; browser_discovery={dout}")
+    if hs.startswith("error: SSLError") or "ERR_CERT" in dout or "ERR_SSL" in dout:
+        return finish("website_ssl_error", f"homepage_status={hs}; browser_discovery={dout}")
+    if (hs.startswith("error: ConnectionError") or hs.startswith("error: ConnectTimeout")) and (
+            "ERR_NAME_NOT_RESOLVED" in dout or "ERR_CONNECTION" in dout or "ERR_ADDRESS" in dout
+            or dout in ("timeout", "")):
+        return finish("website_unreachable", f"homepage_status={hs}; browser_discovery={dout}")
     if ats not in ("unknown", None, ""):
-        return "ats_detected_not_scraped", (
-            f"{ats}: detected but no careers URL to scrape (via {detect.get('detected_via')})")
-    return "no_careers_url_found", (
-        f"homepage_status={detect.get('homepage_status')}; slug_tried={detect.get('slug_tried')}; "
-        f"browser_discovery={discover.get('outcome', 'not_run')}")
+        return finish("ats_detected_not_scraped", (
+            f"{ats}: detected but no careers URL to scrape (via {detect.get('detected_via')})"))
+    extra = ""
+    if detect.get("rejected_guesses"):
+        extra += f"; rejected_guesses={detect['rejected_guesses'][:4]}"
+    if detect.get("sitemap"):
+        extra += f"; sitemap={detect['sitemap']}"
+    if detect.get("catch_all_site"):
+        extra += "; catch_all_site"
+    return finish("no_careers_url_found", (
+        f"homepage_status={hs}; slug_tried={detect.get('slug_tried')}; "
+        f"browser_discovery={dout or 'not_run'}{extra}"))
 
 
 def _build_result_row(name: str, website: str, path: str, elapsed: float,

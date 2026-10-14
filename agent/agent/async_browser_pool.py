@@ -33,67 +33,74 @@ mid-scrape would break them. If the same preventive-memory-growth
 benefit is wanted here, the safer version is to recycle between
 *batches* of tasks rather than while tasks are in flight — not
 implemented yet.
+
+2026-10-13: a second, lazily-launched browser with --disable-http2 is
+available via get(http1=True). Several Akamai-fronted careers sites
+(Honeywell, Yes Bank, Policybazaar, EA, Morgan Stanley, Lululemon in the
+7 Oct logs) fail headless Chromium with net::ERR_HTTP2_PROTOCOL_ERROR but
+load over HTTP/1.1. Only companies that hit that error ever touch it.
 """
 
 import asyncio
 
+_BASE_ARGS = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+
 
 class AsyncBrowserPool:
     def __init__(self, headless: bool = True):
-        self._browser = None
-        self._pw = None
         self._headless = headless
         self._lock = asyncio.Lock()
+        # mode -> (playwright, browser); mode is "default" or "http1"
+        self._slots: dict[str, tuple] = {}
 
-    async def get(self):
-        """Return the shared browser, launching or relaunching as needed."""
+    async def get(self, http1: bool = False):
+        """Return the shared browser for this mode, launching or relaunching as needed."""
+        mode = "http1" if http1 else "default"
         async with self._lock:
-            if self._browser is not None:
+            slot = self._slots.get(mode)
+            if slot is not None:
                 dead = False
                 try:
-                    dead = not self._browser.is_connected()
+                    dead = not slot[1].is_connected()
                 except Exception:
                     dead = True
-
                 if dead:
-                    print("[async_browser_pool] Browser connection is dead — relaunching.")
-                    await self._retire_locked()
-
-            if self._browser is not None:
-                return self._browser
+                    print(f"[async_browser_pool] Browser ({mode}) connection is dead — relaunching.")
+                    await self._retire_locked(mode)
+                    slot = None
+            if slot is not None:
+                return slot[1]
 
             from playwright.async_api import async_playwright
 
-            self._pw = await async_playwright().start()
-            self._browser = await self._pw.chromium.launch(
-                headless=self._headless,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-            )
-        return self._browser
+            pw = await async_playwright().start()
+            args = list(_BASE_ARGS) + (["--disable-http2"] if http1 else [])
+            browser = await pw.chromium.launch(headless=self._headless, args=args)
+            self._slots[mode] = (pw, browser)
+            return browser
 
     async def invalidate(self):
-        """Force the next get() to launch a fresh browser. Call this
-        right after catching a ScraperBrowserDeadError, so a retry
-        doesn't reuse the same broken instance."""
+        """Force the next get() to launch fresh browsers. Call this right
+        after catching a ScraperBrowserDeadError, and between batches."""
         async with self._lock:
-            await self._retire_locked()
+            for mode in list(self._slots):
+                await self._retire_locked(mode)
 
-    async def _retire_locked(self):
+    async def _retire_locked(self, mode: str):
         """Must only be called with self._lock already held."""
-        if self._browser:
-            try:
-                await self._browser.close()
-            except Exception:
-                pass
-        if self._pw:
-            try:
-                await self._pw.stop()
-            except Exception:
-                pass
-        self._browser = None
-        self._pw = None
+        slot = self._slots.pop(mode, None)
+        if not slot:
+            return
+        pw, browser = slot
+        try:
+            await browser.close()
+        except Exception:
+            pass
+        try:
+            await pw.stop()
+        except Exception:
+            pass
 
     async def close(self):
-        """Close the browser and stop Playwright."""
-        async with self._lock:
-            await self._retire_locked()
+        """Close all browsers and stop Playwright."""
+        await self.invalidate()
