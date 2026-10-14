@@ -152,6 +152,14 @@ def _scrape_summary(sd: dict, n: int) -> str:
         parts.append(f"platform_urls={[u[:80] for u in sd['platform_urls'][:3]]}")
     if sd.get("reject_counts"):
         parts.append(f"filter_rejects={sd['reject_counts']}")
+    pg = sd.get("pagination")
+    if pg:
+        if pg.get("skipped"):
+            parts.append(f"pagination=skipped({pg['skipped']})")
+        else:
+            parts.append(f"pagination=pages:{pg.get('pages_visited')} added:{pg.get('jobs_added', 0)} "
+                         f"stopped:{pg.get('stopped') or '-'} cookie:{pg.get('cookie_banner')} "
+                         f"clicks:{pg.get('clicks', [])[:8]}")
     return " ".join(parts)
 
 
@@ -178,8 +186,9 @@ API_RETRY_ATTEMPTS = 3           # ATS API calls, retried (with backoff) only on
 # (45s, in async_career_scraper.py) + an ATS API fetch with 429 backoff +
 # browser-relaunch buffer. Raised from 100 when the discovery/fallback steps
 # were added (2026-09-24).
-FUTURE_TIMEOUT_SECONDS = 210   # raised from 150 (2026-10-13): platform hop, HTTP/1.1
-                               # retry and sitemap lookup each add a bounded step
+FUTURE_TIMEOUT_SECONDS = 240   # raised from 150 (2026-10-13): platform hop, HTTP/1.1
+                               # retry and sitemap lookup each add a bounded step;
+                               # 210 -> 240 (2026-10-14) for pagination (scrape cap 50 -> 70s)
 API_FETCH_TIMEOUT_SECONDS = 60  # own cap for one ATS API fetch (incl. detail calls)
 
 

@@ -59,7 +59,14 @@ from .scraper_errors import ScraperBrowserDeadError, is_dead_browser_error
 from .text_extract import DESCRIPTION_SNIPPET_CHARS, make_snippet
 
 # Hard wall-clock cap on top of Playwright's own per-call timeouts.
-HARD_TIMEOUT_SECONDS = 50
+HARD_TIMEOUT_SECONDS = 70        # raised from 50 (2026-10-14) to make room for pagination
+
+# Pagination (2026-10-14): after page 1, click "Load more" / "Next" / arrow /
+# the next page number until no new jobs appear. Bounded by pages and time.
+PAGINATION_MAX_PAGES = 15        # pages/clicks after the first one
+PAGINATION_BUDGET_SECONDS = 25   # total time spent paginating one listing
+PAGINATION_SETTLE_MS = 4000      # networkidle wait after each click (upper bound)
+PAGINATION_STALE_LIMIT = 2       # stop after this many clicks in a row add no new jobs
 
 MAX_DESCRIPTION_FETCHES = 60
 DESCRIPTION_CONCURRENCY = 3
@@ -184,6 +191,194 @@ _META_JS = r"""() => ({
   anchors: document.querySelectorAll('a[href]').length,
   iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src || '').filter(Boolean).slice(0, 20)
 })"""
+
+
+_COOKIE_JS = r"""() => {
+  // Click an "accept cookies" button if a consent banner is showing.
+  const known = ['#onetrust-accept-btn-handler', '#accept-recommended-btn-handler',
+    '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll', '#CybotCookiebotDialogBodyButtonAccept',
+    '.cc-allow', '.cc-dismiss', '.cky-btn-accept', '#cookie_action_close_header', '.cmplz-accept',
+    '#truste-consent-button', '.osano-cm-accept-all', '[data-testid="uc-accept-all-button"]',
+    '#didomi-notice-agree-button', '.js-accept-cookies', '#hs-eu-confirmation-button'];
+  const vis = el => !!(el && (el.offsetParent !== null || el.getClientRects().length));
+  for (const sel of known) {
+    try { const el = document.querySelector(sel); if (vis(el)) { el.click(); return 'accepted:' + sel; } } catch (e) {}
+  }
+  const re = /^(accept( all)?( cookies)?|allow( all)?( cookies)?|i accept|i agree|agree( and close)?|got it|ok(ay)?|accept & close|accept and continue|yes,? i agree)[.!]?$/i;
+  const ctx = '[id*="cookie" i],[class*="cookie" i],[id*="consent" i],[class*="consent" i],' +
+              '[id*="gdpr" i],[class*="gdpr" i],[aria-label*="cookie" i],[role="dialog"],[class*="banner" i]';
+  for (const el of document.querySelectorAll('button,a,[role="button"],input[type="button"],input[type="submit"]')) {
+    const t = ((el.innerText || el.value || el.getAttribute('aria-label') || '').trim()).replace(/\s+/g, ' ');
+    if (!t || t.length > 40 || !re.test(t) || !vis(el)) continue;
+    const box = el.closest(ctx);
+    if (!box || !/cookie|consent|gdpr|privacy|tracking/i.test(box.innerText || '')) continue;
+    el.click();
+    return 'accepted:' + t;
+  }
+  return 'none';
+}"""
+
+_PAGER_JS = r"""([pageNo]) => {
+  // Find the control that loads more jobs. Marks it with data-sjh-pager and
+  // returns {kind, text}; or {kind: 'none', why}.
+  document.querySelectorAll('[data-sjh-pager]').forEach(e => e.removeAttribute('data-sjh-pager'));
+  const vis = el => !!(el && (el.offsetParent !== null || el.getClientRects().length));
+  const disabled = el => el.disabled || el.getAttribute('aria-disabled') === 'true' ||
+      /(^|[\s_-])(disabled|inactive)([\s_-]|$)/i.test(el.className || '') ||
+      !!(el.parentElement && /(^|[\s_-])disabled([\s_-]|$)/i.test(el.parentElement.className || ''));
+  const skipCtx = '[class*="carousel" i],[class*="slick" i],[class*="swiper" i],[class*="slider" i],' +
+      '[class*="testimonial" i],[class*="gallery" i],[class*="banner" i],header,footer nav[class*="menu" i]';
+  const pagerCtx = '[class*="paginat" i],[class*="pager" i],[class*="paging" i],[aria-label*="pagination" i],' +
+      '[aria-label*="pager" i],[class*="page-nav" i],[class*="pages" i],[role="navigation"]';
+  const textOf = el => ((el.innerText || el.value || '').trim()).replace(/\s+/g, ' ');
+  const labelOf = el => ((el.getAttribute('aria-label') || el.getAttribute('title') || '') + '').trim();
+  const cands = Array.from(document.querySelectorAll(
+      'a,button,[role="button"],[role="link"],input[type="button"],li[class*="next" i],span[class*="next" i],div[class*="next" i]'));
+  const ok = el => vis(el) && !disabled(el) && !el.closest(skipCtx);
+  const mark = (el, kind, text) => { el.setAttribute('data-sjh-pager', '1'); return {kind, text: (text || '').slice(0, 60)}; };
+
+  // 1. Load more / show more
+  const moreRe = /^(load|show|view|see|display)\s+more(\s+(jobs?|openings?|positions?|roles?|results?|opportunities|vacancies|listings?))?(\s*[(]\d+[)])?$|^more\s+(jobs?|openings?|positions?|roles?|results?)$/i;
+  for (const el of cands) {
+    const t = textOf(el) || labelOf(el);
+    if (t && t.length < 60 && moreRe.test(t) && ok(el)) return mark(el, 'load_more', t);
+  }
+  // 2. Next / arrow
+  const nextTextRe = /^(next|next page|next\s*[›»>→❯⟩]|[›»>→❯⟩]|>>|›|»)$/i;
+  const nextLabelRe = /(^|\b)next(\b|$)|go to next page|next page/i;
+  let disabledNext = false;
+  for (const el of cands) {
+    const t = textOf(el), lab = labelOf(el);
+    const inPager = !!el.closest(pagerCtx);
+    const relNext = (el.getAttribute('rel') || '').toLowerCase() === 'next';
+    const cls = (el.className && el.className.baseVal !== undefined) ? el.className.baseVal : (el.className || '');
+    const clsNext = /(^|[\s_-])next([\s_-]|$)/i.test(cls);
+    const isNext = relNext || (t && t.length < 20 && nextTextRe.test(t)) || (lab && nextLabelRe.test(lab)) ||
+                   (clsNext && (inPager || !t));
+    if (!isNext) continue;
+    if (/^[›»>→❯⟩]$|^>>$/.test(t) && !inPager && !lab) continue;   // bare arrow outside a pager: likely a carousel
+    if (!vis(el) || el.closest(skipCtx)) continue;
+    if (disabled(el)) { disabledNext = true; continue; }
+    let target = el;
+    if (!/^(A|BUTTON|INPUT)$/.test(el.tagName) && !el.getAttribute('role')) {
+      const inner = el.querySelector('a,button');
+      if (inner) target = inner;
+    }
+    return mark(target, 'next', t || lab || 'arrow');
+  }
+  // 3. Numbered page: the link whose text is the next page number, inside a pager
+  const want = String(pageNo + 1);
+  for (const el of cands) {
+    if (textOf(el) !== want) continue;
+    if (!el.closest(pagerCtx) && !(el.parentElement && /^\d+$/.test(textOf(el.parentElement.previousElementSibling || {innerText: ''})))) continue;
+    if (!ok(el)) continue;
+    return mark(el, 'page_number', want);
+  }
+  return {kind: 'none', why: disabledNext ? 'next_disabled_last_page' : 'no_pager_found'};
+}"""
+
+
+async def _dismiss_cookie_banner(page) -> str:
+    try:
+        res = await page.evaluate(_COOKIE_JS)
+        if res and res != "none":
+            await page.wait_for_timeout(500)
+        return res or "none"
+    except Exception as e:
+        if is_dead_browser_error(e):
+            raise ScraperBrowserDeadError(str(e)) from e
+        return f"error: {type(e).__name__}"
+
+
+async def _click_pager(page, page_no: int) -> dict:
+    """Finds and clicks the next pager control. Returns {kind, text} or {kind:'none', why}."""
+    try:
+        found = await page.evaluate(_PAGER_JS, [page_no])
+    except Exception as e:
+        if is_dead_browser_error(e):
+            raise ScraperBrowserDeadError(str(e)) from e
+        return {"kind": "none", "why": f"pager_search_error: {type(e).__name__}"}
+    if found.get("kind") == "none":
+        return found
+    loc = page.locator("[data-sjh-pager='1']").first
+    try:
+        await loc.scroll_into_view_if_needed(timeout=3000)
+        await loc.click(timeout=4000)
+    except Exception as e:
+        if is_dead_browser_error(e):
+            raise ScraperBrowserDeadError(str(e)) from e
+        # Overlay in the way or not "actionable": fall back to a DOM click.
+        try:
+            await page.evaluate("() => { const el = document.querySelector(\"[data-sjh-pager='1']\"); if (el) el.click(); }")
+            found["click"] = "dom_click"
+        except Exception as e2:
+            if is_dead_browser_error(e2):
+                raise ScraperBrowserDeadError(str(e2)) from e2
+            return {"kind": "none", "why": f"click_failed: {type(e).__name__}"}
+    return found
+
+
+async def _paginate(page, jobs: list[dict], captured: list, pending: list, start_url: str,
+                    diag: dict, partial: Optional[list]) -> list[dict]:
+    """Clicks through Load more / Next / arrow / numbered pages, merging new jobs."""
+    pg = {"pages_visited": 1, "clicks": [], "stopped": ""}
+    diag["pagination"] = pg
+    pg["cookie_banner"] = await _dismiss_cookie_banner(page)
+    start_host = host_of(start_url)
+    seen = {j.get("apply_url") for j in jobs}
+    merged = list(jobs)
+    deadline = time.monotonic() + PAGINATION_BUDGET_SECONDS
+    page_no, stale = 1, 0
+    for _ in range(PAGINATION_MAX_PAGES):
+        if time.monotonic() > deadline:
+            pg["stopped"] = f"time_budget_{PAGINATION_BUDGET_SECONDS}s"
+            break
+        n_json_before = len(captured)
+        url_before = page.url
+        found = await _click_pager(page, page_no)
+        if found.get("kind") == "none":
+            pg["stopped"] = found.get("why", "no_pager_found")
+            break
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=PAGINATION_SETTLE_MS)
+        except Exception:
+            pass
+        try:
+            await page.wait_for_load_state("networkidle", timeout=PAGINATION_SETTLE_MS)
+        except Exception:
+            pass
+        await page.wait_for_timeout(500)
+        if host_of(page.url) != start_host and platform_for_url(page.url) is None:
+            pg["stopped"] = f"click_left_site:{page.url[:100]}"
+            break
+        anchors = await _collect_anchors(page)
+        new = [j for j in filter_job_anchors(anchors, page.url) if j.get("apply_url") not in seen]
+        for j in new:
+            seen.add(j.get("apply_url"))
+        merged.extend(new)
+        if partial is not None:
+            partial.extend(new)
+        await _drain_json(pending)
+        json_grew = len(captured) > n_json_before
+        if found["kind"] != "load_more":
+            page_no += 1
+        pg["pages_visited"] += 1
+        pg["clicks"].append(f"{found['kind']}:{found.get('text', '')}"
+                            + (f"({found['click']})" if found.get("click") else "")
+                            + f" -> +{len(new)}" + (" json" if json_grew else "")
+                            + (" url_changed" if page.url != url_before else ""))
+        if new or json_grew:
+            stale = 0
+        else:
+            stale += 1
+            if stale >= PAGINATION_STALE_LIMIT:
+                pg["stopped"] = f"no_new_jobs_after_{stale}_clicks"
+                break
+    else:
+        pg["stopped"] = f"page_limit_{PAGINATION_MAX_PAGES}"
+    pg["jobs_added"] = len(merged) - len(jobs)
+    pg["clicks"] = pg["clicks"][:20]
+    return merged
 
 
 async def _settle(page) -> None:
@@ -648,6 +843,17 @@ async def _scrape_in_context(
         jobs = filter_job_anchors(anchors, final_url, diag=diag)
         if partial is not None:
             partial.extend(jobs)
+
+        # Pagination: only on a page that is already a job listing (page 1
+        # produced job links or job JSON), so we never click "Next" on a blog.
+        await _drain_json(pending)
+        first_json = harvest_jobs_from_json(captured, final_url,
+                                            on_platform=platform_for_url(final_url) is not None)
+        if (jobs or first_json) and not embedded:
+            diag["stage_reached"] = "pagination"
+            jobs = await _paginate(page, jobs, captured, pending, final_url, diag, partial)
+        else:
+            diag["pagination"] = {"skipped": "embedded_ats_board" if embedded else "no_jobs_on_first_page"}
 
         await _drain_json(pending)
         json_jobs = harvest_jobs_from_json(captured, final_url,
