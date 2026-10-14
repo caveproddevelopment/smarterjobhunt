@@ -184,7 +184,7 @@ async def main():
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N companies (for smoke tests)")
     parser.add_argument(
         "--company-type",
-        choices=["funded", "fortune500", "indianmajor", "midsize", "healthcare"],
+        choices=["funded", "fortune500", "indianmajor", "midmarket", "midsize", "healthcare"],
         default=None,
         help="Only process companies tagged with this type (default: all)"
     )
@@ -196,6 +196,14 @@ async def main():
              "retrying just the ones that hard-timed-out on a previous run. Combines with "
              "--company-type via AND if both are given. Names with no matching row are "
              "silently skipped."
+    )
+    parser.add_argument(
+        "--listing-status",
+        default="active",
+        help="Comma-separated companies.listing_status values to scrape (default: active). "
+             "Use 'active,no_online_listings' for the periodic re-check of companies that had "
+             "no online listings, or 'all' to ignore the column. Ignored if the column doesn't "
+             "exist (migration not applied yet)."
     )
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--batch-id", default=None,
@@ -262,7 +270,11 @@ async def main():
             print("[run_ingestion_db_async] jobs_staging left untouched (pass --clear-staging "
                   "to wipe it first).", flush=True)
 
-        source = PostgresCompanySource(conn, limit=args.limit, company_type=args.company_type, names=company_names)
+        statuses = [x.strip() for x in args.listing_status.split(",") if x.strip()]
+        if company_names and args.listing_status == "active":
+            statuses = ["all"]   # an explicit name list means "these companies", whatever their status
+        source = PostgresCompanySource(conn, limit=args.limit, company_type=args.company_type,
+                                       names=company_names, listing_statuses=statuses)
         sink = StagingJobSink(conn, batch_id=batch_id)
 
         def progress(pct, msg):
@@ -302,6 +314,8 @@ async def main():
         print("==" * 30)
         print(f"Batch ID:                {batch_id}")
         print(f"Companies processed:     {summary['companies_total']}")
+        if getattr(source, "skipped_by_status", 0):
+            print(f"  (skipped by listing_status: {source.skipped_by_status} — see --listing-status)")
         print(f"  -> ATS API hit:        {summary['companies_ats_hit']}")
         print(f"  -> Career page scrape: {summary['companies_scraped']}")
         print(f"  -> Failed/unknown:     {summary['companies_failed']}")

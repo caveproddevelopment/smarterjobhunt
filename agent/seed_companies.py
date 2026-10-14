@@ -16,7 +16,7 @@ import argparse
 import os
 import sys
 import psycopg2
-from agent.company_source import CSVCompanySource
+from agent.company_source import CSVCompanySource, normalize_company_type
 from agent.job_sink import _normalize_funding_stage
 
 
@@ -27,10 +27,11 @@ def main():
     parser.add_argument(
         "--company-type",
         default="funded",
-        choices=["funded", "fortune500", "indianmajor", "midsize", "healthcare"],
+        choices=["funded", "fortune500", "indianmajor", "midmarket", "midsize", "healthcare"],
         help="Value to tag every company in this CSV with (default: funded)",
     )
     args = parser.parse_args()
+    args.company_type = normalize_company_type(args.company_type)   # midsize -> midmarket
     if not args.database_url:
         sys.exit("DATABASE_URL not set (pass --database-url or export the env var)")
 
