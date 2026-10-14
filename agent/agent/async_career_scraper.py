@@ -218,7 +218,7 @@ _COOKIE_JS = r"""() => {
   return 'none';
 }"""
 
-_PAGER_JS = r"""([pageNo]) => {
+_PAGER_JS = r"""([pageNo, jobHrefs]) => {
   // Find the control that loads more jobs. Marks it with data-sjh-pager and
   // returns {kind, text}; or {kind: 'none', why}.
   document.querySelectorAll('[data-sjh-pager]').forEach(e => e.removeAttribute('data-sjh-pager'));
@@ -227,15 +227,45 @@ _PAGER_JS = r"""([pageNo]) => {
       /(^|[\s_-])(disabled|inactive)([\s_-]|$)/i.test(el.className || '') ||
       !!(el.parentElement && /(^|[\s_-])disabled([\s_-]|$)/i.test(el.parentElement.className || ''));
   const skipCtx = '[class*="carousel" i],[class*="slick" i],[class*="swiper" i],[class*="slider" i],' +
-      '[class*="testimonial" i],[class*="gallery" i],[class*="banner" i],header,footer nav[class*="menu" i]';
+      '[class*="testimonial" i],[class*="gallery" i],[class*="banner" i],header,footer nav[class*="menu" i],' +
+      '[class*="faq" i],[id*="faq" i],[class*="accordion" i],[class*="review" i],[class*="blog" i],' +
+      '[class*="news" i],[class*="press" i],[class*="event" i],[class*="award" i],[class*="story" i]';
+  // When page 1's jobs came from links, a pager control must sit in the same
+  // section as those links (within 6 ancestors), so FAQ "See more" buttons and
+  // the like elsewhere on the page are never clicked.
+  const hrefSet = new Set(jobHrefs || []);
+  const jobEls = hrefSet.size ? Array.from(document.querySelectorAll('a[href]')).filter(a => hrefSet.has(a.href)) : [];
+  const depthBelowBody = el => { let d = 0; for (let p = el; p && p !== document.body; p = p.parentElement) d++; return d; };
+  const nearJobs = el => {
+    if (!jobEls.length) return true;
+    let p = el;
+    for (let i = 0; i < 8 && p; i++, p = p.parentElement) {
+      if (jobEls.some(j => p.contains(j))) {
+        // Sharing only <body> with the job links counts as "near" only for a
+        // control that sits near the top level of the page (simple layouts).
+        if (p === document.body || p === document.documentElement) return depthBelowBody(el) <= 3;
+        return true;
+      }
+    }
+    return false;
+  };
   const pagerCtx = '[class*="paginat" i],[class*="pager" i],[class*="paging" i],[aria-label*="pagination" i],' +
       '[aria-label*="pager" i],[class*="page-nav" i],[class*="pages" i],[role="navigation"]';
   const textOf = el => ((el.innerText || el.value || '').trim()).replace(/\s+/g, ' ');
   const labelOf = el => ((el.getAttribute('aria-label') || el.getAttribute('title') || '') + '').trim();
   const cands = Array.from(document.querySelectorAll(
       'a,button,[role="button"],[role="link"],input[type="button"],li[class*="next" i],span[class*="next" i],div[class*="next" i]'));
-  const ok = el => vis(el) && !disabled(el) && !el.closest(skipCtx);
-  const mark = (el, kind, text) => { el.setAttribute('data-sjh-pager', '1'); return {kind, text: (text || '').slice(0, 60)}; };
+  const ok = el => vis(el) && !disabled(el) && !el.closest(skipCtx) && (!!el.closest(pagerCtx) || nearJobs(el));
+  const linkOf = el => {
+    const a = el.tagName === 'A' ? el : el.closest('a');
+    const h = a ? (a.getAttribute('href') || '') : '';
+    if (!h || h.startsWith('#') || /^javascript:/i.test(h)) return '';
+    const abs = a.href;
+    if (abs.split('#')[0] === location.href.split('#')[0]) return '';
+    return abs;
+  };
+  const mark = (el, kind, text) => { el.setAttribute('data-sjh-pager', '1');
+    return {kind, text: (text || '').slice(0, 60), href: linkOf(el)}; };
 
   // 1. Load more / show more
   const moreRe = /^(load|show|view|see|display)\s+more(\s+(jobs?|openings?|positions?|roles?|results?|opportunities|vacancies|listings?))?(\s*[(]\d+[)])?$|^more\s+(jobs?|openings?|positions?|roles?|results?)$/i;
@@ -257,7 +287,7 @@ _PAGER_JS = r"""([pageNo]) => {
                    (clsNext && (inPager || !t));
     if (!isNext) continue;
     if (/^[›»>→❯⟩]$|^>>$/.test(t) && !inPager && !lab) continue;   // bare arrow outside a pager: likely a carousel
-    if (!vis(el) || el.closest(skipCtx)) continue;
+    if (!vis(el) || el.closest(skipCtx) || (!inPager && !relNext && !nearJobs(el))) continue;
     if (disabled(el)) { disabledNext = true; continue; }
     let target = el;
     if (!/^(A|BUTTON|INPUT)$/.test(el.tagName) && !el.getAttribute('role')) {
@@ -290,16 +320,28 @@ async def _dismiss_cookie_banner(page) -> str:
         return f"error: {type(e).__name__}"
 
 
-async def _click_pager(page, page_no: int) -> dict:
-    """Finds and clicks the next pager control. Returns {kind, text} or {kind:'none', why}."""
+async def _click_pager(page, page_no: int, job_hrefs: Optional[list] = None) -> dict:
+    """Finds and clicks the next pager control. Returns {kind, text} or {kind:'none', why}.
+    A control that is a real link to another URL (often target=_blank, e.g.
+    "View More Openings" -> the group careers portal) is opened in this tab
+    with page.goto, because a click would open a tab we never read."""
     try:
-        found = await page.evaluate(_PAGER_JS, [page_no])
+        found = await page.evaluate(_PAGER_JS, [page_no, (job_hrefs or [])[:200]])
     except Exception as e:
         if is_dead_browser_error(e):
             raise ScraperBrowserDeadError(str(e)) from e
         return {"kind": "none", "why": f"pager_search_error: {type(e).__name__}"}
     if found.get("kind") == "none":
         return found
+    if found.get("href"):
+        try:
+            await page.goto(found["href"], timeout=20_000, wait_until="domcontentloaded")
+            found["click"] = "opened_link"
+            return found
+        except Exception as e:
+            if is_dead_browser_error(e):
+                raise ScraperBrowserDeadError(str(e)) from e
+            return {"kind": "none", "why": f"open_link_failed: {type(e).__name__}"}
     loc = page.locator("[data-sjh-pager='1']").first
     try:
         await loc.scroll_into_view_if_needed(timeout=3000)
@@ -327,15 +369,17 @@ async def _paginate(page, jobs: list[dict], captured: list, pending: list, start
     start_host = host_of(start_url)
     seen = {j.get("apply_url") for j in jobs}
     merged = list(jobs)
+    anchor_hrefs = [j.get("apply_url") for j in jobs if j.get("apply_url")]
+    on_platform = platform_for_url(start_url) is not None
+    json_jobs_n = len(harvest_jobs_from_json(captured, start_url, on_platform=on_platform))
     deadline = time.monotonic() + PAGINATION_BUDGET_SECONDS
     page_no, stale = 1, 0
     for _ in range(PAGINATION_MAX_PAGES):
         if time.monotonic() > deadline:
             pg["stopped"] = f"time_budget_{PAGINATION_BUDGET_SECONDS}s"
             break
-        n_json_before = len(captured)
         url_before = page.url
-        found = await _click_pager(page, page_no)
+        found = await _click_pager(page, page_no, anchor_hrefs)
         if found.get("kind") == "none":
             pg["stopped"] = found.get("why", "no_pager_found")
             break
@@ -348,7 +392,8 @@ async def _paginate(page, jobs: list[dict], captured: list, pending: list, start
         except Exception:
             pass
         await page.wait_for_timeout(500)
-        if host_of(page.url) != start_host and platform_for_url(page.url) is None:
+        if (host_of(page.url) != start_host and platform_for_url(page.url) is None
+                and not re.search(r"career|jobs?\b|recruit|talent|hiring|vacanc|opening", page.url, re.I)):
             pg["stopped"] = f"click_left_site:{page.url[:100]}"
             break
         anchors = await _collect_anchors(page)
@@ -358,14 +403,20 @@ async def _paginate(page, jobs: list[dict], captured: list, pending: list, start
         merged.extend(new)
         if partial is not None:
             partial.extend(new)
+        anchor_hrefs = [j.get("apply_url") for j in merged if j.get("apply_url")]
         await _drain_json(pending)
-        json_grew = len(captured) > n_json_before
+        # Progress = more *jobs* in the captured JSON, not just more responses
+        # (Axis Bank's page fired analytics JSON on every click).
+        new_json_n = len(harvest_jobs_from_json(captured, start_url, on_platform=on_platform))
+        json_added = max(0, new_json_n - json_jobs_n)
+        json_jobs_n = max(json_jobs_n, new_json_n)
+        json_grew = json_added > 0
         if found["kind"] != "load_more":
             page_no += 1
         pg["pages_visited"] += 1
         pg["clicks"].append(f"{found['kind']}:{found.get('text', '')}"
                             + (f"({found['click']})" if found.get("click") else "")
-                            + f" -> +{len(new)}" + (" json" if json_grew else "")
+                            + f" -> +{len(new)}" + (f" json+{json_added}" if json_grew else "")
                             + (" url_changed" if page.url != url_before else ""))
         if new or json_grew:
             stale = 0
