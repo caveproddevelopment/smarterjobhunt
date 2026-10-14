@@ -81,6 +81,7 @@ RESULT_COLUMNS = [
     "company_name", "website", "stage", "detail", "path", "ats", "ats_token",
     "careers_url", "detected_via", "homepage_status", "jobs_found",
     "elapsed_seconds", "candidate_links", "kept_links", "links_before_descriptions",
+    "trace",
 ]
 
 _RESULTS_DDL = """
@@ -106,6 +107,8 @@ CREATE TABLE IF NOT EXISTS scrape_company_results (
 );
 CREATE INDEX IF NOT EXISTS idx_scrape_company_results_batch
     ON scrape_company_results (batch_id);
+-- 2026-10-14: full per-company step trace (same text as the run log block)
+ALTER TABLE scrape_company_results ADD COLUMN IF NOT EXISTS trace TEXT;
 """
 
 
@@ -316,26 +319,49 @@ async def main():
         print(f"Companies processed:     {summary['companies_total']}")
         if getattr(source, "skipped_by_status", 0):
             print(f"  (skipped by listing_status: {source.skipped_by_status} — see --listing-status)")
-        print(f"  -> ATS API hit:        {summary['companies_ats_hit']}")
-        print(f"  -> Career page scrape: {summary['companies_scraped']}")
-        print(f"  -> Failed/unknown:     {summary['companies_failed']}")
-        print(f"  -> Timed out/abandoned:{summary['companies_timed_out']}")
+        ok_n = summary['companies_ats_hit'] + summary['companies_scraped']
+        print(f"  -> Got jobs:           {ok_n}  (ATS API: {summary['companies_ats_hit']}, "
+              f"careers-page scrape: {summary['companies_scraped']})")
+        print(f"  -> 0 jobs / failed:    {summary['companies_failed']}  (reason for each listed below)")
+        print(f"  -> Timed out:          {summary['companies_timed_out']}  (reason for each listed below)")
         print(f"Jobs staged:             {summary['jobs_found']}")
         print(f"Total wall-clock time:   {total_elapsed:.1f}s")
         print(f"Errors:                  {len(summary['errors'])}")
 
-        stage_counts = Counter(r["stage"] for r in summary.get("company_results", []))
+        rows = summary.get("company_results", [])
+        stage_counts = Counter(r["stage"] for r in rows)
         if stage_counts:
             print("\nOUTCOME BY STAGE (why each company did or didn't produce jobs):")
             for stage, n in stage_counts.most_common():
                 print(f"  {n:6d}  {stage}")
-            if results_table_ok:
-                print(f"  (per-company rows: SELECT * FROM scrape_company_results "
-                      f"WHERE batch_id = '{batch_id}';)")
+
+        ok_rows = sorted((r for r in rows if (r.get("jobs_found") or 0) > 0),
+                         key=lambda r: -(r.get("jobs_found") or 0))
+        if ok_rows:
+            print(f"\nJOBS PER COMPANY ({len(ok_rows)} companies with jobs):")
+            for r in ok_rows:
+                print(f"  {r.get('jobs_found'):5d}  {r['company_name']}  [{r['stage']}"
+                      f"{' / ' + str(r.get('ats')) if r.get('ats') else ''}]", flush=True)
+
+        bad = [r for r in rows if not (r.get("jobs_found") or 0) > 0]
+        if bad:
+            print(f"\nCOMPANIES WITH 0 JOBS — REASON FOR EACH ({len(bad)}):")
+            by_stage: dict = {}
+            for r in bad:
+                by_stage.setdefault(r["stage"], []).append(r)
+            for stage, group in sorted(by_stage.items(), key=lambda kv: -len(kv[1])):
+                print(f"\n  {stage} ({len(group)}):")
+                for r in sorted(group, key=lambda r: r["company_name"]):
+                    print(f"    - {r['company_name']} ({r.get('website') or 'no website'}): "
+                          f"{(r.get('detail') or 'no detail recorded')[:500]}", flush=True)
+
+        if results_table_ok:
+            print(f"\n(per-company rows incl. full step trace: SELECT company_name, stage, jobs_found, "
+                  f"detail, trace FROM scrape_company_results WHERE batch_id = '{batch_id}';)")
 
         if summary["errors"]:
-            print("\nFirst 10 errors:")
-            for e in summary["errors"][:10]:
+            print(f"\nALL ERRORS ({len(summary['errors'])}):")
+            for e in summary["errors"]:
                 print(f"  - {e}")
 
         if args.auto_clean:

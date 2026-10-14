@@ -89,6 +89,8 @@ Each ATS API fetch has its own API_FETCH_TIMEOUT_SECONDS cap.
 """
 
 import asyncio
+import time
+import traceback
 from datetime import datetime, timezone
 from typing import Optional, Callable
 
@@ -101,10 +103,67 @@ from .scraper_errors import ScraperBrowserDeadError
 from .company_source import CompanySource
 from .job_sink import JobSink
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Detailed per-company logging (2026-10-14)
+#
+# Every company now prints one block when it finishes:
+#   [  37/603] OK       Acko | 23 jobs | ok_ats_api | greenhouse | 4.1s
+#              +  0.0s start website=https://acko.com careers_url_override=none
+#              +  2.3s detect_ats -> ats=greenhouse token=acko api=True ...
+#              +  3.9s api greenhouse/acko -> 23 job(s) status=200 error=none attempts=1
+# FAILED/TIMEOUT blocks carry the stage + reason and the same step trace, so
+# no company is ever "unknown". The trace is also saved to
+# scrape_company_results.trace.
+# ─────────────────────────────────────────────────────────────────────────────
+
+NO_ATS = "none_detected"          # shown instead of the detector's internal "unknown"
+NO_PATH = "no_scrape_path"        # neither the API nor a careers-page scrape ran
+
+
+def _disp_ats(ats) -> str:
+    return NO_ATS if ats in (None, "", "unknown") else str(ats)
+
+
+def _trace(diags: dict, msg: str) -> None:
+    """Append one timestamped step to this company's trace."""
+    t0 = diags.setdefault("_t0", time.monotonic())
+    msg = " | ".join(part.strip() for part in str(msg).splitlines() if part.strip())
+    diags.setdefault("trace", []).append(f"+{time.monotonic() - t0:6.1f}s {msg[:1500]}")
+
+
+def _scrape_summary(sd: dict, n: int) -> str:
+    """One-line description of a careers-page scrape from its diag dict."""
+    parts = [f"outcome={sd.get('outcome') or 'ok'}", f"kept_jobs={n}"]
+    for key, label in (("final_url", "final_url"), ("page_invalid", "rejected_as"),
+                       ("candidate_links", "candidate_links"), ("kept_links", "kept_links"),
+                       ("listing_selector", "selector"), ("json_responses", "json_responses"),
+                       ("stage_reached", "stage_reached"), ("partial_jobs_kept", "partial_kept"),
+                       ("browser_restarts", "browser_restarts")):
+        v = sd.get(key)
+        if v not in (None, "", [], {}):
+            parts.append(f"{label}={str(v)[:120]}")
+    if sd.get("used_json_capture"):
+        parts.append("via_json_capture")
+    if sd.get("retried_http1"):
+        parts.append("retried_on_http1")
+    if sd.get("embedded_ats"):
+        parts.append(f"embedded_ats={sd['embedded_ats']}")
+    if sd.get("platform_urls"):
+        parts.append(f"platform_urls={[u[:80] for u in sd['platform_urls'][:3]]}")
+    if sd.get("reject_counts"):
+        parts.append(f"filter_rejects={sd['reject_counts']}")
+    return " ".join(parts)
+
+
+def _fetch_summary(fd: dict, n: int) -> str:
+    return (f"{fd.get('ats', '?')} -> {n} job(s) status={fd.get('fetch_status') or '-'} "
+            f"error={fd.get('fetch_error') or 'none'} attempts={fd.get('attempts', 1)}")
+
+
 DEFAULT_MAX_WORKERS = 10
 DEFAULT_SCRAPE_RETRIES = 2   # attempts per company against the career-scrape path
 DEFAULT_BATCH_SIZE = 500     # companies processed, then written to job_sink, per sequential chunk
-MAX_PROGRESS_LINES = 200     # roughly how many "[n/total] Scraped X" lines to print for the whole run
+MAX_PROGRESS_LINES = 200     # unused since 2026-10-14: every company now prints its own block
 DISCOVERY_TIMEOUT_SECONDS = 35   # real-browser homepage scan for a careers link,
 # including the hover+click dropdown scan in async_career_scraper.py (which
 # has its own internal ~8s budget). Raised from 25 (2026-09-24) — worst case
@@ -178,7 +237,6 @@ async def run(
 
     companies = company_source.load()
     total = len(companies)
-    log_every = max(1, total // MAX_PROGRESS_LINES)
     progress(0.02, f"Loaded {total} companies.")
 
     all_errors: list[str] = []
@@ -208,8 +266,10 @@ async def run(
                                                  diag=scrape_diag, company_host=company_host)
             except ScraperBrowserDeadError as e:
                 last_err = e
+                scrape_diag["browser_restarts"] = scrape_diag.get("browser_restarts", 0) + 1
                 print(f"[async_ingestion_orchestrator] Browser died while scraping {company_name} "
-                      f"(attempt {attempt}) — relaunching and retrying.")
+                      f"(attempt {attempt}): {type(e).__name__}: {e} — relaunching and retrying.",
+                      flush=True)
                 await browser_pool.invalidate()
                 if attempt >= DEFAULT_SCRAPE_RETRIES:
                     break
@@ -261,28 +321,33 @@ async def run(
                     timeout=DISCOVERY_TIMEOUT_SECONDS,
                 )
                 if dd.get("outcome") == "http2_error" and not http1:
+                    _trace(diags, f"homepage discovery {website} -> http2_error, retrying on HTTP/1.1")
                     dd.clear()
                     dd["retried_http1"] = True
                     continue
+                _trace(diags, f"homepage discovery {website} -> outcome={dd.get('outcome') or 'ok'} "
+                              f"careers_link={url or 'none'}")
                 return url
             except asyncio.TimeoutError:
-                dd["outcome"] = "timeout"
-            except ScraperBrowserDeadError:
-                dd["outcome"] = "browser_dead"
+                dd["outcome"] = f"timeout (>{DISCOVERY_TIMEOUT_SECONDS}s)"
+            except ScraperBrowserDeadError as e:
+                dd["outcome"] = f"browser_dead: {e}"[:200]
                 await browser_pool.invalidate()
             except Exception as e:
-                dd["outcome"] = f"error: {e}"[:200]
+                dd["outcome"] = f"error: {type(e).__name__}: {e}"[:200]
+            _trace(diags, f"homepage discovery {website} -> FAILED {dd.get('outcome')}")
             return None
         return None
 
     def _note_attempt(diags: dict, url: str, sd: dict, n: int):
         diags.setdefault("attempts", []).append(
-            f"{url[:90]} -> {sd.get('outcome', '?')}"
+            f"{url[:90]} -> {sd.get('outcome') or 'ok'}"
             + (f"/{sd['page_invalid']}" if sd.get("page_invalid") else "")
             + f" kept={n}" + (" json" if sd.get("used_json_capture") else ""))
 
     async def try_api(ats: str, token: str, diags: dict) -> list[dict]:
         jobs = await fetch_with_retry(ats, token, diags["fetch"])
+        _trace(diags, "api " + _fetch_summary(diags["fetch"], len(jobs)))
         if jobs:
             diags["ats"].update({"ats": ats, "token": token})
         return jobs
@@ -295,6 +360,7 @@ async def run(
         the page hands off to another hiring-platform host -> follow it."""
         hit = detect_ats_from_url(careers_url)
         if hit:
+            _trace(diags, f"careers URL is a {hit.ats} board (token={hit.token}) -> calling its API")
             jobs = await try_api(hit.ats, hit.token, diags)
             if jobs:
                 return jobs, "ats_api", "careers_url_is_ats_board"
@@ -305,9 +371,11 @@ async def run(
                                        company_host=company_host)
         diags["scrape"] = sd
         _note_attempt(diags, careers_url, sd, len(jobs))
+        _trace(diags, f"scrape {careers_url} -> " + _scrape_summary(sd, len(jobs)))
 
         emb = sd.get("embedded_ats")
         if emb:
+            _trace(diags, f"careers page embeds {emb[0]} board (token={emb[1]}) -> calling its API")
             api_jobs = await try_api(emb[0], emb[1], diags)
             if api_jobs:
                 return api_jobs, "ats_api", "embedded_ats_on_careers_page"
@@ -328,10 +396,12 @@ async def run(
                     return api_jobs, "ats_api", f"platform_hop_api:{h[0]}"
                 continue
             diags["phase"] = "platform_hop"
+            _trace(diags, f"platform hop -> {plat}: {purl}")
             hd: dict = {}
             hop_jobs = await scrape_with_retry(purl, _extract_domain(purl), name, hd,
                                                company_host=company_host)
             _note_attempt(diags, purl, hd, len(hop_jobs))
+            _trace(diags, f"scrape {purl} -> " + _scrape_summary(hd, len(hop_jobs)))
             if hop_jobs:
                 diags["scrape"] = hd
                 diags["ats"].update({"ats": plat, "careers_url": purl})
@@ -356,12 +426,13 @@ async def run(
             diags["ats"] = {"ats": "unknown", "token": None, "can_api": False, "careers_url": None}
 
             raw_jobs: list[dict] = []
-            path_taken = "unknown"
+            path_taken = NO_PATH
             tried_urls: set = set()
 
             async def via_url(url: str):
                 """Scrape/API one careers URL; returns (jobs, path, via)."""
                 tried_urls.add(url.split("#")[0].rstrip("/"))
+                _trace(diags, f"trying careers URL {url}")
                 return await scrape_or_switch_to_api(url, name, diags, company_host=company_host)
 
             async def via_discovery():
@@ -375,6 +446,8 @@ async def run(
                 return j, p, "playwright_homepage_scan" + (f"+{v}" if v else "")
 
             override = (company.get("careers_url") or "").strip()
+            _trace(diags, f"start website={website or 'NONE (no website stored)'} "
+                          f"careers_url_override={override or 'none'}")
             if override:
                 if not override.startswith("http"):
                     override = "https://" + override
@@ -382,6 +455,7 @@ async def run(
                 # anything detected; detection only runs again if it yields nothing.
                 diags["careers_url_override"] = override
                 j, p, v = await via_url(override)
+                _trace(diags, f"override result -> {len(j)} job(s) via {p}" + (f" ({v})" if v else ""))
                 if j:
                     raw_jobs, path_taken = j, p
                     diags["ats"]["careers_url"] = override
@@ -396,6 +470,20 @@ async def run(
                     "can_api": ats_result.can_api,
                     "careers_url": ats_result.careers_url,
                 }
+                dt = diags["detect"]
+                extra = ""
+                if dt.get("rejected_guesses"):
+                    extra += f" rejected_guesses={dt['rejected_guesses'][:4]}"
+                if dt.get("sitemap"):
+                    extra += f" sitemap={dt['sitemap']}"
+                if dt.get("catch_all_site"):
+                    extra += " catch_all_site"
+                _trace(diags, f"detect_ats -> ats={_disp_ats(ats_result.ats)} "
+                              f"token={ats_result.token or '-'} api={ats_result.can_api} "
+                              f"careers_url={ats_result.careers_url or 'none'} "
+                              f"via={dt.get('detected_via') or '-'} "
+                              f"homepage_status={dt.get('homepage_status') or '-'} "
+                              f"slug_tried={dt.get('slug_tried') or '-'}{extra}")
             else:
                 ats_result = None
 
@@ -404,6 +492,7 @@ async def run(
             elif ats_result.can_api and ats_result.token:
                 diags["phase"] = "ats_fetch"
                 raw_jobs = await fetch_with_retry(ats_result.ats, ats_result.token, diags["fetch"])
+                _trace(diags, "api " + _fetch_summary(diags["fetch"], len(raw_jobs)))
                 path_taken = "ats_api"
 
                 f = diags["fetch"]
@@ -446,13 +535,20 @@ async def run(
                         diags["recovered_via"] = v
 
             elif website:
+                _trace(diags, "no API board and no careers URL from detect_ats -> homepage discovery")
                 j, p, v = await via_discovery()
                 if p:
                     raw_jobs, path_taken = j, p
                     diags["recovered_via"] = v
+            else:
+                _trace(diags, "no website stored and no careers_url override -> nothing to scrape")
 
             elapsed = (datetime.now() - started).total_seconds()
 
+            dropped = sum(1 for job in raw_jobs
+                          if not ((job.get("title") or "").strip() and (job.get("apply_url") or "").strip()))
+            if dropped:
+                _trace(diags, f"dropped {dropped} of {len(raw_jobs)} raw job(s) missing title or apply_url")
             job_rows = [
                 {
                     "company_name":   name,
@@ -477,32 +573,46 @@ async def run(
 
         except Exception as e:
             elapsed = (datetime.now() - started).total_seconds()
-            return name, [], "error", elapsed, f"{name}: {e}", diags
+            diags["traceback"] = traceback.format_exc()
+            _trace(diags, f"EXCEPTION in phase={diags.get('phase')}: {type(e).__name__}: {e}")
+            return name, [], "error", elapsed, f"{name}: {type(e).__name__}: {e}", diags
 
     async def process_with_progress(company: dict):
         """Wrapper that updates progress and handles timeout."""
         name = company["company_name"]
-        diags = {"phase": "not_started", "detect": {}, "fetch": {}, "scrape": {}, "discover": {}}
+        diags = {"phase": "not_started", "detect": {}, "fetch": {}, "scrape": {}, "discover": {},
+                 "_t0": time.monotonic()}
         try:
             result = await asyncio.wait_for(
                 process_company(company, diags),
                 timeout=FUTURE_TIMEOUT_SECONDS
             )
         except asyncio.TimeoutError:
-            print(f"[async_ingestion_orchestrator] STUCK: {name} did not complete within "
-                  f"{FUTURE_TIMEOUT_SECONDS}s — abandoning it and moving on to the rest of the batch.")
+            _trace(diags, f"ABANDONED: company cap of {FUTURE_TIMEOUT_SECONDS}s hit while in "
+                          f"phase={diags.get('phase')}")
             result = (name, [], "timeout", float(FUTURE_TIMEOUT_SECONDS),
-                      f"{name}: did not complete within {FUTURE_TIMEOUT_SECONDS}s", diags)
+                      f"{name}: did not complete within {FUTURE_TIMEOUT_SECONDS}s "
+                      f"(stuck in phase={diags.get('phase')})", diags)
         except Exception as e:
-            result = name, [], "error", 0.0, f"{name}: {e}", diags
+            diags["traceback"] = traceback.format_exc()
+            _trace(diags, f"EXCEPTION (outer): {type(e).__name__}: {e}")
+            result = name, [], "error", 0.0, f"{name}: {type(e).__name__}: {e}", diags
 
         state["completed_count"] += 1
         n = state["completed_count"]
         pct = 0.05 + 0.90 * (n / max(total, 1))
-        if n % log_every == 0 or n == total:
-            progress(pct, f"[{n}/{total}] Scraped {name}")
-
-        return result
+        rname, job_rows, path_taken, elapsed, err, d = result
+        try:
+            row = _build_result_row(rname, website_by_name.get(rname, ""), path_taken,
+                                    elapsed, len(job_rows), err, d)
+        except Exception as e:   # diagnostics must never take the run down
+            row = {"company_name": rname, "website": website_by_name.get(rname, ""),
+                   "stage": "diagnostics_error", "path": path_taken, "jobs_found": len(job_rows),
+                   "elapsed_seconds": round(elapsed, 2),
+                   "detail": f"building the result row failed: {type(e).__name__}: {e}",
+                   "trace": "\n".join(d.get("trace", []))}
+        _print_company_block(n, total, pct, row, d)
+        return result + (row,)
 
     chunks = [companies[i:i + batch_size] for i in range(0, total, batch_size)]
     num_chunks = len(chunks)
@@ -527,12 +637,9 @@ async def run(
 
             chunk_jobs: list[dict] = []
             chunk_results: list[dict] = []
-            for name, job_rows, path_taken, elapsed, err, diags in results:
+            for name, job_rows, path_taken, elapsed, err, diags, row in results:
                 chunk_jobs.extend(job_rows)
-                chunk_results.append(
-                    _build_result_row(name, website_by_name.get(name, ""),
-                                      path_taken, elapsed, len(job_rows), err, diags)
-                )
+                chunk_results.append(row)
                 all_timing_log.append({
                     "company_name": name,
                     "path": path_taken,
@@ -540,9 +647,12 @@ async def run(
                     "jobs_found": len(job_rows),
                 })
 
-                if path_taken == "ats_api":
+                # Counted by outcome, not by path: a company whose ATS API
+                # answered with 0 jobs is a failure, not an "ATS API hit".
+                stage = row.get("stage", "")
+                if stage == "ok_ats_api":
                     state["ats_hit_count"] += 1
-                elif path_taken == "career_scrape":
+                elif stage == "ok_career_scrape":
                     state["scraped_count"] += 1
                 elif path_taken == "timeout":
                     state["timed_out_count"] += 1
@@ -599,6 +709,31 @@ async def run(
     }
 
 
+def _print_company_block(n: int, total: int, pct: float, row: dict, d: dict) -> None:
+    """Prints one company's result + step trace as a single write, so blocks
+    from concurrent companies never interleave in the log."""
+    stage = row.get("stage") or "no_stage_recorded"
+    jobs = row.get("jobs_found") or 0
+    if stage.startswith("ok_"):
+        status = "OK"
+    elif stage.startswith("timeout_"):
+        status = "TIMEOUT"
+    elif stage == "exception":
+        status = "ERROR"
+    else:
+        status = "FAILED"
+    width = len(str(total))
+    head = (f"[{int(pct * 100):3d}%] [{n:>{width}}/{total}] {status:<7} {row.get('company_name')} | "
+            f"{jobs} job(s) | {stage} | {(row.get('detail') or '-')[:600]} | "
+            f"{row.get('elapsed_seconds', 0)}s")
+    pad = " " * 14
+    lines = [head]
+    lines += [pad + step for step in (d.get("trace") or [])]
+    if d.get("traceback"):
+        lines += [pad + "TRACEBACK: " + l for l in d["traceback"].rstrip().splitlines()]
+    print("\n".join(lines), flush=True)
+
+
 def _extract_domain(url: str) -> str:
     from urllib.parse import urlparse
     p = urlparse(url)
@@ -645,20 +780,29 @@ def _classify_outcome(path: str, jobs_found: int, err: Optional[str], d: dict) -
     fetch = d.get("fetch", {})
     scrape = d.get("scrape", {})
     discover = d.get("discover", {})
-    ats = (d.get("ats") or {}).get("ats") or "unknown"
+    ats = _disp_ats((d.get("ats") or {}).get("ats"))
     rv = d.get("recovered_via")
     rv_note = f"recovered_via={rv}" if rv else ""
     after_api = f"after_api_empty_or_failed=[{d['api_empty_or_failed']}] " if d.get("api_empty_or_failed") else ""
     attempts = d.get("attempts") or []
-    att_note = (" attempts=[" + " | ".join(attempts[:5]) + "]") if len(attempts) > 1 else ""
+    # Every URL tried is listed when there was more than one, and always when
+    # the company ended with 0 jobs, so a failed override is never hidden.
+    att_note = (" attempts=[" + " | ".join(attempts[:5]) + "]") if (
+        len(attempts) > 1 or (attempts and jobs_found == 0)) else ""
 
     def finish(stage, detail):
         return stage, (detail + att_note).strip()
 
     if path == "timeout":
-        return finish(f"timeout_in_{d.get('phase', 'unknown')}", err or "")
+        return finish(f"timeout_in_{d.get('phase') or 'not_started'}",
+                      (err or "") + f" last_steps={(d.get('trace') or [])[-3:]}")
     if path == "error":
-        return finish("exception", err or "")
+        tb = [l.strip() for l in (d.get("traceback") or "").strip().splitlines()
+              if l.strip() and set(l.strip()) != {"^"} and set(l.strip()) != {"^", "~"}]
+        files = [i for i, l in enumerate(tb) if l.startswith("File ")]
+        where = (tb[files[-1]] + (" -> " + tb[files[-1] + 1] if files[-1] + 1 < len(tb) - 1 else "")
+                 if files else "")
+        return finish("exception", f"{err or 'exception with no message'} at: {where}".strip())
 
     if path == "ats_api":
         if jobs_found > 0:
@@ -713,9 +857,9 @@ def _classify_outcome(path: str, jobs_found: int, err: Optional[str], d: dict) -
                 f"{scrape.get('listing_selector')}, 0 passed the job-link filter; "
                 f"reasons={scrape.get('reject_counts')}; json_responses={scrape.get('json_responses', 0)}; "
                 f"samples: {samples}"))
-        return finish("scrape_zero_jobs_other", after_api.strip())
+        return finish("scrape_zero_jobs_other", after_api + _scrape_summary(scrape, 0))
 
-    # path == "unknown": neither the API path nor the scrape path ran.
+    # path == NO_PATH: neither the API path nor the scrape path ran.
     hs = str(detect.get("homepage_status") or "")
     dout = str(discover.get("outcome") or "")
     if "bot_wall" in dout:
@@ -724,11 +868,12 @@ def _classify_outcome(path: str, jobs_found: int, err: Optional[str], d: dict) -
         return finish("website_parked", f"homepage_status={hs}; browser_discovery={dout}")
     if hs.startswith("error: SSLError") or "ERR_CERT" in dout or "ERR_SSL" in dout:
         return finish("website_ssl_error", f"homepage_status={hs}; browser_discovery={dout}")
-    if (hs.startswith("error: ConnectionError") or hs.startswith("error: ConnectTimeout")) and (
+    if (hs.startswith("error: ConnectionError") or hs.startswith("error: ConnectTimeout")
+            or hs.startswith("error: ProxyError")) and (
             "ERR_NAME_NOT_RESOLVED" in dout or "ERR_CONNECTION" in dout or "ERR_ADDRESS" in dout
-            or dout in ("timeout", "")):
+            or "ERR_TUNNEL" in dout or dout.startswith("timeout") or dout == ""):
         return finish("website_unreachable", f"homepage_status={hs}; browser_discovery={dout}")
-    if ats not in ("unknown", None, ""):
+    if ats != NO_ATS:
         return finish("ats_detected_not_scraped", (
             f"{ats}: detected but no careers URL to scrape (via {detect.get('detected_via')})"))
     extra = ""
@@ -746,15 +891,23 @@ def _classify_outcome(path: str, jobs_found: int, err: Optional[str], d: dict) -
 def _build_result_row(name: str, website: str, path: str, elapsed: float,
                       jobs_found: int, err: Optional[str], d: dict) -> dict:
     stage, detail = _classify_outcome(path, jobs_found, err, d)
+    detail = " | ".join(p.strip() for p in str(detail or "").splitlines() if p.strip())
+    if not (detail or "").strip():
+        detail = ("no further detail recorded; last steps: "
+                  + " / ".join((d.get("trace") or ["(no steps recorded)"])[-3:]))
     a = d.get("ats") or {}
     s = d.get("scrape", {})
+    trace = list(d.get("trace") or [])
+    if d.get("traceback"):
+        trace.append("TRACEBACK:\n" + d["traceback"].rstrip())
     return {
         "company_name":    name,
         "website":         website,
         "stage":           stage,
-        "detail":          (detail or "")[:1200],
+        "detail":          (detail or "")[:2000],
+        "trace":           "\n".join(trace)[:20000],
         "path":            path,
-        "ats":             a.get("ats"),
+        "ats":             _disp_ats(a.get("ats")),
         "ats_token":       a.get("token"),
         "careers_url":     a.get("careers_url"),
         "detected_via":    d.get("detect", {}).get("detected_via"),
