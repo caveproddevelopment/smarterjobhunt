@@ -203,6 +203,7 @@ async def run(
     batch_size: int = DEFAULT_BATCH_SIZE,
     progress_callback: Optional[Callable] = None,
     result_callback: Optional[Callable[[list], None]] = None,
+    fetch_descriptions: bool = False,
 ) -> dict:
     """
     Async version: loads companies, scrapes jobs concurrently with asyncio,
@@ -276,7 +277,8 @@ async def run(
             browser = await browser_pool.get(http1=http1)
             try:
                 jobs = await scrape_careers_page(careers_url, domain, browser=browser,
-                                                 diag=scrape_diag, company_host=company_host)
+                                                 diag=scrape_diag, company_host=company_host,
+                                                 fetch_descriptions=fetch_descriptions)
             except ScraperBrowserDeadError as e:
                 last_err = e
                 scrape_diag["browser_restarts"] = scrape_diag.get("browser_restarts", 0) + 1
@@ -304,7 +306,7 @@ async def run(
             fetch_diag.clear()
             try:
                 jobs = await asyncio.wait_for(
-                    asyncio.to_thread(fetch_jobs, ats, token, True, fetch_diag),
+                    asyncio.to_thread(fetch_jobs, ats, token, True, fetch_diag, fetch_descriptions),
                     timeout=API_FETCH_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
                 fetch_diag["fetch_error"] = f"api fetch exceeded {API_FETCH_TIMEOUT_SECONDS}s"
