@@ -42,6 +42,7 @@ cap, but it removes the actual unbounded-input condition that let parse
 time run away in the first place.
 """
 
+import re
 from bs4 import BeautifulSoup
 
 DESCRIPTION_SNIPPET_CHARS = 1000
@@ -53,6 +54,7 @@ DESCRIPTION_SNIPPET_CHARS = 1000
 # incident shows even this is too slow for html.parser on some input.
 MAX_HTML_CHARS_TO_PARSE = 50_000
 
+_ESCAPED_TAG = re.compile(r"</?(?:p|div|br|ul|ol|li|strong|b|em|i|span|h[1-6]|table|tr|td)\b[^>]*>", re.I)
 _STRIP_TAGS = ["script", "style", "noscript", "svg", "header", "footer", "nav"]
 
 
@@ -74,6 +76,15 @@ def html_to_text(html: str) -> str:
             for tag in soup.find_all(tag_name):
                 tag.decompose()
         text = soup.get_text(separator=" ")
+        # Entity-escaped HTML (Greenhouse's "content", many JSON-LD
+        # descriptions) comes out of the first pass as literal "<p>..."
+        # text. Parse once more in that case (2026-10-15).
+        if _ESCAPED_TAG.search(text):
+            inner = BeautifulSoup(text, "html.parser")
+            for tag_name in _STRIP_TAGS:
+                for tag in inner.find_all(tag_name):
+                    tag.decompose()
+            text = inner.get_text(separator=" ")
         return _collapse_whitespace(text)
     except Exception:
         return ""

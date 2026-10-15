@@ -165,7 +165,8 @@ def _scrape_summary(sd: dict, n: int) -> str:
 
 def _fetch_summary(fd: dict, n: int) -> str:
     return (f"{fd.get('ats', '?')} -> {n} job(s) status={fd.get('fetch_status') or '-'} "
-            f"error={fd.get('fetch_error') or 'none'} attempts={fd.get('attempts', 1)}")
+            f"error={fd.get('fetch_error') or 'none'} attempts={fd.get('attempts', 1)}"
+            + (f" truncated={fd['truncated']}" if fd.get("truncated") else ""))
 
 
 DEFAULT_MAX_WORKERS = 10
@@ -189,7 +190,10 @@ API_RETRY_ATTEMPTS = 3           # ATS API calls, retried (with backoff) only on
 FUTURE_TIMEOUT_SECONDS = 240   # raised from 150 (2026-10-13): platform hop, HTTP/1.1
                                # retry and sitemap lookup each add a bounded step;
                                # 210 -> 240 (2026-10-14) for pagination (scrape cap 50 -> 70s)
-API_FETCH_TIMEOUT_SECONDS = 60  # own cap for one ATS API fetch (incl. detail calls)
+API_FETCH_TIMEOUT_SECONDS = 150  # own cap for one ATS API fetch. Raised from 60 (2026-10-15):
+                                 # no detail calls any more, but up to 5,000 jobs of list paging
+                                 # (ats_api.LIST_BUDGET_SECONDS = 120 stops paging and keeps
+                                 # what it has before this cap would throw everything away)
 
 
 async def run(

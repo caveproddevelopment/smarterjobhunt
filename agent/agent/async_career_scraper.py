@@ -68,6 +68,10 @@ PAGINATION_BUDGET_SECONDS = 25   # total time spent paginating one listing
 PAGINATION_SETTLE_MS = 4000      # networkidle wait after each click (upper bound)
 PAGINATION_STALE_LIMIT = 2       # stop after this many clicks in a row add no new jobs
 
+# 2026-10-15: the nightly scrape no longer opens each job's page for its
+# description; run_description_backfill.py does that afterwards, only for jobs
+# not already in production. Descriptions embedded in captured JSON are kept.
+SCRAPE_FETCHES_DESCRIPTIONS = False
 MAX_DESCRIPTION_FETCHES = 60
 DESCRIPTION_CONCURRENCY = 3
 DESCRIPTION_BUDGET_SECONDS = 20
@@ -819,7 +823,7 @@ def _platform_urls(final_url: str, frame_urls: list[str], anchors: list[dict]) -
 
 
 async def _scrape_in_context(
-    ctx, careers_url: str, base_domain: str, fetch_descriptions: bool = True,
+    ctx, careers_url: str, base_domain: str, fetch_descriptions: bool = SCRAPE_FETCHES_DESCRIPTIONS,
     diag: Optional[dict] = None, partial: Optional[list] = None, company_host: str = "",
 ) -> list[dict]:
     """Opens the page, navigates, validates, extracts jobs. Raises
@@ -944,7 +948,7 @@ async def _scrape_in_context(
 
 
 async def _scrape_with_browser(
-    browser, careers_url: str, base_domain: str, fetch_descriptions: bool = True,
+    browser, careers_url: str, base_domain: str, fetch_descriptions: bool = SCRAPE_FETCHES_DESCRIPTIONS,
     diag: Optional[dict] = None, company_host: str = "",
 ) -> list[dict]:
     """Scrape a careers page with hard timeout protection."""
