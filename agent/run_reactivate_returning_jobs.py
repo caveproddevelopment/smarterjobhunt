@@ -7,10 +7,13 @@ StagingJobSink's closeout). If a later scrape sees it again, nothing turned
 it back on: promote doesn't touch jobs that are already in production. This
 step does, and only that:
 
-    UPDATE jobs SET is_active = TRUE, scraped_at = <time it was seen>
+    UPDATE jobs SET is_active = TRUE, scraped_at = now()
     for inactive jobs whose company_id + source_url appear in the latest
-    scrape batch in jobs_staging, and that already have a description
-    (raw_text of at least 100 characters) in production.
+    scrape batch in jobs_staging, and that already have a (non-empty)
+    description in production.
+
+Same rules as the version Monte approved on 15 Oct for Claude in Chrome
+(REACTIVATE_RETURNING_JOBS_for_Claude_in_Chrome.md).
 
 Title, description, date posted and everything else stay as they are, so
 existing production rows are never overwritten.
@@ -36,7 +39,7 @@ import sys
 
 import psycopg2
 
-MIN_DESCRIPTION_CHARS = 100
+MIN_DESCRIPTION_CHARS = 1   # approved rule (15 Oct): any non-empty description
 
 # Candidates: inactive production jobs seen in the batch (any review status:
 # a row being in the scrape means the posting is live, same rule the closeout
@@ -66,7 +69,7 @@ ORDER BY c.name, j.title LIMIT 10
 
 APPLY_SQL = _CANDIDATES_CTE + """
 UPDATE jobs j
-SET is_active = TRUE, scraped_at = COALESCE(x.seen_at, now())
+SET is_active = TRUE, scraped_at = now()
 FROM candidates x
 WHERE j.id = x.id
 """
