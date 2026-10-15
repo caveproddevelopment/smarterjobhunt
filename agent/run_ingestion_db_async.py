@@ -208,6 +208,10 @@ async def main():
              "no online listings, or 'all' to ignore the column. Ignored if the column doesn't "
              "exist (migration not applied yet)."
     )
+    parser.add_argument("--with-descriptions", action="store_true",
+                         help="Old one-pass behavior: fetch per-job descriptions during the scrape "
+                              "(capped at 60 per company). Default since 2026-10-15 is a core-info "
+                              "scrape; run run_description_backfill.py afterwards instead.")
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--batch-id", default=None,
                          help="Override the generated batch UUID (mainly for testing or re-running against an existing batch)")
@@ -309,6 +313,7 @@ async def main():
             batch_size=args.batch_size,
             progress_callback=progress,
             result_callback=save_results,
+            fetch_descriptions=args.with_descriptions,
         )
         total_elapsed = time.time() - start
 

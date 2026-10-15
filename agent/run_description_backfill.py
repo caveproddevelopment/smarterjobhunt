@@ -22,12 +22,13 @@ Where descriptions come from, per job (see agent/description_fetch.py):
     headless Chromium when it is a JavaScript page.
 
 Politeness and limits:
-    --per-host 2       at most 2 requests at a time to any one site
+    --per-host 2       at most 2 requests at a time to any one site, 0.5s apart
     --limit 20000      unique job links per run
     --max-minutes 120  stop starting new fetches after this long
 Failures: each failed link is recorded in description_fetch_failures and
-skipped once it has failed 3 times (--max-tries). Rate limits (429), server
-errors and timeouts are recorded but don't count as a try.
+skipped for 7 days (--retry-after-days) once it has failed 3 times
+(--max-tries). Rate limits (429), server errors and timeouts are recorded but
+don't count as a try.
 
 Rows are only ever filled in where raw_text is empty or shorter than 100
 characters; nothing else about a row is changed.
@@ -57,7 +58,10 @@ import psycopg2
 from psycopg2 import sql
 
 from agent import ats_api
-from agent.description_fetch import MIN_DESCRIPTION_CHARS, Renderer, fetch_description
+from agent.description_fetch import MIN_DESCRIPTION_CHARS, FetchResult, Renderer, fetch_description
+
+PER_HOST_DELAY_SECONDS = 0.5
+JOB_TIMEOUT_SECONDS = 90
 
 FAILURES_DDL = """
 CREATE TABLE IF NOT EXISTS description_fetch_failures (
@@ -136,6 +140,8 @@ def latest_batch(conn, table: str, cols: set[str]):
 def build_filters(cols: set[str], batch_id) -> tuple[sql.Composed, list]:
     """WHERE clause for rows that still need a description."""
     parts = [sql.SQL("t.source_url IS NOT NULL AND btrim(t.source_url) <> ''"),
+             # "#job-N" links point at a listing page, not a job page of its own
+             sql.SQL("t.source_url NOT LIKE '%%#job-%%'"),
              sql.SQL("(t.raw_text IS NULL OR char_length(btrim(t.raw_text)) < %s)")]
     params: list = [MIN_DESCRIPTION_CHARS]
     if batch_id is not None:
@@ -149,7 +155,7 @@ def build_filters(cols: set[str], batch_id) -> tuple[sql.Composed, list]:
 
 
 def select_links(conn, table: str, cols: set[str], batch_id, max_tries: int,
-                 failures_table_exists: bool, retry_dropped: bool) -> dict:
+                 failures_table_exists: bool, retry_dropped: bool, retry_after_days: float = 7) -> dict:
     """Unique (company_id, source_url) links that need a description, plus
     counts of what was excluded and why."""
     where, params = build_filters(cols, batch_id)
@@ -167,8 +173,12 @@ def select_links(conn, table: str, cols: set[str], batch_id, max_tries: int,
 
         tries = {}
         if failures_table_exists:
-            cur.execute("SELECT company_id, source_url, tries FROM description_fetch_failures")
-            tries = {(c, u): n for c, u, n in cur.fetchall()}
+            # A link that hit max_tries is dropped for retry_after_days, then
+            # gets another chance (a page can come back after an outage).
+            cur.execute("""SELECT company_id, source_url, tries,
+                                  last_tried_at > now() - make_interval(secs => %s) AS recent
+                           FROM description_fetch_failures""", (retry_after_days * 86400,))
+            tries = {(c, u): (n if recent else 0) for c, u, n, recent in cur.fetchall()}
 
     todo, in_prod, dropped = [], 0, 0
     rows_needing = 0
@@ -269,10 +279,12 @@ async def run_fetches(todo, writer: Writer, *, concurrency: int, per_host: int,
                 continue
             async with host_sems[host_key(url)]:
                 try:
-                    res = await fetch_description(url, renderer)
+                    res = await asyncio.wait_for(fetch_description(url, renderer), timeout=JOB_TIMEOUT_SECONDS)
+                except asyncio.TimeoutError:
+                    res = FetchResult(False, source="?", error=f"timeout >{JOB_TIMEOUT_SECONDS}s", transient=True)
                 except Exception as e:   # fetch_description shouldn't raise; be safe
-                    from agent.description_fetch import FetchResult
                     res = FetchResult(False, source="?", error=f"crash {type(e).__name__}: {e}"[:200])
+                await asyncio.sleep(PER_HOST_DELAY_SECONDS)   # small gap between requests to one site
             try:
                 if res.ok:
                     writer.success(company_id, url, res.text)
@@ -325,6 +337,8 @@ def parse_args(argv=None):
     p.add_argument("--no-render", action="store_true", help="Never use the headless browser")
     p.add_argument("--max-tries", type=int, default=3, help="Skip links that failed this many times (default 3)")
     p.add_argument("--retry-dropped", action="store_true", help="Also retry links that hit --max-tries")
+    p.add_argument("--retry-after-days", type=float, default=7,
+                   help="A dropped link gets another try after this many days (default 7)")
     p.add_argument("--dry-run", action="store_true", help="Show counts per source; fetch and write nothing")
     return p.parse_args(argv)
 
@@ -355,13 +369,20 @@ async def main(argv=None) -> int:
                 return 0
 
         failures_exists = table_exists(conn, "description_fetch_failures")
+        if failures_exists:
+            fcols = table_columns(conn, "description_fetch_failures")
+            if not {"company_id", "tries", "last_tried_at"} <= fcols:
+                sys.exit("description_fetch_failures exists with an older layout (probably from the "
+                         "jobbeggar_agent_2026-10-15.zip build). Rename it, then re-run:\n"
+                         "  ALTER TABLE description_fetch_failures RENAME TO description_fetch_failures_old;")
         if not args.dry_run and not failures_exists:
             with conn.cursor() as cur:
                 cur.execute(FAILURES_DDL)
             conn.commit()
             failures_exists = True
 
-        sel = select_links(conn, args.table, cols, batch_id, args.max_tries, failures_exists, args.retry_dropped)
+        sel = select_links(conn, args.table, cols, batch_id, args.max_tries, failures_exists, args.retry_dropped,
+                           args.retry_after_days)
         conn.commit()
         todo = sel["todo"]
         over_limit = max(0, len(todo) - args.limit)
@@ -374,7 +395,7 @@ async def main(argv=None) -> int:
         print(f"Rows without a description:        {sel['rows_needing']}")
         print(f"Unique job links among them:       {sel['links_total']}")
         print(f"  skipped, already in production:  {sel['in_prod']}")
-        print(f"  skipped, failed {args.max_tries}+ times:".ljust(36) + f"{sel['dropped']}")
+        print(f"  skipped, failed {args.max_tries}+ times (retry after {args.retry_after_days:g} days):".ljust(36) + f" {sel['dropped']}")
         print(f"  to fetch this run:               {len(todo)}"
               + (f"  ({over_limit} left for later runs, --limit {args.limit})" if over_limit else ""))
         src = Counter(ats_api.detail_source_for_url(u) or "page" for _, u, _ in todo)

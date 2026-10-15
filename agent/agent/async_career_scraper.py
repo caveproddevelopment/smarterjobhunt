@@ -126,7 +126,8 @@ async def new_context(browser):
 
 
 async def scrape_careers_page(careers_url: str, base_domain: str, browser=None,
-                              diag: Optional[dict] = None, company_host: str = "") -> list[dict]:
+                              diag: Optional[dict] = None, company_host: str = "",
+                              fetch_descriptions: bool = SCRAPE_FETCHES_DESCRIPTIONS) -> list[dict]:
     """
     Navigate to a careers page and extract jobs (async version).
 
@@ -140,7 +141,7 @@ async def scrape_careers_page(careers_url: str, base_domain: str, browser=None,
     """
     if browser is not None:
         return await _scrape_with_browser(browser, careers_url, base_domain, diag=diag,
-                                          company_host=company_host)
+                                          company_host=company_host, fetch_descriptions=fetch_descriptions)
 
     try:
         from playwright.async_api import async_playwright
@@ -152,7 +153,7 @@ async def scrape_careers_page(careers_url: str, base_domain: str, browser=None,
         b = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
         try:
             return await _scrape_with_browser(b, careers_url, base_domain, diag=diag,
-                                              company_host=company_host)
+                                              company_host=company_host, fetch_descriptions=fetch_descriptions)
         finally:
             await b.close()
 

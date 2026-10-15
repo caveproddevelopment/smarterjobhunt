@@ -167,6 +167,11 @@ def test_fetch_description_404_is_counted():
 JS_PAGE = f"""<html><head><title>Job</title></head><body><div id="app">Loading…</div>
 <script>setTimeout(() => {{ document.getElementById('app').innerHTML =
   '<div class="job-description"><p>{LONG}</p></div>'; }}, 200);</script></body></html>"""
+# Enough nav text to pass 100 characters, but the job itself loads with JavaScript.
+JS_SHELL_PAGE = f"""<html><body><nav>{'Home About Careers Contact Investors Newsroom ' * 3}</nav>
+<div id="app">Please enable JavaScript to view this job.</div>
+<script>setTimeout(() => {{ document.getElementById('app').innerHTML =
+  '<div class="job-description"><p>{LONG}</p></div>'; }}, 200);</script></body></html>"""
 STATIC_PAGE = f"""<html><body><main><h1>Plant Engineer</h1><p>{LONG}</p></main></body></html>"""
 
 
@@ -174,7 +179,7 @@ STATIC_PAGE = f"""<html><body><main><h1>Plant Engineer</h1><p>{LONG}</p></main><
 def local_site():
     class H(BaseHTTPRequestHandler):
         def do_GET(self):
-            body = {"/js-job": JS_PAGE, "/static-job": STATIC_PAGE}.get(self.path)
+            body = {"/js-job": JS_PAGE, "/static-job": STATIC_PAGE, "/js-shell": JS_SHELL_PAGE}.get(self.path)
             self.send_response(200 if body else 404)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -204,11 +209,13 @@ def test_js_page_is_rendered_in_headless_browser(local_site):
             no_render = await DF.fetch_description(local_site + "/js-job", None)
             rendered = await DF.fetch_description(local_site + "/js-job", r)
             missing = await DF.fetch_description(local_site + "/nope", r)
-            return no_render, rendered, missing
+            shell = await DF.fetch_description(local_site + "/js-shell", r)
+            return no_render, rendered, missing, shell
         finally:
             await r.close()
 
-    no_render, rendered, missing = asyncio.run(go())
+    no_render, rendered, missing, shell = asyncio.run(go())
+    assert shell.ok and shell.source == "page_rendered" and shell.text.startswith("We are hiring")
     assert not no_render.ok and no_render.error == "too_short"
     assert rendered.ok and rendered.source == "page_rendered" and rendered.text.startswith("We are hiring")
     assert not missing.ok and missing.error == "http_404"
@@ -223,3 +230,25 @@ def test_interleave_by_host_round_robins():
     hosts = [BF.host_key(u) for _, u, _ in BF.interleave_by_host(links)]
     assert hosts[:3] == ["a.example.com", "b.example.com", "api.smartrecruiters.com"]
     assert sorted(hosts) == sorted(BF.host_key(u) for _, u, _ in links)
+
+
+def test_jsonld_entity_escaped_block():
+    import html as h
+    block = h.escape('{"@type": "JobPosting", "description": "' + LONG + '"}', quote=True)
+    html = f'<html><head><script type="application/ld+json">{block}</script></head><body></body></html>'
+    assert DF.jobposting_description(html).startswith("We are hiring")
+
+
+def test_api_without_text_falls_through_to_page():
+    page = f"<html><body><main><p>{LONG}</p></main>{'<p>Footer text here.</p>' * 30}</body></html>"
+    with mock.patch.object(DF.ats_api, "detail_for_url", return_value=("workday", "")), \
+         mock.patch.object(DF, "fetch_page_html", return_value=(page, None)):
+        res = asyncio.run(DF.fetch_description("https://acme.wd5.myworkdayjobs.com/C/job/X/Y_R1", None))
+    assert res.ok and res.source == "page"
+
+
+def test_with_descriptions_flag_reaches_fetch_jobs():
+    from agent import async_ingestion_orchestrator as O
+    import inspect
+    assert "fetch_descriptions" in inspect.signature(O.run).parameters
+    assert inspect.signature(O.run).parameters["fetch_descriptions"].default is False

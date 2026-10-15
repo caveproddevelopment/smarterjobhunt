@@ -18,6 +18,7 @@ timeouts); the backfill doesn't count those against a link's 3 tries.
 """
 
 import asyncio
+import html as html_lib
 import json
 import re
 from dataclasses import dataclass
@@ -66,7 +67,10 @@ def _jsonld_objects(html: str):
         try:
             data = json.loads(raw)
         except Exception:
-            continue
+            try:
+                data = json.loads(html_lib.unescape(raw))   # some sites entity-escape the block
+            except Exception:
+                continue
         stack = [data]
         while stack:
             o = stack.pop()
@@ -114,6 +118,14 @@ def extract_description(html: str) -> str:
         return whole if len(whole) > len(best) else best
     except Exception:
         return make_snippet(html, is_html=True, max_chars=DESCRIPTION_SNIPPET_CHARS)
+
+
+def looks_like_js_shell(html: str) -> bool:
+    """A page that renders its content client-side: little visible text, or a
+    "please enable JavaScript" / "Loading..." placeholder."""
+    text = make_snippet(html or "", is_html=True, max_chars=600)
+    return len(text) < 300 or bool(re.search(r"enable javascript|javascript is (?:disabled|required)"
+                                             r"|loading\.\.\.|loading…|please wait", text[:500], re.I))
 
 
 def _is_transient_status(code: Optional[int]) -> bool:
@@ -220,9 +232,12 @@ class Renderer:
 
 
 async def fetch_description(apply_url: str, renderer: Optional[Renderer]) -> FetchResult:
-    """API, then page, then rendered page. Never raises."""
+    """API, then page, then rendered page. Never raises.
+    An API that answers but has no usable text falls through to the page; a
+    rate-limited / erroring API (transient) is reported as is, so the site
+    isn't hit twice."""
     api = await asyncio.to_thread(fetch_via_api, apply_url)
-    if api is not None:
+    if api is not None and (api.ok or api.transient):
         return api
 
     html, fail = await asyncio.to_thread(fetch_page_html, apply_url)
@@ -230,11 +245,14 @@ async def fetch_description(apply_url: str, renderer: Optional[Renderer]) -> Fet
                              or renderer is None):
         return fail
     text = extract_description(html) if html else ""
-    if len(text) >= MIN_DESCRIPTION_CHARS:
+    if len(text) >= MIN_DESCRIPTION_CHARS and (len(jobposting_description(html)) >= MIN_DESCRIPTION_CHARS
+                                               or not looks_like_js_shell(html)):
         return FetchResult(True, text=text, source="page")
 
-    # Fewer than 100 chars (or a blocked plain fetch): render it.
+    # Too little text, a JavaScript shell, or a blocked plain fetch: render it.
     if renderer is None:
+        if len(text) >= MIN_DESCRIPTION_CHARS:
+            return FetchResult(True, text=text, source="page")
         return FetchResult(False, text=text, source="page", error="too_short")
     rendered, err = await renderer.render(apply_url)
     if rendered is None:
@@ -242,7 +260,10 @@ async def fetch_description(apply_url: str, renderer: Optional[Renderer]) -> Fet
             return fail
         return FetchResult(False, source="page_rendered", error=err or "render_failed",
                            transient=err == "no_browser")
-    text = extract_description(rendered)
-    if len(text) >= MIN_DESCRIPTION_CHARS:
-        return FetchResult(True, text=text, source="page_rendered")
+    rtext = extract_description(rendered)
+    if len(rtext) >= MIN_DESCRIPTION_CHARS:
+        return FetchResult(True, text=rtext, source="page_rendered")
+    if len(text) >= MIN_DESCRIPTION_CHARS:          # rendering didn't help; keep the plain text
+        return FetchResult(True, text=text, source="page")
+    text = rtext
     return FetchResult(False, text=text, source="page_rendered", error="too_short")

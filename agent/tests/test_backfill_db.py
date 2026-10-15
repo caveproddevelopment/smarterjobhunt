@@ -217,9 +217,9 @@ def test_reactivate_dry_run_then_apply(db, capsys):
 
     assert RA.main(["--database-url", url]) == 0
     assert "Reactivated 1 returning jobs" in capsys.readouterr().out
-    rows = {t: (a, str(s)[:10], rt) for t, a, s, rt in
-            _q(conn, "SELECT title, is_active, scraped_at AT TIME ZONE 'UTC', raw_text FROM jobs")}
-    assert rows["Prod 1 (prod title)"] == (True, "2026-10-15", DESC)   # title + description unchanged
+    rows = {t: (a, s, rt) for t, a, s, rt in
+            _q(conn, "SELECT title, is_active, scraped_at > '2026-10-10 02:00+00', raw_text FROM jobs")}
+    assert rows["Prod 1 (prod title)"] == (True, True, DESC)   # title + description unchanged, scraped_at bumped
     assert rows["Gone"][0] is False               # not in latest scrape
     assert rows["Back but no desc"][0] is False   # no description in production
 
@@ -236,3 +236,37 @@ def test_reactivate_uses_latest_batch_only(db):
     assert _q(conn, "SELECT is_active FROM jobs WHERE title = 'Seen only in old batch'")[0][0] is False
     RA.main(["--database-url", url, "--batch-id", old])
     assert _q(conn, "SELECT is_active FROM jobs WHERE title = 'Seen only in old batch'")[0][0] is True
+
+
+def test_dropped_link_retried_after_seven_days(db):
+    url, conn = db
+    _seed(conn)
+    _q(conn, "UPDATE description_fetch_failures SET last_tried_at = now() - interval '8 days'")
+    calls = []
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(BF, "fetch_description", _fake_fetch(calls))
+        asyncio.run(BF.main(["--database-url", url]))
+    assert "https://beta.example.com/j/new-3" in calls
+
+
+def test_listing_anchor_links_skipped(db):
+    url, conn = db
+    _old, new = _seed(conn)
+    _q(conn, """INSERT INTO jobs_staging (company_id, title, source_url, batch_id, scraped_at)
+                VALUES (1, 'Anchor', 'https://acme.example.com/careers#job-7', %s, '2026-10-15 02:00+00')""", (new,))
+    calls = []
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(BF, "fetch_description", _fake_fetch(calls))
+        asyncio.run(BF.main(["--database-url", url]))
+    assert not any("#job-" in c for c in calls)
+
+
+def test_old_failures_table_layout_stops_with_instructions(db):
+    url, conn = db
+    _seed(conn)
+    _q(conn, "DROP TABLE description_fetch_failures")
+    _q(conn, """CREATE TABLE description_fetch_failures (source_url TEXT PRIMARY KEY, attempts INTEGER,
+                last_error TEXT, last_attempt_at TIMESTAMPTZ)""")
+    with pytest.raises(SystemExit) as e:
+        asyncio.run(BF.main(["--database-url", url]))
+    assert "RENAME TO description_fetch_failures_old" in str(e.value)
