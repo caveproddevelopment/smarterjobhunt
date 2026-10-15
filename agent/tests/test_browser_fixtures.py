@@ -144,7 +144,10 @@ def test_apply_now_cards(resolver_args):
     diag = {}
     jobs = _run(_scrape("http://acme.test/cards", diag))
     assert [j["title"] for j in jobs] == ["Senior Design Engineer", "Quality Inspector"], diag
-    assert all(len(j["description_snippet"]) >= 100 for j in jobs)
+    # Since 2026-10-15 the nightly scrape doesn't open each job page; the
+    # description backfill does that afterwards (tests/test_descriptions.py).
+    assert all(j["description_snippet"] == "" for j in jobs)
+    assert diag.get("links_before_descriptions") == 2
 
 
 def test_404_served_as_200_is_rejected(resolver_args):
