@@ -211,12 +211,22 @@ def auto_clean():
 @require_admin_key
 def promote():
     """Push every 'approved', not-yet-promoted row in a batch into the
-    real jobs table, reusing the exact same (company_id, source_url)
-    dedup index jobs already has -- so re-promoting an already-promoted
-    batch, or a job that reappears in a later scrape, just updates the
-    existing row instead of duplicating it. Staged rows are marked
-    promoted_at rather than deleted, so the raw scrape history sticks
-    around for debugging.
+    real jobs table, using the (company_id, source_url) dedup index jobs
+    already has.
+
+    Rule: a job that is already in jobs is never overwritten. If an approved
+    staged row matches an existing job, promote skips it and the existing
+    row stays exactly as it is (title, text, dates, is_active, scraped_at).
+    Reactivating jobs that went inactive and later reappear is a separate
+    step (agent/run_reactivate_returning_jobs.py), not part of promote.
+
+    Every approved row is still stamped promoted_at, whether it was inserted
+    or skipped, so it isn't retried. Staged rows are kept rather than
+    deleted, so the raw scrape history sticks around for debugging.
+
+    Response: inserted (new jobs added), skipped_existing (approved rows
+    whose job was already in jobs, including duplicate links within the
+    same batch), promoted (rows stamped promoted_at = the sum of both).
     """
     body = request.get_json(silent=True) or {}
     batch_id = body.get("batch_id")
@@ -230,13 +240,12 @@ def promote():
         SELECT company_id, title, department, location, date_posted, source_url, raw_text
         FROM jobs_staging
         WHERE batch_id = %s AND review_status = 'approved' AND promoted_at IS NULL
-        ON CONFLICT (company_id, source_url) WHERE source_url IS NOT NULL DO UPDATE
-        SET title = EXCLUDED.title, department = EXCLUDED.department,
-            location = EXCLUDED.location, date_posted = EXCLUDED.date_posted,
-            raw_text = EXCLUDED.raw_text, scraped_at = now(), is_active = true
+        ON CONFLICT (company_id, source_url) WHERE source_url IS NOT NULL DO NOTHING
+        RETURNING id
         """,
         (batch_id,),
     )
+    inserted_count = len(cur.fetchall())
 
     cur.execute(
         """
@@ -249,4 +258,11 @@ def promote():
     promoted_count = cur.rowcount
     cur.connection.commit()
 
-    return jsonify({"batch_id": batch_id, "promoted": promoted_count})
+    return jsonify(
+        {
+            "batch_id": batch_id,
+            "inserted": inserted_count,
+            "skipped_existing": promoted_count - inserted_count,
+            "promoted": promoted_count,
+        }
+    )
