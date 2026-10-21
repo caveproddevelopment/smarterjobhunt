@@ -92,7 +92,7 @@ export default function Landing() {
         <SEO
           title="JobBeggar - Search Company Career Pages Directly, Skip Job Boards"
           description="JobBeggar skips job boards and goes straight to company career pages. Filter by funded startups, Fortune 500, or major Indian companies. Title-variant matching with ranked results."
-          path="/"
+          path="/home"
         />
         <Navbar />
 
