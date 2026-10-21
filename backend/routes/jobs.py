@@ -2,6 +2,7 @@ import re
 
 from flask import Blueprint, g, jsonify, request
 
+import geo
 from auth_utils import optional_auth
 from db.connection import get_cursor
 
@@ -83,6 +84,53 @@ def _word_boundary_pattern(term):
     matching inside an unrelated word.
     """
     return r"\y" + re.escape(term) + r"\y"
+
+
+# Location box + distance slider. The slider goes up to 500 mi; 50 is what
+# the frontend starts at, so it's also the fallback if none is sent.
+DEFAULT_RADIUS_MILES = 50
+MAX_RADIUS_MILES = 500
+
+
+def _location_filter(cur):
+    """WHERE clause for the Location box + distance slider.
+
+    Returns (sql, params, meta). sql is None when no location was typed or
+    it couldn't be recognised -- in that case nothing is filtered and
+    meta carries {"location_not_found": true} so the page can say so.
+
+    Job locations are free text, so instead of storing coordinates this
+    looks at every distinct location string once (cheap: a few thousand at
+    most, and geo.py caches each parse), keeps the ones inside the radius,
+    and filters with location = ANY(...). Remote jobs are always kept,
+    judged by "remote" in the title or location only -- not the
+    description, which often mentions remote work for on-site roles.
+    """
+    text = request.args.get("location", "").strip()
+    if not text:
+        return None, [], {}
+    try:
+        radius = float(request.args.get("radius_miles", DEFAULT_RADIUS_MILES))
+    except ValueError:
+        radius = DEFAULT_RADIUS_MILES
+    radius = max(0.0, min(radius, MAX_RADIUS_MILES))
+
+    place = geo.resolve_query(text)
+    if place is None:
+        return None, [], {"location_not_found": True, "location_query": text}
+
+    cur.execute("SELECT DISTINCT location FROM jobs WHERE location IS NOT NULL AND location <> ''")
+    matching = [row["location"] for row in cur.fetchall()
+                if geo.location_matches(row["location"], place, radius)]
+
+    remote_pattern = _word_boundary_pattern("remote")
+    sql = "(j.location = ANY(%s) OR j.title ~* %s OR j.location ~* %s)"
+    meta = {
+        "location_resolved": place.label,
+        "location_kind": place.kind,
+        "radius_miles": radius,
+    }
+    return sql, [matching, remote_pattern, remote_pattern], meta
 
 
 def _description_boost_expr(terms):
@@ -336,6 +384,12 @@ def list_jobs():
         where.append("(j.title ~* %s OR j.location ~* %s OR j.raw_text ~* %s)")
         params.extend([remote_pattern, remote_pattern, remote_pattern])
 
+    cur = get_cursor()
+    location_sql, location_params, location_meta = _location_filter(cur)
+    if location_sql:
+        where.append(location_sql)
+        params.extend(location_params)
+
     # "See them all" on a job card: scope to exactly one company by id
     # (never by name -- company names aren't guaranteed unique, id is).
     # The frontend sends no title/variant/posted_days/company_type filters
@@ -373,7 +427,6 @@ def list_jobs():
         LEFT JOIN user_job_status s ON s.job_id = j.id AND s.user_id = %s
         WHERE {where_clause}
     """
-    cur = get_cursor()
     cur.execute(count_query, [g.user_id, *params])
     total_count = cur.fetchone()["count"]
 
@@ -455,7 +508,7 @@ def list_jobs():
             job["id"] = job_id
             job["title"] = title
 
-    return jsonify({"jobs": jobs, "count": len(jobs), "total_count": total_count})
+    return jsonify({"jobs": jobs, "count": len(jobs), "total_count": total_count, **location_meta})
 
 
 @bp.get("/jobs/variant-counts")
@@ -466,8 +519,8 @@ def variant_counts():
     Powers the clickable "Also matching" pills: a variant with a count of 0
     isn't worth letting someone click into. Each variant is counted on its
     own (never OR'd with the others or with the main title), since a click
-    on a pill should show ONLY that variant's jobs. posted_days/funding are
-    accepted so the counts match whatever's currently applied everywhere
+    on a pill should show ONLY that variant's jobs. posted_days/funding and
+    location/radius_miles are accepted so the counts match whatever's currently applied everywhere
     else on the page.
     """
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
@@ -498,6 +551,12 @@ def variant_counts():
         where.append(f"c.company_type IN ({placeholders})")
         params.extend(valid_company_types)
 
+    cur = get_cursor()
+    location_sql, location_params, _ = _location_filter(cur)
+    if location_sql:
+        where.append(location_sql)
+        params.extend(location_params)
+
     where_clause = " AND ".join(where)
 
     # A correlated subquery per unnested variant keeps each count
@@ -517,7 +576,6 @@ def variant_counts():
     """
     full_params = [*params, variant_titles]
 
-    cur = get_cursor()
     cur.execute(query, full_params)
     rows = cur.fetchall()
 
