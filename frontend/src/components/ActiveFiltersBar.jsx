@@ -1,10 +1,13 @@
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
+import { DEFAULT_RADIUS_MILES } from '../lib/api'
 
 const DEFAULT_FILTERS = {
   title: '',
   postedDays: '',
   companyTypes: [],
   remoteOnly: false,
+  location: '',
+  radiusMiles: DEFAULT_RADIUS_MILES,
 }
 
 const STATUS_LABELS = {
@@ -36,6 +39,8 @@ export default function ActiveFiltersBar({
   // shown next to the scoped title once a variant/company/status view is
   // selected, e.g. "Current View: Product Owner (12)".
   scopedCount = null,
+  // What the backend matched the Location box to -- see fetchJobs.
+  locationInfo = null,
 }) {
   // Once a variant pill, "See them all", or a "Track Applications" radio is
   // selected, the listing is scoped to just that title, company, or
@@ -85,6 +90,18 @@ export default function ActiveFiltersBar({
       key: 'companyTypes',
       label: companyTypeLabels.join(', '),
       clear: () => onChange({ ...filters, companyTypes: [DEFAULT_COMPANY_TYPE] }),
+    })
+  }
+  const typedLocation = (filters.location || '').trim()
+  if (typedLocation && !locationInfo?.notFound) {
+    const place = locationInfo?.resolved || typedLocation
+    restChips.push({
+      key: 'location',
+      label:
+        locationInfo?.kind === 'country'
+          ? `In ${place} + remote`
+          : `Within ${filters.radiusMiles ?? DEFAULT_RADIUS_MILES} mi of ${place} + remote`,
+      clear: () => onChange({ ...filters, location: '' }),
     })
   }
   if (filters.remoteOnly) {

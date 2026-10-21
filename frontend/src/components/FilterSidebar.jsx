@@ -1,4 +1,10 @@
 import { COMPANY_TYPE_FILTER_OPTIONS } from '../lib/companyTypes'
+import { DEFAULT_RADIUS_MILES } from '../lib/api'
+
+// Distance slider range, in miles. The backend caps radius_miles at 500 too.
+const MIN_RADIUS = 5
+const MAX_RADIUS = 500
+const RADIUS_STEP = 5
 
 export default function FilterSidebar({
   filters,
@@ -13,6 +19,9 @@ export default function FilterSidebar({
   companyTypeCounts = {},
   companyTypeCountsLoading = false,
 }) {
+  const hasLocation = Boolean((filters.location || '').trim())
+  const radius = filters.radiusMiles ?? DEFAULT_RADIUS_MILES
+
   // Small count label shown next to a Company Database option: plain
   // ink text (not ember) once we know the count, muted while the fetch
   // for the current title/postedDays search is still in flight.
@@ -58,6 +67,48 @@ export default function FilterSidebar({
           className="w-16 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
         />
         <span className="text-sm text-ink">days</span>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <label htmlFor="filter-location" className="shrink-0 text-sm text-ink">
+          Location
+        </label>
+        <input
+          id="filter-location"
+          type="text"
+          value={filters.location || ''}
+          placeholder="City, state or country"
+          onChange={(event) => onFilterChange({ ...filters, location: event.target.value })}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onUpdateListings()
+          }}
+          className="min-w-0 flex-1 border border-line px-2 py-1.5 text-sm text-ink placeholder:text-ink-soft/60 focus:border-ink-soft focus:outline-none"
+        />
+      </div>
+
+      <div className={`mt-2 ${hasLocation ? '' : 'opacity-50'}`}>
+        <div className="flex items-center justify-between text-sm text-ink">
+          <label htmlFor="filter-radius">Distance</label>
+          <span className="font-medium">Within {radius} mi</span>
+        </div>
+        <input
+          id="filter-radius"
+          type="range"
+          min={MIN_RADIUS}
+          max={MAX_RADIUS}
+          step={RADIUS_STEP}
+          value={radius}
+          disabled={!hasLocation}
+          onChange={(event) => onFilterChange({ ...filters, radiusMiles: Number(event.target.value) })}
+          className="mt-1 w-full accent-ember disabled:cursor-not-allowed"
+        />
+        <div className="flex justify-between text-[11px] text-ink-soft">
+          <span>{MIN_RADIUS} mi</span>
+          <span>{MAX_RADIUS} mi</span>
+        </div>
+        <p className="mt-1 text-xs text-ink-soft">
+          {hasLocation ? 'Remote jobs are always included.' : 'Type a location to use the distance slider.'}
+        </p>
       </div>
 
       <div className="mt-4">
