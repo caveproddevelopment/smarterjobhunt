@@ -77,6 +77,9 @@ def client(monkeypatch):
 
 
 def _locations(client, **params):
+    # No title here, so browse one Company Database (a no-title search
+    # is otherwise refused -- see test_search_rules.py).
+    params.setdefault("company_type", "funded")
     resp = client.get("/api/jobs", query_string=params)
     assert resp.status_code == 200, resp.get_data(as_text=True)
     body = resp.get_json()
