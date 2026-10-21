@@ -8,6 +8,7 @@ import ActiveFiltersBar from '../components/ActiveFiltersBar'
 import DefaultFiltersModal from '../components/DefaultFiltersModal'
 import SubscribeModal from '../components/SubscribeModal'
 import AccessExpiredModal from '../components/AccessExpiredModal'
+import Pagination from '../components/Pagination'
 import {
   fetchJobs,
   fetchSavedSearches,
@@ -18,7 +19,9 @@ import {
   fetchCompanyTypeCounts,
   fetchVariantCounts,
   DEFAULT_RADIUS_MILES,
+  JOBS_PAGE_SIZE,
 } from '../lib/api'
+import { normalizePostedDays, postedDaysLabel } from '../lib/postedDays'
 import { useAuth } from '../lib/auth'
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 
@@ -33,7 +36,7 @@ import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 // sidebar instead of two identically-named rows.
 function buildBookmarkName(view) {
   const days = view.days ? String(view.days) : ''
-  const suffix = days ? ` · last ${days} day${days === '1' ? '' : 's'}` : ''
+  const suffix = normalizePostedDays(days) ? ` · last ${postedDaysLabel(days)}` : ''
   if (view.viewType === 'status') {
     if (view.statusFilter === 'applied') return 'Applied Jobs'
     if (view.statusFilter === 'rejected') return 'Rejected Jobs'
@@ -90,8 +93,8 @@ export default function JobListings() {
   // Pro subscribers (including those still inside their 7-day Stripe trial,
   // which already sets plan='pro' with subscription_status='trialing' --
   // see USER_FIELDS in routes/auth.py) have access; everyone else doesn't.
-  // Also gates job-title search itself (see AccessExpiredModal below), not
-  // just the per-job "Apply" action.
+  // Anyone can search by title, but only subscribers see full job details
+  // and can Apply -- the API sends non-subscribers job titles only.
   const canApply = user?.plan === 'pro'
   const [showAccessExpiredModal, setShowAccessExpiredModal] = useState(false)
   const [savingDefaults, setSavingDefaults] = useState(false)
@@ -127,6 +130,22 @@ export default function JobListings() {
   // ALL searches, ignoring every other filter. Mutually exclusive with
   // selectedVariant and selectedCompany.
   const [selectedStatus, setSelectedStatus] = useState(null)
+  // A job title is required to search. The one no-title list besides the
+  // scoped views above is a Company Database opened from a landing-page
+  // badge (?company_type=...) -- this stays true until the visitor runs
+  // their own search.
+  const [badgeBrowse, setBadgeBrowse] = useState(
+    Boolean(linkedCompanyType) && !searchParams.get('title'),
+  )
+  const [titleError, setTitleError] = useState(null)
+  // 1-based page of results; the API sends JOBS_PAGE_SIZE (20) at a time.
+  const [page, setPage] = useState(1)
+  // Which view the current page number belongs to -- when the view changes,
+  // paging starts again from page 1.
+  const pageViewKeyRef = useRef(null)
+  const listTopRef = useRef(null)
+  const needsTitle =
+    !selectedStatus && !selectedCompany && !selectedVariant && !appliedFilters.title.trim() && !badgeBrowse
   // Tracks the title+postedDays combo the current titleVariants were
   // fetched for, so toggling selectedVariant alone doesn't re-trigger that
   // fetch when nothing else actually changed.
@@ -141,6 +160,14 @@ export default function JobListings() {
   const highlightTimeoutRef = useRef(null)
 
   useEffect(() => {
+    const viewKey = JSON.stringify([appliedFilters, selectedVariant, selectedCompany, selectedStatus, badgeBrowse])
+    if (pageViewKeyRef.current !== null && pageViewKeyRef.current !== viewKey && page !== 1) {
+      pageViewKeyRef.current = viewKey
+      setPage(1) // re-runs this effect for page 1
+      return
+    }
+    pageViewKeyRef.current = viewKey
+
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -194,8 +221,19 @@ export default function JobListings() {
               }
             : { ...appliedFilters, variantTitles: variants }
 
+      // No title and not one of the allowed no-title views: nothing to
+      // search yet, so don't ask the API (it would refuse anyway).
+      if (needsTitle) {
+        jobCardRefs.current = {}
+        setJobs([])
+        setTotalCount(0)
+        setLocationInfo({ resolved: null, kind: null, notFound: false })
+        setLoading(false)
+        return
+      }
+
       try {
-        const { jobs: results, totalCount: total, locationInfo: placeInfo } = await fetchJobs(jobParams)
+        const { jobs: results, totalCount: total, locationInfo: placeInfo } = await fetchJobs({ ...jobParams, page })
         if (cancelled) return
         jobCardRefs.current = {}
         setJobs(results)
@@ -223,7 +261,7 @@ export default function JobListings() {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus])
+  }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus, badgeBrowse, page])
 
   // Fetches per-variant job counts for the "See Variants" popup, lazily --
   // only once it's actually open, and only re-fetching when the title,
@@ -313,7 +351,7 @@ export default function JobListings() {
     if (user.has_set_default_filters) {
       const seeded = {
         title: user.default_job_title || '',
-        postedDays: user.default_posted_within_days || '',
+        postedDays: normalizePostedDays(user.default_posted_within_days),
         companyTypes: filters.companyTypes || [DEFAULT_COMPANY_TYPE],
         location: '',
         radiusMiles: DEFAULT_RADIUS_MILES,
@@ -349,6 +387,9 @@ export default function JobListings() {
   }
 
   function handleActiveFiltersChange(newFilters) {
+    // Removing chips keeps a badge's Company Database view going, as long
+    // as a database is still picked; otherwise a title is needed again.
+    setBadgeBrowse((prev) => prev && !newFilters.title && (newFilters.companyTypes || []).length > 0)
     setFilters(newFilters)
     setAppliedFilters(newFilters)
     setSelectedVariant(null)
@@ -357,13 +398,21 @@ export default function JobListings() {
     setShowVariants(false)
   }
 
+  function handleFilterChange(newFilters) {
+    if (titleError && newFilters.title.trim()) setTitleError(null)
+    setFilters(newFilters)
+  }
+
   function handleUpdateListings() {
-    // Avoid a request when a title search is clearly unavailable; the API
-    // still enforces this for direct requests and non-title browse paths.
-    if (filters.title.trim() && !canApply) {
-      setShowAccessExpiredModal(true)
+    // A job title is required -- there's no "all titles" search. Anyone
+    // can search; for non-subscribers the API only returns job titles and
+    // the rest of each card stays blurred.
+    if (!filters.title.trim()) {
+      setTitleError('Enter a job title to search.')
       return
     }
+    setTitleError(null)
+    setBadgeBrowse(false)
     setAppliedFilters(filters)
     setSelectedVariant(null)
     setSelectedCompany(null)
@@ -381,6 +430,11 @@ export default function JobListings() {
     setSelectedVariant(null)
     setSelectedStatus(null)
     setSelectedCompany((prev) => (prev?.id === companyId ? null : { id: companyId, name: companyName }))
+  }
+
+  function handlePageChange(nextPage) {
+    setPage(nextPage)
+    listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   function handleToggleVariants() {
@@ -560,17 +614,9 @@ export default function JobListings() {
       setSelectedCompany({ id: search.company_id, name: search.company_name || 'this company' })
       return
     }
-    // A bookmarked plain-title or variant search is still a job-title
-    // search -- same gate as clicking "Update Search" with a title typed in.
-    const bookmarkedTitle = search.view_type === 'variant' ? search.variant_title : search.job_title
-    if ((bookmarkedTitle || '').trim() && !canApply) {
-      setShowAccessExpiredModal(true)
-      return
-    }
-
     const applied = {
       title: search.job_title || '',
-      postedDays: search.posted_within_days != null ? String(search.posted_within_days) : '',
+      postedDays: normalizePostedDays(search.posted_within_days),
       companyTypes: search.company_types || [DEFAULT_COMPANY_TYPE],
       remoteOnly: Boolean(search.remote_only),
       location: '',
@@ -578,6 +624,7 @@ export default function JobListings() {
     }
     setFilters(applied)
     setAppliedFilters(applied)
+    setBadgeBrowse(false)
     setSelectedCompany(null)
     setSelectedStatus(null)
     setSelectedVariant(search.view_type === 'variant' ? search.variant_title || '' : null)
@@ -610,7 +657,8 @@ export default function JobListings() {
           <div ref={sidebarRef} className="border border-line p-5 md:w-72 md:shrink-0">
             <FilterSidebar
               filters={filters}
-              onFilterChange={setFilters}
+              onFilterChange={handleFilterChange}
+              titleError={titleError}
               onUpdateListings={handleUpdateListings}
               savedSearches={savedSearches}
               onApplySearch={handleApplySearch}
@@ -623,7 +671,7 @@ export default function JobListings() {
             />
           </div>
 
-          <div className="min-w-0 flex-1 border border-line">
+          <div ref={listTopRef} className="min-w-0 flex-1 scroll-mt-4 border border-line">
             <div className="relative border-b border-line py-4 text-center">
               <div className="absolute right-4 top-4 flex flex-col items-end gap-1">
                 <button
@@ -651,9 +699,11 @@ export default function JobListings() {
               >
                 Search Criteria
               </button>
-              {!loading && (
+              {!loading && !needsTitle && (
                 <p className="mt-1 text-xs text-ink-soft">
-                  {totalCount} Job{totalCount === 1 ? '' : 's'} in current search
+                  {totalCount > JOBS_PAGE_SIZE
+                    ? `Showing ${(page - 1) * JOBS_PAGE_SIZE + 1}–${Math.min(page * JOBS_PAGE_SIZE, totalCount)} of ${totalCount} jobs`
+                    : `${totalCount} Job${totalCount === 1 ? '' : 's'} in current search`}
                 </p>
               )}
               {!loading && locationInfo.notFound && (
@@ -688,6 +738,10 @@ export default function JobListings() {
                 Couldn't load job listings ({error}). Check that the backend is running and
                 reachable.
               </div>
+            ) : needsTitle ? (
+              <div className="border border-dashed border-line m-5 p-10 text-center text-sm text-ink-soft">
+                Enter a job title in the Search Panel and click Update Search to see listings.
+              </div>
             ) : !loading && jobs.length === 0 ? (
               <div className="border border-dashed border-line m-5 p-10 text-center text-sm text-ink-soft">
                 No roles match those filters yet. Try widening your search or checking
@@ -719,6 +773,14 @@ export default function JobListings() {
                   </div>
                 ))}
               </div>
+            )}
+
+            {!error && !needsTitle && (
+              <Pagination
+                page={page}
+                totalPages={Math.ceil(totalCount / JOBS_PAGE_SIZE)}
+                onPageChange={handlePageChange}
+              />
             )}
           </div>
         </div>
