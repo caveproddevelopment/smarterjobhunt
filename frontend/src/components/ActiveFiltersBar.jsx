@@ -1,5 +1,6 @@
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 import { DEFAULT_RADIUS_MILES } from '../lib/api'
+import { postedDaysLabel } from '../lib/postedDays'
 
 const DEFAULT_FILTERS = {
   title: '',
@@ -79,7 +80,7 @@ export default function ActiveFiltersBar({
   if (filters.postedDays) {
     restChips.push({
       key: 'postedDays',
-      label: `Last ${filters.postedDays} days`,
+      label: `Last ${postedDaysLabel(filters.postedDays)}`,
       clear: () => onChange({ ...filters, postedDays: '' }),
     })
   }

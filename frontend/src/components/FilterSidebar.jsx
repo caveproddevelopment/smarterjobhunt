@@ -1,5 +1,6 @@
 import { COMPANY_TYPE_FILTER_OPTIONS } from '../lib/companyTypes'
 import { DEFAULT_RADIUS_MILES } from '../lib/api'
+import PostedDaysPicker from './PostedDaysPicker'
 
 // Distance slider range, in miles. The backend caps radius_miles at 500 too.
 const MIN_RADIUS = 5
@@ -18,6 +19,8 @@ export default function FilterSidebar({
   onSelectStatus = () => {},
   companyTypeCounts = {},
   companyTypeCountsLoading = false,
+  // Shown under the Job Title box when Update Search is clicked without one.
+  titleError = null,
 }) {
   const hasLocation = Boolean((filters.location || '').trim())
   const radius = filters.radiusMiles ?? DEFAULT_RADIUS_MILES
@@ -49,24 +52,34 @@ export default function FilterSidebar({
           id="filter-title"
           type="text"
           value={filters.title}
+          placeholder="Required"
+          required
+          aria-invalid={Boolean(titleError)}
+          aria-describedby={titleError ? 'filter-title-error' : undefined}
           onChange={(event) => onFilterChange({ ...filters, title: event.target.value })}
-          className="min-w-0 flex-1 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onUpdateListings()
+          }}
+          className={`min-w-0 flex-1 border px-2 py-1.5 text-sm text-ink placeholder:text-ink-soft/60 focus:outline-none ${
+            titleError ? 'border-ember focus:border-ember' : 'border-line focus:border-ink-soft'
+          }`}
         />
       </div>
+      {titleError && (
+        <p id="filter-title-error" className="mt-1 text-xs text-ember">
+          {titleError}
+        </p>
+      )}
 
-      <div className="mt-3 flex items-center gap-2">
-        <label htmlFor="filter-days" className="shrink-0 text-sm text-ink">
-          Posted In the last
-        </label>
-        <input
-          id="filter-days"
-          type="number"
-          min="0"
-          value={filters.postedDays}
-          onChange={(event) => onFilterChange({ ...filters, postedDays: event.target.value })}
-          className="w-16 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
-        />
-        <span className="text-sm text-ink">days</span>
+      <div className="mt-3">
+        <p className="text-sm text-ink">Posted in the last</p>
+        <div className="mt-1.5">
+          <PostedDaysPicker
+            id="filter-days"
+            value={filters.postedDays}
+            onChange={(postedDays) => onFilterChange({ ...filters, postedDays })}
+          />
+        </div>
       </div>
 
       <div className="mt-3 flex items-center gap-2">

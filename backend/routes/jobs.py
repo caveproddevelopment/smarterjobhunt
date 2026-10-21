@@ -22,6 +22,23 @@ bp = Blueprint("jobs", __name__, url_prefix="/api")
 # quietly doing nothing instead of a visible failure.
 COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare"}
 
+# Job lists are paged 20 at a time and no request can get more than that,
+# so the full listing can't be pulled (and exported) in one go.
+PAGE_SIZE = 20
+
+
+def _paging_args():
+    """(limit, offset) from ?limit=&offset=, with limit capped at PAGE_SIZE."""
+    try:
+        limit = int(request.args.get("limit", PAGE_SIZE))
+    except ValueError:
+        limit = PAGE_SIZE
+    try:
+        offset = int(request.args.get("offset", 0))
+    except ValueError:
+        offset = 0
+    return max(1, min(limit, PAGE_SIZE)), max(0, offset)
+
 
 def _has_premium_access(user_id):
     """Server-side backstop for every paywalled thing this API does: true
@@ -309,8 +326,14 @@ def list_jobs():
     company_id = request.args.get("company_id", "").strip()
     status_filter = request.args.get("status", "").strip().lower()
     remote_only = request.args.get("remote_only", "").strip().lower() in {"1", "true", "yes"}
-    limit = min(int(request.args.get("limit", 50)), 500)
-    offset = int(request.args.get("offset", 0))
+    limit, offset = _paging_args()
+
+    # A job title is required to search. The only no-title lists are the
+    # scoped ones: a single company ("See them all"), the user's own
+    # Track Applications history, and a Company Database picked from a
+    # landing-page badge (company_type). Never "every job, all titles".
+    if not (title or variant_titles or company_id or status_filter or company_types):
+        return jsonify({"error": "A job title is required to search."}), 400
 
     where = []
     params = []
@@ -662,8 +685,9 @@ def company_jobs(company_id):
         LEFT JOIN job_matches m ON m.job_id = j.id AND m.user_id = %s
         WHERE j.company_id = %s AND j.is_active = true
         ORDER BY j.date_posted DESC
+        LIMIT %s OFFSET %s
         """,
-        (g.user_id, company_id),
+        (g.user_id, company_id, *_paging_args()),
     )
     jobs = cur.fetchall()
 

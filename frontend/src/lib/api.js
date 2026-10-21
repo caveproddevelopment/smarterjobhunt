@@ -50,6 +50,8 @@ function mapJob(row) {
   }
 }
 
+export const JOBS_PAGE_SIZE = 20
+
 export async function fetchJobs(filters) {
   const params = new URLSearchParams()
   if (filters.title) params.set('title', filters.title)
@@ -67,7 +69,9 @@ export async function fetchJobs(filters) {
   for (const variantTitle of filters.variantTitles || []) {
     params.append('variant_title', variantTitle)
   }
-  params.set('limit', 500)
+  // The API sends at most JOBS_PAGE_SIZE jobs per request; page is 1-based.
+  params.set('limit', JOBS_PAGE_SIZE)
+  params.set('offset', String((Math.max(1, filters.page || 1) - 1) * JOBS_PAGE_SIZE))
 
   const res = await fetch(`${API_URL}/api/jobs?${params.toString()}`, {
     headers: authHeaders(),
