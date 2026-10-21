@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PostedDaysPicker from './PostedDaysPicker'
 
 export default function DefaultFiltersModal({ onSave, onSkip, saving }) {
   const [filters, setFilters] = useState({
@@ -30,19 +31,13 @@ export default function DefaultFiltersModal({ onSave, onSkip, saving }) {
         </div>
 
         <div className="mt-4">
-          <label htmlFor="default-days" className="text-sm text-ink">
-            Posted in the last
-          </label>
-          <div className="mt-1 flex items-center gap-2">
-            <input
+          <p className="text-sm text-ink">Posted in the last</p>
+          <div className="mt-1">
+            <PostedDaysPicker
               id="default-days"
-              type="number"
-              min="0"
               value={filters.postedDays}
-              onChange={(event) => setFilters({ ...filters, postedDays: event.target.value })}
-              className="w-16 border border-line px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
+              onChange={(postedDays) => setFilters({ ...filters, postedDays })}
             />
-            <span className="text-sm text-ink">days</span>
           </div>
         </div>
 
