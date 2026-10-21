@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import Landing from './pages/Landing'
+import UnderConstruction from './pages/UnderConstruction'
 import JobListings from './pages/JobListings'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
@@ -37,7 +38,8 @@ export default function App() {
     <AuthProvider>
       <PixelPageViewTracker />
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<UnderConstruction />} />
+        <Route path="/home" element={<Landing />} />
         <Route path="/dashboard" element={<JobListings />} />
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />

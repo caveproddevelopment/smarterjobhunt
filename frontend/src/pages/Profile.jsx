@@ -174,7 +174,7 @@ export default function Profile() {
 
   function handleLogout() {
     logout()
-    navigate('/')
+    navigate('/home')
   }
 
   async function handleProfileSubmit(event) {

@@ -16,13 +16,13 @@ export default function Navbar() {
 
   function handleLogout() {
     logout()
-    navigate('/')
+    navigate('/home')
   }
 
   // Brand click is context-sensitive: from Job Listings it goes back to the
   // Landing page; from anywhere else (including Profile) it goes to Job
   // Listings, same as the old fixed '/dashboard' behavior.
-  const brandTo = location.pathname === '/dashboard' ? '/' : '/dashboard'
+  const brandTo = location.pathname === '/dashboard' ? '/home' : '/dashboard'
 
   return (
     <header className="w-full">
