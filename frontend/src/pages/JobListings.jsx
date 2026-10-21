@@ -17,6 +17,7 @@ import {
   fetchTitleVariants,
   fetchCompanyTypeCounts,
   fetchVariantCounts,
+  DEFAULT_RADIUS_MILES,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
@@ -70,8 +71,13 @@ export default function JobListings() {
     postedDays: '',
     companyTypes: linkedCompanyType ? [linkedCompanyType] : [DEFAULT_COMPANY_TYPE],
     remoteOnly: false,
+    location: '',
+    radiusMiles: DEFAULT_RADIUS_MILES,
   })
   const [appliedFilters, setAppliedFilters] = useState(filters)
+  // What the backend made of the Location box for the current results --
+  // { resolved: "Austin, TX, US", kind, notFound } -- see fetchJobs.
+  const [locationInfo, setLocationInfo] = useState({ resolved: null, kind: null, notFound: false })
   const [savedSearches, setSavedSearches] = useState([])
   const [statusByJob, setStatusByJob] = useState({})
   const [jobs, setJobs] = useState([])
@@ -182,15 +188,18 @@ export default function JobListings() {
                 postedDays: appliedFilters.postedDays,
                 companyTypes: appliedFilters.companyTypes,
                 remoteOnly: appliedFilters.remoteOnly,
+                location: appliedFilters.location,
+                radiusMiles: appliedFilters.radiusMiles,
                 variantTitles: [selectedVariant],
               }
             : { ...appliedFilters, variantTitles: variants }
 
       try {
-        const { jobs: results, totalCount: total } = await fetchJobs(jobParams)
+        const { jobs: results, totalCount: total, locationInfo: placeInfo } = await fetchJobs(jobParams)
         if (cancelled) return
         jobCardRefs.current = {}
         setJobs(results)
+        setLocationInfo(placeInfo)
         setTotalCount(total)
         setStatusByJob((prev) => {
           const next = { ...prev }
@@ -224,7 +233,7 @@ export default function JobListings() {
   // that pill too, not just the variants.
   useEffect(() => {
     if (!showVariants || titleVariants.length === 0) return
-    const key = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${(appliedFilters.companyTypes || []).join(',')}`
+    const key = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${(appliedFilters.companyTypes || []).join(',')}|||${appliedFilters.location || ''}|||${appliedFilters.radiusMiles}`
     if (variantCountsKeyRef.current === key) return
 
     let cancelled = false
@@ -233,6 +242,8 @@ export default function JobListings() {
     fetchVariantCounts(titlesToCount, {
       postedDays: appliedFilters.postedDays,
       companyTypes: appliedFilters.companyTypes,
+      location: appliedFilters.location,
+      radiusMiles: appliedFilters.radiusMiles,
     })
       .then((counts) => {
         if (cancelled) return
@@ -249,7 +260,15 @@ export default function JobListings() {
     return () => {
       cancelled = true
     }
-  }, [showVariants, titleVariants, appliedFilters.title, appliedFilters.postedDays, appliedFilters.companyTypes])
+  }, [
+    showVariants,
+    titleVariants,
+    appliedFilters.title,
+    appliedFilters.postedDays,
+    appliedFilters.companyTypes,
+    appliedFilters.location,
+    appliedFilters.radiusMiles,
+  ])
 
   // Total jobs per company database, unfiltered -- fetched once on mount
   // (not tied to title/postedDays/companyType at all), since it's meant to
@@ -296,6 +315,8 @@ export default function JobListings() {
         title: user.default_job_title || '',
         postedDays: user.default_posted_within_days || '',
         companyTypes: filters.companyTypes || [DEFAULT_COMPANY_TYPE],
+        location: '',
+        radiusMiles: DEFAULT_RADIUS_MILES,
       }
       setFilters(seeded)
       setAppliedFilters(seeded)
@@ -452,6 +473,7 @@ export default function JobListings() {
             days: appliedFilters.postedDays,
             companyTypes: appliedFilters.companyTypes,
             remoteOnly: appliedFilters.remoteOnly,
+            location: (appliedFilters.location || '').trim(),
           }
         : {
             viewType: 'search',
@@ -459,6 +481,7 @@ export default function JobListings() {
             days: appliedFilters.postedDays,
             companyTypes: appliedFilters.companyTypes,
             remoteOnly: appliedFilters.remoteOnly,
+            location: (appliedFilters.location || '').trim(),
           }
 
   const bookmarkedSearch = savedSearches.find((search) => {
@@ -469,6 +492,8 @@ export default function JobListings() {
     if (currentView.viewType === 'company') {
       return search.company_id === currentView.companyId
     }
+    // Saved bookmarks never carry a location (see handleToggleBookmark).
+    if (currentView.location) return false
     const sameDays = String(search.posted_within_days || '') === String(currentView.days || '')
     // Compare company types as arrays - sort both for consistent comparison
     const searchCompanyTypes = (search.company_types || []).sort()
@@ -493,6 +518,12 @@ export default function JobListings() {
     setBookmarkError(null)
     if (bookmarkedSearch) {
       handleDeleteSearch(bookmarkedSearch.id)
+      return
+    }
+    // Bookmarks don't store a location yet, so saving one now would quietly
+    // drop it -- say so instead.
+    if (currentView.location) {
+      setBookmarkError('Bookmarks can\'t save a location yet. Clear the location to bookmark this search.')
       return
     }
     createSavedSearch({
@@ -542,6 +573,8 @@ export default function JobListings() {
       postedDays: search.posted_within_days != null ? String(search.posted_within_days) : '',
       companyTypes: search.company_types || [DEFAULT_COMPANY_TYPE],
       remoteOnly: Boolean(search.remote_only),
+      location: '',
+      radiusMiles: DEFAULT_RADIUS_MILES,
     }
     setFilters(applied)
     setAppliedFilters(applied)
@@ -623,6 +656,12 @@ export default function JobListings() {
                   {totalCount} Job{totalCount === 1 ? '' : 's'} in current search
                 </p>
               )}
+              {!loading && locationInfo.notFound && (
+                <p className="mx-auto mt-1 max-w-md px-4 text-xs text-ember">
+                  Couldn't find "{appliedFilters.location}", so location isn't filtering these
+                  results. Try a city, US state or country.
+                </p>
+              )}
             </div>
 
             <ActiveFiltersBar
@@ -641,6 +680,7 @@ export default function JobListings() {
               variantCountsLoading={variantCountsLoading}
               onSelectVariant={handleSelectVariant}
               scopedCount={loading ? null : totalCount}
+              locationInfo={locationInfo}
             />
 
             {error ? (
