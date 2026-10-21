@@ -63,6 +63,7 @@ export async function fetchJobs(filters) {
   if (filters.companyId) params.set('company_id', filters.companyId)
   if (filters.status) params.set('status', filters.status)
   if (filters.remoteOnly) params.set('remote_only', '1')
+  appendLocationParams(params, filters)
   for (const variantTitle of filters.variantTitles || []) {
     params.append('variant_title', variantTitle)
   }
@@ -81,7 +82,25 @@ export async function fetchJobs(filters) {
   return {
     jobs: data.jobs.map(mapJob),
     totalCount: data.total_count,
+    // What the backend made of the Location box: the place it matched
+    // (e.g. "Austin, TX, US") or a flag that it couldn't place it.
+    locationInfo: {
+      resolved: data.location_resolved || null,
+      kind: data.location_kind || null,
+      notFound: Boolean(data.location_not_found),
+    },
   }
+}
+
+// Location box + distance slider. The radius only means something when a
+// location was typed, so neither is sent otherwise.
+export const DEFAULT_RADIUS_MILES = 50
+
+function appendLocationParams(params, { location, radiusMiles } = {}) {
+  const place = (location || '').trim()
+  if (!place) return
+  params.set('location', place)
+  params.set('radius_miles', String(radiusMiles ?? DEFAULT_RADIUS_MILES))
 }
 
 async function parseErrorOr(res, fallback) {
@@ -184,7 +203,7 @@ export async function fetchTitleVariants(title) {
 // whatever posted-days/company-type filters are applied everywhere else on
 // the page -- e.g. { "Product Owner": 4, "Senior Product Manager": 0 }.
 // Powers the "See Variants" pills on the Job Listings page.
-export async function fetchVariantCounts(variantTitles, { postedDays, companyTypes } = {}) {
+export async function fetchVariantCounts(variantTitles, { postedDays, companyTypes, location, radiusMiles } = {}) {
   if (!variantTitles || variantTitles.length === 0) return {}
   const params = new URLSearchParams()
   for (const variantTitle of variantTitles) {
@@ -196,6 +215,7 @@ export async function fetchVariantCounts(variantTitles, { postedDays, companyTyp
       params.append('company_type', companyType)
     }
   }
+  appendLocationParams(params, { location, radiusMiles })
   const res = await fetch(`${API_URL}/api/jobs/variant-counts?${params.toString()}`, {
     headers: authHeaders(),
   })
