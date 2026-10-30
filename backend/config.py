@@ -77,6 +77,21 @@ class Config:
     STRIPE_PRICE_WEEKLY = os.environ.get("STRIPE_PRICE_WEEKLY")
     STRIPE_PORTAL_CONFIGURATION = os.environ.get("STRIPE_PORTAL_CONFIGURATION")
 
+    # Razorpay billing for users in India (routes/billing.py). Same weekly
+    # plan and 7-day trial as Stripe, priced in INR. Create the plan once with
+    # scripts/create_razorpay_plan.py and paste its ID below. The webhook
+    # secret is whatever you type when adding the webhook in the Razorpay
+    # Dashboard. Until all three of KEY_ID, KEY_SECRET and PLAN_ID_WEEKLY are
+    # set, Indian users are simply sent to Stripe like everyone else.
+    RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID")
+    RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET")
+    RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET")
+    RAZORPAY_PLAN_ID_WEEKLY = os.environ.get("RAZORPAY_PLAN_ID_WEEKLY")
+
+    # Optional ipapi.is key for IP -> country / VPN lookups (ip_country.py).
+    # Works without one up to ~1,000 lookups a day.
+    IPAPI_KEY = os.environ.get("IPAPI_KEY")
+
     # Claude-powered title-variant agent (title_variant_agent.py, called from
     # routes/title_variants.py on a job_title_variants cache miss). Required
     # for that endpoint to work -- if unset, it returns a 502 rather than

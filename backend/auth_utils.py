@@ -90,6 +90,31 @@ def verify_token(token):
         return None
 
 
+def expire_lapsed_access(user_id):
+    """Switch a user back to 'free' once a cancelled Razorpay subscription's
+    paid-for time (or free trial) has run out. Razorpay sends no event at
+    that moment when a trial is cancelled, so this runs on each
+    authenticated request instead -- a no-op UPDATE for everyone else.
+    Returns True if it just downgraded the user."""
+    if user_id is None:
+        return False
+    from db.connection import get_cursor  # local import: db.connection needs an app context
+
+    cur = get_cursor()
+    cur.execute(
+        """
+        UPDATE users SET plan = 'free'
+        WHERE id = %s AND plan = 'pro' AND payment_provider = 'razorpay'
+          AND subscription_status IN ('canceled', 'incomplete_expired')
+          AND (current_period_end IS NULL OR current_period_end <= now())
+        """,
+        (user_id,),
+    )
+    downgraded = cur.rowcount > 0
+    cur.connection.commit()
+    return downgraded
+
+
 def require_auth(view):
     """Decorator: reject the request unless a valid 'Authorization: Bearer <token>' header
     is present, and set g.user_id for the view to use."""
@@ -105,6 +130,7 @@ def require_auth(view):
             return jsonify({"error": "Invalid or expired token"}), 401
 
         g.user_id = user_id
+        expire_lapsed_access(user_id)
         return view(*args, **kwargs)
 
     return wrapped
@@ -120,6 +146,7 @@ def optional_auth(view):
         g.user_id = None
         if header.startswith("Bearer "):
             g.user_id = verify_token(header.removeprefix("Bearer ").strip())
+            expire_lapsed_access(g.user_id)
         return view(*args, **kwargs)
 
     return wrapped
