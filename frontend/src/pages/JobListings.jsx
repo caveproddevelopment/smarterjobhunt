@@ -348,13 +348,24 @@ export default function JobListings() {
     // that takes priority — don't let saved account defaults overwrite it.
     if (searchParams.get('title') || linkedCompanyType) return
 
-    if (user.has_set_default_filters) {
+    // Coming back: pre-fill their last title search (saved by the backend
+    // on every search), falling back to the default title they set.
+    const lastTitle = (user.last_search_title || '').trim()
+    if (user.has_set_default_filters || lastTitle) {
       const seeded = {
-        title: user.default_job_title || '',
+        title: lastTitle || user.default_job_title || '',
         postedDays: normalizePostedDays(user.default_posted_within_days),
         companyTypes: filters.companyTypes || [DEFAULT_COMPANY_TYPE],
         location: '',
         radiusMiles: DEFAULT_RADIUS_MILES,
+      }
+      // Restore the exact variant list that search used, instead of
+      // fetching it again -- mark it as already loaded for these filters
+      // (same key format as the fetch effect below).
+      const lastVariants = Array.isArray(user.last_search_variants) ? user.last_search_variants : []
+      if (lastTitle && lastVariants.length > 0) {
+        setTitleVariants(lastVariants)
+        variantsKeyRef.current = `${seeded.title}|||${seeded.postedDays}|||${seeded.companyTypes.join(',')}`
       }
       setFilters(seeded)
       setAppliedFilters(seeded)

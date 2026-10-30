@@ -60,6 +60,11 @@ export default function Pricing() {
 
   async function handleManageBilling() {
     setError(null)
+    if (user?.payment_provider === 'razorpay') {
+      // Razorpay (India) has no hosted portal; cancelling lives on Profile.
+      navigate('/profile')
+      return
+    }
     setPortalLoading(true)
     try {
       await openBillingPortal() // redirects to Stripe on success
