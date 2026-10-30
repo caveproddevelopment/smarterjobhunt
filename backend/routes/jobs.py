@@ -1,3 +1,4 @@
+import json
 import re
 
 from flask import Blueprint, g, jsonify, request
@@ -84,6 +85,30 @@ def _premium_access_error(user_id):
     if _has_premium_access(user_id):
         return None
     return jsonify({"error": "An active weekly subscription or trial is required."}), 402
+
+
+def _remember_last_search(title, variant_titles, offset, company_id, status_filter):
+    """Save a subscriber's job-title search (title + the variant titles it
+    was expanded to) as their last search, so Job Listings can pre-fill it
+    next time. Only real title searches count: first page only (paging
+    through results isn't a new search), and not the company / Track
+    Applications lists."""
+    if not title or offset or company_id or status_filter:
+        return
+    if not _has_premium_access(g.user_id):
+        return
+    # Variants arrive in ranked order; keep that order, drop duplicates.
+    variants = list(dict.fromkeys(variant_titles))[:50]
+    cur = get_cursor()
+    cur.execute(
+        """
+        UPDATE users
+        SET last_search_title = %s, last_search_variants = %s, last_searched_at = now()
+        WHERE id = %s
+        """,
+        (title[:200], json.dumps(variants), g.user_id),
+    )
+    cur.connection.commit()
 
 
 def _tokenize_title(title):
@@ -334,6 +359,8 @@ def list_jobs():
     # landing-page badge (company_type). Never "every job, all titles".
     if not (title or variant_titles or company_id or status_filter or company_types):
         return jsonify({"error": "A job title is required to search."}), 400
+
+    _remember_last_search(title, variant_titles, offset, company_id, status_filter)
 
     where = []
     params = []
