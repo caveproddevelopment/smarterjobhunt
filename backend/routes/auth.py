@@ -7,6 +7,7 @@ from google.oauth2 import id_token as google_id_token
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from auth_utils import (
+    expire_lapsed_access,
     issue_email_change_token,
     issue_password_reset_token,
     issue_token,
@@ -16,7 +17,9 @@ from auth_utils import (
     verify_password_reset_token,
     verify_verification_token,
 )
+from countries import normalize_country
 from db.connection import get_cursor
+from ip_country import decide_billing_country, detect_request_country
 from email_utils import (
     send_email_change_confirmation,
     send_password_reset_email,
@@ -43,6 +46,8 @@ USER_FIELDS = """
     id, full_name, email, pending_email, created_at, last_login_at, plan, subscription_status,
     billing_interval, current_period_end, default_job_title, default_variants,
     default_posted_within_days, has_set_default_filters,
+    country, billing_country, payment_provider, cancel_at_period_end,
+    last_search_title, last_search_variants, last_searched_at,
     (password_hash IS NOT NULL) AS has_password
 """
 
@@ -106,6 +111,10 @@ def register():
     full_name = (body.get("full_name") or "").strip()
     email = (body.get("email") or "").strip().lower()
     password = body.get("password") or ""
+    # The sign-up form's Country dropdown (pre-filled from the IP). Optional
+    # here only so a stale cached frontend without the field can still sign
+    # up; billing then asks for the country at checkout if it's needed.
+    country = normalize_country(body.get("country"))
 
     if not _valid_full_name(full_name):
         return jsonify(
@@ -115,16 +124,25 @@ def register():
         return jsonify({"error": "A valid email is required"}), 400
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
+    if body.get("country") and country is None:
+        return jsonify({"error": "Please choose a valid country"}), 400
+
+    detected = detect_request_country()
+    billing_country = decide_billing_country(detected["country"], detected["is_vpn"], country)
 
     cur = get_cursor()
     try:
         cur.execute(
             """
-            INSERT INTO users (full_name, email, password_hash, is_verified)
-            VALUES (%s, %s, %s, false)
+            INSERT INTO users (full_name, email, password_hash, is_verified,
+                               country, signup_ip_country, signup_ip_is_vpn, billing_country)
+            VALUES (%s, %s, %s, false, %s, %s, %s, %s)
             RETURNING id
             """,
-            (full_name, email, generate_password_hash(password)),
+            (
+                full_name, email, generate_password_hash(password),
+                country, detected["country"], detected["is_vpn"], billing_country,
+            ),
         )
         new_user_id = cur.fetchone()["id"]
         cur.connection.commit()
@@ -180,6 +198,8 @@ def login():
 
     user["last_login_at"] = _record_login(cur, user["id"], "password")
     cur.connection.commit()
+    if expire_lapsed_access(user["id"]):
+        user["plan"] = "free"
     user.pop("password_hash")
     user.pop("is_verified")
     return jsonify({"token": issue_token(user["id"]), "user": user})
@@ -238,15 +258,20 @@ def google_login():
         cur.connection.commit()
 
     if user is None:
-        # 3. Brand-new account, no password.
+        # 3. Brand-new account, no password. There's no sign-up form here, so
+        # no picked country: billing_country comes from the IP alone, and if
+        # that's a VPN/unknown it stays NULL and checkout asks for it.
+        detected = detect_request_country()
+        billing_country = decide_billing_country(detected["country"], detected["is_vpn"], None)
         try:
             cur.execute(
                 f"""
-                INSERT INTO users (full_name, email, password_hash, google_id, is_verified)
-                VALUES (%s, %s, NULL, %s, true)
+                INSERT INTO users (full_name, email, password_hash, google_id, is_verified,
+                                   signup_ip_country, signup_ip_is_vpn, billing_country)
+                VALUES (%s, %s, NULL, %s, true, %s, %s, %s)
                 RETURNING {USER_FIELDS}
                 """,
-                (full_name, email, google_id),
+                (full_name, email, google_id, detected["country"], detected["is_vpn"], billing_country),
             )
             user = cur.fetchone()
             cur.connection.commit()
@@ -256,6 +281,8 @@ def google_login():
 
     user["last_login_at"] = _record_login(cur, user["id"], "google")
     cur.connection.commit()
+    if expire_lapsed_access(user["id"]):
+        user["plan"] = "free"
     return jsonify({"token": issue_token(user["id"]), "user": user})
 
 

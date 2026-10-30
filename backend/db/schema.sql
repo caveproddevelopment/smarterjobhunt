@@ -219,6 +219,42 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_users_stripe_customer_id ON users (stripe_customer_id)
     WHERE stripe_customer_id IS NOT NULL;
 
+-- Country + payment provider. Users in India pay through Razorpay, everyone
+-- else through Stripe (routes/billing.py's _provider_for).
+--   country            -- what the user picked on the sign-up form
+--   signup_ip_country  -- what their IP looked like at sign-up (ip_country.py)
+--   signup_ip_is_vpn   -- that IP was a VPN/proxy/datacenter/Tor address
+--   billing_country    -- the one that decides the provider: the IP country
+--                         unless it was a VPN or unknown, else `country`.
+--                         NULL = unknown; checkout asks for it.
+--   payment_provider   -- which provider the current/last subscription is on.
+-- The plan / subscription_status / billing_interval / current_period_end
+-- columns above are shared by both providers.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_ip_country TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_ip_is_vpn BOOLEAN;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_country TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_provider TEXT
+    CHECK (payment_provider IN ('stripe', 'razorpay'));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS razorpay_customer_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS razorpay_subscription_id TEXT;
+-- true once the user has cancelled but still has access until current_period_end.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT false;
+
+-- Everyone who already has a Stripe customer stays on Stripe.
+UPDATE users SET payment_provider = 'stripe'
+    WHERE payment_provider IS NULL AND stripe_customer_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_razorpay_subscription_id ON users (razorpay_subscription_id)
+    WHERE razorpay_subscription_id IS NOT NULL;
+
+-- The last job-title search each user ran on Job Listings (title + the
+-- variant titles it was expanded to). Written by GET /api/jobs, used to
+-- pre-fill the search when they come back.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_search_title TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_search_variants JSONB;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_searched_at TIMESTAMPTZ;
+
 -- ---------------------------------------------------------------------------
 -- job_matches: per-user match % against a job (computed by the AI agent later;
 -- until then this table can simply be left empty and the API defaults to null)

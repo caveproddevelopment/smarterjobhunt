@@ -4,6 +4,7 @@ import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import PasswordInput from '../components/PasswordInput'
 import GoogleSignInButton from '../components/GoogleSignInButton'
+import CountrySelect from '../components/CountrySelect'
 import { useAuth } from '../lib/auth'
 
 export default function Login() {
@@ -15,6 +16,7 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
+  const [country, setCountry] = useState('')
   const [error, setError] = useState(null)
   const [errorCode, setErrorCode] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -84,8 +86,8 @@ export default function Login() {
           await startCheckout('week', data.token)
         }
       } else if (mode === 'register') {
-        const data = await register(fullName, email, password) // logs the account in
-        await startCheckout('week', data.token) // redirects the browser to Stripe on success
+        const data = await register(fullName, email, password, country) // logs the account in
+        await startCheckout('week', data.token) // Stripe redirect, or Razorpay checkout for India
       } else {
         await forgotPassword(email)
         setPendingResetEmail(email)
@@ -211,6 +213,15 @@ export default function Login() {
                   className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-ember focus:outline-none"
                 />
                 <p className="mt-1 text-xs text-ink-soft">2–50 characters. Letters and spaces only.</p>
+              </div>
+            )}
+
+            {mode === 'register' && (
+              <div>
+                <label htmlFor="country" className="text-sm font-medium text-ink">
+                  Country
+                </label>
+                <CountrySelect id="country" value={country} onChange={setCountry} />
               </div>
             )}
 

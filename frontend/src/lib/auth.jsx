@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { trackCompleteRegistration, trackGoogleAuthLead } from './pixel'
+import CountryPromptModal from '../components/CountryPromptModal'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 const TOKEN_KEY = 'sjh_token'
@@ -11,12 +12,34 @@ async function parseErrorOr(res, fallback) {
   return body?.error || fallback
 }
 
+// Razorpay Checkout (users in India) is a script-loaded modal rather than a
+// redirect like Stripe's. Loaded on demand, only for Razorpay users.
+let razorpayScript = null
+function loadRazorpay() {
+  if (window.Razorpay) return Promise.resolve()
+  if (!razorpayScript) {
+    razorpayScript = new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.onload = resolve
+      script.onerror = () => {
+        razorpayScript = null
+        reject(new Error('Could not load Razorpay. Check your connection and try again.'))
+      }
+      document.body.appendChild(script)
+    })
+  }
+  return razorpayScript
+}
+
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
   const tokenRef = useRef(token)
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(Boolean(token))
   const [sessionMessage, setSessionMessage] = useState(null)
+  // Set while startCheckout() is waiting for the user to pick a country.
+  const [countryPrompt, setCountryPrompt] = useState(null)
 
   useEffect(() => {
     if (!token) {
@@ -47,11 +70,11 @@ export function AuthProvider({ children }) {
   // signup into Stripe Checkout for the weekly plan's 7-day free trial
   // right after this resolves. The account is still unverified by email
   // at this point; that no longer blocks using the app.
-  async function register(fullName, email, password) {
+  async function register(fullName, email, password, country) {
     const res = await fetch(`${API_URL}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: fullName, email, password }),
+      body: JSON.stringify({ full_name: fullName, email, password, country }),
     })
     if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not create account'))
     const data = await res.json()
@@ -185,18 +208,84 @@ export function AuthProvider({ children }) {
     setUser(await res.json())
   }
 
-  // interval is 'week' (the only plan offered). Redirects the whole page to
-  // Stripe Checkout — there's no need for a Stripe.js dependency for this.
-  async function startCheckout(interval, checkoutToken = tokenRef.current || localStorage.getItem(TOKEN_KEY)) {
+  // Resolves with the country the user picks in CountryPromptModal, or
+  // null if they cancel.
+  function askForCountry() {
+    return new Promise((resolve) => setCountryPrompt({ resolve }))
+  }
+
+  // interval is 'week' (the only plan offered). The backend picks the
+  // payment provider from the user's country: Stripe redirects the whole
+  // page to Stripe Checkout (no Stripe.js needed); Razorpay (India) opens
+  // Razorpay's checkout modal. Either way the user ends up back on
+  // /profile?checkout=success|cancelled, same as before.
+  async function startCheckout(
+    interval,
+    checkoutToken = tokenRef.current || localStorage.getItem(TOKEN_KEY),
+    country = null
+  ) {
     if (!checkoutToken) throw new Error('Please sign in again before starting checkout')
     const res = await fetch(`${API_URL}/api/billing/checkout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${checkoutToken}` },
-      body: JSON.stringify({ interval }),
+      body: JSON.stringify(country ? { interval, country } : { interval }),
     })
-    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not start checkout'))
-    const { url } = await res.json()
-    window.location.href = url
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      if (body?.code === 'country_required' && !country) {
+        const chosen = await askForCountry()
+        if (!chosen) throw new Error('Please choose your country to start your free trial.')
+        return startCheckout(interval, checkoutToken, chosen)
+      }
+      throw new Error(body?.error || 'Could not start checkout')
+    }
+    const data = await res.json()
+    if (data.provider === 'razorpay') {
+      await openRazorpayCheckout(data, checkoutToken)
+      return
+    }
+    window.location.href = data.url
+  }
+
+  async function openRazorpayCheckout(checkout, checkoutToken) {
+    await loadRazorpay()
+    const razorpay = new window.Razorpay({
+      key: checkout.key_id,
+      subscription_id: checkout.subscription_id,
+      name: 'JobBeggar',
+      description: 'Weekly plan — first 7 days free',
+      prefill: checkout.prefill,
+      theme: { color: '#E24B34' },
+      handler: async (response) => {
+        // Unlock access right away; the webhook applies the same state
+        // again, so a failed call here only delays it.
+        await fetch(`${API_URL}/api/billing/razorpay/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${checkoutToken}` },
+          body: JSON.stringify(response),
+        }).catch(() => {})
+        window.location.href = '/profile?checkout=success'
+      },
+      modal: {
+        ondismiss: () => {
+          window.location.href = '/profile?checkout=cancelled'
+        },
+      },
+    })
+    razorpay.open()
+  }
+
+  // Razorpay has no hosted billing portal, so Razorpay subscribers cancel
+  // from the Profile page through this instead of openBillingPortal().
+  async function cancelRazorpaySubscription() {
+    const res = await fetch(`${API_URL}/api/billing/razorpay/cancel`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not cancel subscription'))
+    const updated = await res.json()
+    setUser((prev) => (prev ? { ...prev, ...updated } : prev))
+    return updated
   }
 
   // Redirects to Stripe's hosted billing portal, where the user can switch
@@ -255,6 +344,7 @@ export function AuthProvider({ children }) {
         refreshUser,
         startCheckout,
         openBillingPortal,
+        cancelRazorpaySubscription,
         resendVerification,
         forgotPassword,
         resetPassword,
@@ -263,6 +353,18 @@ export function AuthProvider({ children }) {
       }}
     >
       {children}
+      {countryPrompt && (
+        <CountryPromptModal
+          onSubmit={(country) => {
+            countryPrompt.resolve(country)
+            setCountryPrompt(null)
+          }}
+          onCancel={() => {
+            countryPrompt.resolve(null)
+            setCountryPrompt(null)
+          }}
+        />
+      )}
     </AuthContext.Provider>
   )
 }

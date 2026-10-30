@@ -78,7 +78,12 @@ function PlanStatusBox({ user }) {
           <p className={`text-sm font-semibold ${statusColor}`}>{statusText}</p>
           {remainingTime && (
             <p className="mt-1 text-xs text-ink-soft">
-              {isStripeTrialing ? 'Free trial ends in' : 'Renews in'}:{' '}
+              {user.cancel_at_period_end
+                ? 'Access ends in'
+                : isStripeTrialing
+                  ? 'Free trial ends in'
+                  : 'Renews in'}
+              :{' '}
               <span className="font-medium text-ink">{remainingTime}</span>
             </p>
           )}
@@ -99,6 +104,7 @@ export default function Profile() {
     refreshUser,
     startCheckout,
     openBillingPortal,
+    cancelRazorpaySubscription,
   } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -244,8 +250,26 @@ export default function Profile() {
     }
   }
 
+  const isRazorpay = user?.payment_provider === 'razorpay'
+
   async function handleManageBilling() {
     setBillingError(null)
+    if (isRazorpay) {
+      // Razorpay has no hosted portal -- cancel directly from here.
+      const confirmed = window.confirm(
+        'Cancel your subscription? You keep access until the end of the current week (or your free trial), and you won\'t be charged again.'
+      )
+      if (!confirmed) return
+      setBillingLoading(true)
+      try {
+        await cancelRazorpaySubscription()
+      } catch (err) {
+        setBillingError(err.message)
+      } finally {
+        setBillingLoading(false)
+      }
+      return
+    }
     setBillingLoading(true)
     try {
       await openBillingPortal() // redirects the page to Stripe on success
@@ -503,19 +527,27 @@ export default function Profile() {
                 <p className="text-xs text-ink-soft">
                   {user.plan === 'pro'
                     ? user.current_period_end
-                      ? `Renews ${new Date(user.current_period_end).toLocaleDateString()}.`
+                      ? user.cancel_at_period_end
+                        ? `Cancelled — access until ${new Date(user.current_period_end).toLocaleDateString()}.`
+                        : `Renews ${new Date(user.current_period_end).toLocaleDateString()}.`
                       : 'You have full access to all features.'
                     : 'Start your free week to access job listings and full job details.'}
                 </p>
               </div>
-              {user.plan === 'pro' && (
+              {user.plan === 'pro' && !(isRazorpay && user.cancel_at_period_end) && (
                 <button
                   type="button"
                   onClick={handleManageBilling}
                   disabled={billingLoading}
                   className="shrink-0 rounded-full border border-line px-4 py-2 text-xs font-semibold text-ink transition-colors hover:bg-paper disabled:opacity-60"
                 >
-                  {billingLoading ? 'Opening…' : 'Manage subscription'}
+                  {isRazorpay
+                    ? billingLoading
+                      ? 'Cancelling…'
+                      : 'Cancel subscription'
+                    : billingLoading
+                      ? 'Opening…'
+                      : 'Manage subscription'}
                 </button>
               )}
             </div>
