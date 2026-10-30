@@ -4,8 +4,11 @@ through Razorpay (India) or Stripe (everyone else).
 Two pieces:
   * client_ip()      -- the visitor's real IP behind Railway's proxy.
   * lookup_ip(ip)    -- country + "is this a VPN/proxy/datacenter/Tor exit?"
-                        via ipapi.is (free tier: 1,000 lookups/day without a
-                        key; set IPAPI_KEY for more).
+                        via ipapi.is. Set IPAPI_KEY (free sign-up, 1,000
+                        lookups/day). Without a key ipapi.is only allows ~30
+                        lookups a day from our server's IP, returns the
+                        country as a name, and has no VPN flags -- that's
+                        handled, but VPN users then can't be spotted.
 
 Everything here fails soft: a timeout, a bad response or a missing IP just
 returns country=None, which makes the caller fall back to the country the
@@ -18,7 +21,7 @@ import time
 import requests
 from flask import current_app, request
 
-from countries import normalize_country
+from countries import code_for_country_name, normalize_country
 
 _CACHE = {}
 _CACHE_LOCK = threading.Lock()
@@ -81,14 +84,25 @@ def lookup_ip(ip):
         current_app.logger.warning("IP country lookup failed for %s", ip)
         return unknown
 
-    location = data.get("location") or {}
+    # Keyed response: location.country_code ("IN"). Keyless free tier: a
+    # flat country *name* ("India") and no detection flags at all.
+    location = data.get("location") if isinstance(data.get("location"), dict) else {}
+    country = normalize_country(location.get("country_code")) or code_for_country_name(
+        data.get("country") if isinstance(data.get("country"), str) else location.get("country")
+    )
     result = {
-        "country": normalize_country(location.get("country_code")),
+        "country": country,
+        # Not is_abuser: shared mobile/CGNAT addresses (e.g. Jio) often carry
+        # it, and those are real people whose IP country is accurate.
         "is_vpn": any(
-            bool(data.get(flag))
-            for flag in ("is_vpn", "is_proxy", "is_tor", "is_datacenter", "is_abuser")
+            bool(data.get(flag)) for flag in ("is_vpn", "is_proxy", "is_tor", "is_datacenter")
         ),
     }
+    if country is None:
+        current_app.logger.warning(
+            "IP country lookup returned no country (keys: %s; error: %s)",
+            ",".join(sorted(data))[:200], str(data.get("error") or data.get("message") or "")[:200],
+        )
     with _CACHE_LOCK:
         if len(_CACHE) >= _CACHE_MAX:
             _CACHE.clear()
