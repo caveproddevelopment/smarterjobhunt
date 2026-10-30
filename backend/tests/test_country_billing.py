@@ -180,6 +180,24 @@ def test_geo_suggests_ip_country_but_not_for_vpn(env):
     assert data["suggested_country"] is None and data["is_vpn"] is True
 
 
+def test_keyless_free_tier_format_and_abuser_flag(env, monkeypatch):
+    """Without IPAPI_KEY ipapi.is returns a flat country *name* and no flags;
+    with a key, is_abuser alone (common on shared mobile IPs) isn't a VPN."""
+    import ip_country
+    responses = {
+        "49.36.20.20": {"ip": "49.36.20.20", "country": "India", "company": "Reliance Jio"},
+        "49.36.30.30": {"location": {"country_code": "IN"}, "is_vpn": False, "is_abuser": True},
+        "49.36.40.40": {"error": "Rate limit exceeded"},
+    }
+    ip_country._CACHE.clear()
+    monkeypatch.setattr(ip_country.requests, "get",
+                        lambda url, params=None, timeout=None: FakeResponse(responses[params["q"]]))
+    with env["app"].test_request_context():
+        assert ip_country.lookup_ip("49.36.20.20") == {"country": "IN", "is_vpn": False}
+        assert ip_country.lookup_ip("49.36.30.30") == {"country": "IN", "is_vpn": False}
+        assert ip_country.lookup_ip("49.36.40.40") == {"country": None, "is_vpn": False}
+
+
 def test_trusted_ip_country_wins_over_picked_country(env):
     user_id, _ = _register(env["client"], INDIA_IP, country="US")
     row = _row(env, user_id, "country", "signup_ip_country", "signup_ip_is_vpn", "billing_country")
