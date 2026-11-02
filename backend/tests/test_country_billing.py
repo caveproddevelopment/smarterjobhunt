@@ -447,5 +447,5 @@ def test_signup_requires_email_verification_before_login(env):
     assert env["stripe_calls"][-1]["success_url"].endswith("/dashboard?checkout=success")
 
 
-def test_verification_link_lasts_a_day(env):
-    assert env["app"].config["EMAIL_VERIFICATION_MAX_AGE_SECONDS"] >= 24 * 60 * 60
+def test_verification_link_lasts_15_minutes(env):
+    assert env["app"].config["EMAIL_VERIFICATION_MAX_AGE_SECONDS"] == 15 * 60
