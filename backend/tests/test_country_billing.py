@@ -157,8 +157,23 @@ def _register(client, ip, country=None):
         body["country"] = country
     resp = client.post("/api/auth/register", json=body, headers={"X-Real-IP": ip})
     assert resp.status_code == 201, resp.get_json()
-    data = resp.get_json()
-    return data["user"]["id"], {"Authorization": f"Bearer {data['token']}", "X-Real-IP": ip}
+    assert "token" not in resp.get_json()  # sign-up doesn't log in any more
+    # Verify the email the way the link does, then log in like a real user.
+    from auth_utils import issue_verification_token
+    import psycopg2 as _pg
+    conn = _pg.connect(os.environ["DATABASE_URL"])
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+    user_id = cur.fetchone()[0]
+    conn.close()
+    with client.application.app_context():
+        token = issue_verification_token(user_id)
+    assert client.get(f"/api/auth/verify/{token}").status_code == 302
+    login = client.post("/api/auth/login", json={"email": email, "password": "password123"},
+                        headers={"X-Real-IP": ip})
+    assert login.status_code == 200, login.get_json()
+    return user_id, {"Authorization": f"Bearer {login.get_json()['token']}", "X-Real-IP": ip}
 
 
 def _row(env, user_id, *cols):
@@ -392,3 +407,45 @@ def test_last_search_not_saved_for_non_subscribers(env):
     user_id, headers = _register(env["client"], US_IP, country="US")
     env["client"].get("/api/jobs?title=Nurse", headers=headers)
     assert _row(env, user_id, "last_search_title")["last_search_title"] is None
+
+
+# --- sign-up flow: verify email -> log in -> checkout -> Job Listings ---------
+
+def test_signup_requires_email_verification_before_login(env):
+    client = env["client"]
+    email = f"v{uuid.uuid4().hex[:8]}@example.com"
+    resp = client.post("/api/auth/register", headers={"X-Real-IP": US_IP}, json={
+        "full_name": "New Person", "email": email, "password": "password123", "country": "US"})
+    assert resp.status_code == 201
+    body = resp.get_json()
+    assert body["verification_required"] is True and "token" not in body and "user" not in body
+
+    # Can't log in until verified.
+    login = client.post("/api/auth/login", json={"email": email, "password": "password123"})
+    assert login.status_code == 403 and login.get_json()["code"] == "email_not_verified"
+
+    # Signing up again with the unverified email re-sends the link (no duplicate account).
+    again = client.post("/api/auth/register", headers={"X-Real-IP": US_IP}, json={
+        "full_name": "New Person", "email": email, "password": "password123", "country": "US"})
+    assert again.status_code == 409 and again.get_json()["code"] == "email_not_verified"
+
+    # The emailed link verifies and lands on the login page.
+    env["db"].execute("SELECT id FROM users WHERE email = %s", (email,))
+    user_id = env["db"].fetchone()[0]
+    from auth_utils import issue_verification_token
+    with env["app"].app_context():
+        token = issue_verification_token(user_id)
+    verify = client.get(f"/api/auth/verify/{token}")
+    assert verify.status_code == 302 and verify.headers["Location"].endswith("/login?verified=1")
+
+    login = client.post("/api/auth/login", json={"email": email, "password": "password123"})
+    assert login.status_code == 200 and login.get_json()["user"]["plan"] == "free"
+
+    # After paying, Stripe sends them to Job Listings.
+    headers = {"Authorization": f"Bearer {login.get_json()['token']}", "X-Real-IP": US_IP}
+    assert client.post("/api/billing/checkout", json={}, headers=headers).get_json()["provider"] == "stripe"
+    assert env["stripe_calls"][-1]["success_url"].endswith("/dashboard?checkout=success")
+
+
+def test_verification_link_lasts_a_day(env):
+    assert env["app"].config["EMAIL_VERIFICATION_MAX_AGE_SECONDS"] >= 24 * 60 * 60
