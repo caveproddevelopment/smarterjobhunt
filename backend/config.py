@@ -40,9 +40,10 @@ class Config:
 
     # Email verification
     EMAIL_VERIFICATION_MAX_AGE_SECONDS = int(
-        # 24 hours: sign-up now waits on this link before the user can log
-        # in, and people often open it much later or on another device.
-        os.environ.get("EMAIL_VERIFICATION_MAX_AGE_SECONDS", 60 * 60 * 24)
+        # 15 minutes. Sign-up waits on this link before the user can log
+        # in; an expired link lands on /login?verify_error=1, and logging in
+        # unverified offers "Resend verification email" for a fresh one.
+        os.environ.get("EMAIL_VERIFICATION_MAX_AGE_SECONDS", 60 * 15)
     )
 
     # Password reset

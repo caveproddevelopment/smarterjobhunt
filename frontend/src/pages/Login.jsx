@@ -122,8 +122,8 @@ export default function Login() {
               confirm your email, then log in to start your free week.
             </p>
             <p className="mt-3 text-sm text-ink-soft">
-              Can't find it? Check your spam folder, or send it again. The link works for 24
-              hours.
+              Can't find it? Check your spam folder, or send it again. The link works for 15
+              minutes.
             </p>
             {resendStatus && resendStatus !== 'sending' && (
               <p className="mt-3 text-sm text-ink-soft">{resendStatus}</p>
