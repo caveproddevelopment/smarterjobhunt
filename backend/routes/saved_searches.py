@@ -3,6 +3,7 @@ from flask import Blueprint, g, jsonify, request
 
 from auth_utils import require_auth
 from db.connection import get_cursor
+from routes.jobs import remote_mode_from
 
 bp = Blueprint("saved_searches", __name__, url_prefix="/api/saved-searches")
 
@@ -14,6 +15,32 @@ VALID_STATUS_FILTERS = {"applied", "rejected", "neither"}
 # the warning comment there) -- this is the third by-hand copy referenced by
 # that comment, alongside frontend/src/lib/companyTypes.js.
 VALID_COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare"}
+
+# Distance slider bounds (same as the sidebar and routes/jobs.py).
+MIN_RADIUS_MILES = 0
+MAX_RADIUS_MILES = 500
+DEFAULT_RADIUS_MILES = 50
+MAX_LOCATION_LENGTH = 200
+
+SAVED_SEARCH_COLUMNS = """
+    id, name, view_type, job_title, variant_title, posted_within_days, company_type,
+    status_filter, company_id, remote_only, remote_mode, location, radius_miles, created_at
+"""
+
+
+def _location_and_radius(body):
+    """(location, radius_miles) from a save request: the trimmed Location
+    box text (None when empty) and its distance, clamped to the slider's
+    range. No location means no radius."""
+    location = body.get("location")
+    location = location.strip()[:MAX_LOCATION_LENGTH] if isinstance(location, str) else ""
+    if not location:
+        return None, None
+    try:
+        radius = int(round(float(body.get("radius_miles", DEFAULT_RADIUS_MILES))))
+    except (TypeError, ValueError):
+        radius = DEFAULT_RADIUS_MILES
+    return location, max(MIN_RADIUS_MILES, min(radius, MAX_RADIUS_MILES))
 
 
 def _normalize_company_types(raw):
@@ -56,7 +83,7 @@ def list_saved_searches():
             ss.id, ss.name, ss.view_type, ss.job_title, ss.variant_title,
             ss.posted_within_days, ss.company_type,
             ss.status_filter, ss.company_id, c.name AS company_name,
-            ss.remote_only, ss.created_at
+            ss.remote_only, ss.remote_mode, ss.location, ss.radius_miles, ss.created_at
         FROM saved_searches ss
         LEFT JOIN companies c ON c.id = ss.company_id
         WHERE ss.user_id = %s
@@ -104,6 +131,15 @@ def create_saved_search():
         return jsonify({"error": f"invalid company type(s): {', '.join(e.args[0])}"}), 400
     company_types_str = ",".join(company_types) if company_types else "all"
 
+    # Remote dropdown + Location/Distance only belong to title searches
+    # ('search' / 'variant'); a company list or Track Applications view
+    # ignores them, so they're stored at their neutral values there.
+    if view_type in ("search", "variant"):
+        remote_mode = remote_mode_from(body.get("remote_mode"), body.get("remote_only"))
+        location, radius_miles = _location_and_radius(body)
+    else:
+        remote_mode, location, radius_miles = "include", None, None
+
     cur = get_cursor()
     try:
         cur.execute(
@@ -111,11 +147,9 @@ def create_saved_search():
             INSERT INTO saved_searches
                 (user_id, name, view_type, job_title, variant_title, variants,
                  posted_within_days, company_type, status_filter,
-                 company_id, remote_only)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id, name, view_type, job_title, variant_title,
-                      posted_within_days, company_type,
-                      status_filter, company_id, remote_only, created_at
+                 company_id, remote_only, remote_mode, location, radius_miles)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING """ + SAVED_SEARCH_COLUMNS + """
             """,
             (
                 g.user_id,
@@ -128,7 +162,10 @@ def create_saved_search():
                 company_types_str,
                 status_filter,
                 body.get("company_id"),
-                bool(body.get("remote_only")),
+                remote_mode == "only",
+                remote_mode,
+                location,
+                radius_miles,
             ),
         )
         saved = cur.fetchone()

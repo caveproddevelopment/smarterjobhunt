@@ -134,7 +134,43 @@ DEFAULT_RADIUS_MILES = 50
 MAX_RADIUS_MILES = 500
 
 
-def _location_filter(cur):
+# The sidebar's Remote dropdown. 'include' (the default) applies no remote
+# filter at all; 'only' keeps just remote jobs; 'exclude' drops them.
+REMOTE_MODES = {"only", "include", "exclude"}
+
+
+def remote_mode_from(value, legacy_remote_only=None):
+    """Normalize a remote setting: 'only' | 'include' | 'exclude'.
+    Accepts the old boolean remote_only too (older links and bookmarks), so
+    remote_only=1 still means 'only'. Anything else is 'include'."""
+    mode = (value or "").strip().lower() if isinstance(value, str) else ""
+    if mode in REMOTE_MODES:
+        return mode
+    if isinstance(legacy_remote_only, str):
+        legacy_remote_only = legacy_remote_only.strip().lower() in {"1", "true", "yes"}
+    return "only" if legacy_remote_only else "include"
+
+
+def _remote_filter(remote_mode):
+    """(sql, params) for the Remote dropdown, or (None, []) for 'include'.
+    Word-boundary matched (same \\y helper the title scoring uses):
+      'only'    -- title, location, or the full scraped description
+                   mentions "remote" (e.g. location "Remote (US)" counts
+                   even when the title doesn't say it).
+      'exclude' -- ("None") neither the title nor the location says
+                   "remote". The description isn't checked: plenty of
+                   on-site postings mention remote work in passing, and
+                   they shouldn't disappear.
+    """
+    pattern = _word_boundary_pattern("remote")
+    if remote_mode == "only":
+        return "(j.title ~* %s OR j.location ~* %s OR j.raw_text ~* %s)", [pattern, pattern, pattern]
+    if remote_mode == "exclude":
+        return "NOT (j.title ~* %s OR COALESCE(j.location, '') ~* %s)", [pattern, pattern]
+    return None, []
+
+
+def _location_filter(cur, remote_mode="include"):
     """WHERE clause for the Location box + distance slider.
 
     Returns (sql, params, meta). sql is None when no location was typed or
@@ -144,9 +180,11 @@ def _location_filter(cur):
     Job locations are free text, so instead of storing coordinates this
     looks at every distinct location string once (cheap: a few thousand at
     most, and geo.py caches each parse), keeps the ones inside the radius,
-    and filters with location = ANY(...). Remote jobs are always kept,
-    judged by "remote" in the title or location only -- not the
-    description, which often mentions remote work for on-site roles.
+    and filters with location = ANY(...). Remote jobs are kept too --
+    judged by "remote" in the title or location only, not the description,
+    which often mentions remote work for on-site roles -- unless the
+    Remote dropdown is 'exclude' ("None"), in which case only jobs placed
+    inside the radius count.
     """
     text = request.args.get("location", "").strip()
     if not text:
@@ -165,13 +203,15 @@ def _location_filter(cur):
     matching = [row["location"] for row in cur.fetchall()
                 if geo.location_matches(row["location"], place, radius)]
 
-    remote_pattern = _word_boundary_pattern("remote")
-    sql = "(j.location = ANY(%s) OR j.title ~* %s OR j.location ~* %s)"
     meta = {
         "location_resolved": place.label,
         "location_kind": place.kind,
         "radius_miles": radius,
     }
+    if remote_mode == "exclude":
+        return "(j.location = ANY(%s))", [matching], meta
+    remote_pattern = _word_boundary_pattern("remote")
+    sql = "(j.location = ANY(%s) OR j.title ~* %s OR j.location ~* %s)"
     return sql, [matching, remote_pattern, remote_pattern], meta
 
 
@@ -350,7 +390,7 @@ def list_jobs():
         company_types = []
     company_id = request.args.get("company_id", "").strip()
     status_filter = request.args.get("status", "").strip().lower()
-    remote_only = request.args.get("remote_only", "").strip().lower() in {"1", "true", "yes"}
+    remote_mode = remote_mode_from(request.args.get("remote"), request.args.get("remote_only"))
     limit, offset = _paging_args()
 
     # A job title is required to search. The only no-title lists are the
@@ -424,18 +464,14 @@ def list_jobs():
         where.append(f"c.company_type IN ({placeholders})")
         params.extend(valid_company_types)
 
-    # "Remote" checkbox in the sidebar: word-boundary match (same \y
-    # helper the title/description scoring above uses) against title,
-    # location, and the full scraped description -- ANY of the three
-    # mentioning "remote" qualifies, so e.g. a job titled without it but
-    # whose location says "Remote (US)" still matches.
-    if remote_only:
-        remote_pattern = _word_boundary_pattern("remote")
-        where.append("(j.title ~* %s OR j.location ~* %s OR j.raw_text ~* %s)")
-        params.extend([remote_pattern, remote_pattern, remote_pattern])
+    # Remote dropdown in the sidebar (see _remote_filter).
+    remote_sql, remote_params = _remote_filter(remote_mode)
+    if remote_sql:
+        where.append(remote_sql)
+        params.extend(remote_params)
 
     cur = get_cursor()
-    location_sql, location_params, location_meta = _location_filter(cur)
+    location_sql, location_params, location_meta = _location_filter(cur, remote_mode)
     if location_sql:
         where.append(location_sql)
         params.extend(location_params)
@@ -569,8 +605,8 @@ def variant_counts():
     Powers the clickable "Also matching" pills: a variant with a count of 0
     isn't worth letting someone click into. Each variant is counted on its
     own (never OR'd with the others or with the main title), since a click
-    on a pill should show ONLY that variant's jobs. posted_days/funding and
-    location/radius_miles are accepted so the counts match whatever's currently applied everywhere
+    on a pill should show ONLY that variant's jobs. posted_days/funding,
+    remote and location/radius_miles are accepted so the counts match whatever's currently applied everywhere
     else on the page.
     """
     variant_titles = [v.strip() for v in request.args.getlist("variant_title") if v.strip()]
@@ -601,8 +637,16 @@ def variant_counts():
         where.append(f"c.company_type IN ({placeholders})")
         params.extend(valid_company_types)
 
+    # Same Remote dropdown as the listing, so a pill's count matches what
+    # clicking it shows.
+    remote_mode = remote_mode_from(request.args.get("remote"), request.args.get("remote_only"))
+    remote_sql, remote_params = _remote_filter(remote_mode)
+    if remote_sql:
+        where.append(remote_sql)
+        params.extend(remote_params)
+
     cur = get_cursor()
-    location_sql, location_params, _ = _location_filter(cur)
+    location_sql, location_params, _ = _location_filter(cur, remote_mode)
     if location_sql:
         where.append(location_sql)
         params.extend(location_params)
