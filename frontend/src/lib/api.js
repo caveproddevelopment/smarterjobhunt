@@ -65,6 +65,8 @@ export async function fetchJobs(filters) {
   if (filters.companyId) params.set('company_id', filters.companyId)
   if (filters.status) params.set('status', filters.status)
   if (filters.remote && filters.remote !== 'include') params.set('remote', filters.remote)
+  // Also the old flag, so an older backend still filters "Remote only".
+  if (filters.remote === 'only') params.set('remote_only', '1')
   appendLocationParams(params, filters)
   for (const variantTitle of filters.variantTitles || []) {
     params.append('variant_title', variantTitle)
@@ -145,6 +147,8 @@ export async function createSavedSearch({
       status_filter: statusFilter || null,
       company_id: companyId || null,
       remote_mode: remoteMode || 'include',
+      // Old flag too, for a backend that predates remote_mode.
+      remote_only: remoteMode === 'only',
       location: (location || '').trim() || null,
       radius_miles: (location || '').trim() ? radiusMiles ?? DEFAULT_RADIUS_MILES : null,
     }),
