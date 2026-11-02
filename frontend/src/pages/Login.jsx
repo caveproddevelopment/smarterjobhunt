@@ -21,6 +21,8 @@ export default function Login() {
   const [errorCode, setErrorCode] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [pendingResetEmail, setPendingResetEmail] = useState(null)
+  // Set after sign-up: the account exists but its email isn't verified yet.
+  const [pendingVerifyEmail, setPendingVerifyEmail] = useState(null)
   const [resendStatus, setResendStatus] = useState(null)
   const googleAuthInFlight = useRef(false)
   const {
@@ -86,8 +88,10 @@ export default function Login() {
           await startCheckout('week', data.token)
         }
       } else if (mode === 'register') {
-        const data = await register(fullName, email, password, country) // logs the account in
-        await startCheckout('week', data.token) // Stripe redirect, or Razorpay checkout for India
+        // Creates the account and emails a verification link. They verify,
+        // log in, and only then go to payment setup (see the login branch).
+        const data = await register(fullName, email, password, country)
+        setPendingVerifyEmail(data.email || email)
       } else {
         await forgotPassword(email)
         setPendingResetEmail(email)
@@ -104,6 +108,54 @@ export default function Login() {
     setResendStatus('sending')
     const message = await resendVerification(email)
     setResendStatus(message)
+  }
+
+  if (pendingVerifyEmail) {
+    return (
+      <div className="min-h-screen flame-gradient">
+        <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
+          <Navbar />
+          <main className="mx-auto flex max-w-md flex-col px-6 pb-24 pt-8">
+            <h1 className="font-display text-2xl font-semibold text-ink">Verify your email</h1>
+            <p className="mt-3 text-sm text-ink-soft">
+              We sent a verification link to <strong>{pendingVerifyEmail}</strong>. Click it to
+              confirm your email, then log in to start your free week.
+            </p>
+            <p className="mt-3 text-sm text-ink-soft">
+              Can't find it? Check your spam folder, or send it again. The link works for 24
+              hours.
+            </p>
+            {resendStatus && resendStatus !== 'sending' && (
+              <p className="mt-3 text-sm text-ink-soft">{resendStatus}</p>
+            )}
+            <button
+              type="button"
+              onClick={async () => {
+                setResendStatus('sending')
+                setResendStatus(await resendVerification(pendingVerifyEmail))
+              }}
+              disabled={resendStatus === 'sending'}
+              className="mt-6 w-full rounded-full border border-line px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist disabled:opacity-60"
+            >
+              {resendStatus === 'sending' ? 'Sending…' : 'Resend verification email'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingVerifyEmail(null)
+                setResendStatus(null)
+                setPassword('')
+                setMode('login')
+              }}
+              className="mt-3 w-full rounded-full flame-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 transition-transform hover:scale-[1.03]"
+            >
+              I've verified — go to log in
+            </button>
+          </main>
+          <Footer />
+        </div>
+      </div>
+    )
   }
 
   if (pendingResetEmail) {

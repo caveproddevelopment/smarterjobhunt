@@ -23,6 +23,7 @@ import {
 } from '../lib/api'
 import { normalizePostedDays, postedDaysLabel } from '../lib/postedDays'
 import { useAuth } from '../lib/auth'
+import { trackSubscribe } from '../lib/pixel'
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 import { DEFAULT_REMOTE_MODE, REMOTE_CHIP_LABELS, remoteModeOf } from '../lib/remote'
 
@@ -59,9 +60,20 @@ function buildBookmarkName(view) {
 }
 
 export default function JobListings() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { user, updateDefaultFilters } = useAuth()
+  const { user, updateDefaultFilters, refreshUser } = useAuth()
+  // Landed here from Stripe / Razorpay after setting up payment. The
+  // payment webhook that switches the account to 'pro' usually arrives a
+  // moment later, so: poll for it, say what's happening, and don't flash
+  // the "subscription required" popup in the meantime.
+  const checkoutSuccess = searchParams.get('checkout') === 'success'
+  const [checkoutBanner, setCheckoutBanner] = useState(checkoutSuccess ? 'pending' : null)
+  const checkoutPendingRef = useRef(checkoutSuccess)
+  // refreshUser gets a new identity on every render; keep the latest one in
+  // a ref so the polling effect below doesn't restart each time it runs.
+  const refreshUserRef = useRef(refreshUser)
+  refreshUserRef.current = refreshUser
   const sidebarRef = useRef(null)
   const appliedUserDefaultsRef = useRef(false)
   // A landing-page badge links here as e.g. ?company_type=fortune500 --
@@ -251,7 +263,11 @@ export default function JobListings() {
         })
       } catch (err) {
         if (!cancelled) {
-          if (err.status === 402) setShowAccessExpiredModal(true)
+          // Right after checkout the account may not be 'pro' yet -- the
+          // refetch once it is (canApply below) replaces this.
+          if (err.status === 402) {
+            if (!checkoutPendingRef.current) setShowAccessExpiredModal(true)
+          }
           else setError(err.message)
         }
       } finally {
@@ -264,7 +280,42 @@ export default function JobListings() {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus, badgeBrowse, page])
+    // canApply: re-fetch when the account becomes 'pro' (e.g. just after
+    // checkout) so full job details replace the title-only results.
+  }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus, badgeBrowse, page, canApply])
+
+  // After checkout: poll /me until the payment webhook has made the account
+  // 'pro' (about 20 seconds at most), then confirm, fire the pixel's
+  // Subscribe event once, and drop ?checkout from the URL so a reload
+  // doesn't repeat any of it.
+  useEffect(() => {
+    if (!checkoutSuccess) return
+    if (user?.plan === 'pro') {
+      checkoutPendingRef.current = false
+      setCheckoutBanner('done')
+      trackSubscribe(user.billing_interval)
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('checkout')
+          return next
+        },
+        { replace: true },
+      )
+      return
+    }
+    let tries = 0
+    const timer = setInterval(() => {
+      tries += 1
+      refreshUserRef.current()
+      if (tries >= 13) {
+        clearInterval(timer)
+        checkoutPendingRef.current = false
+        setCheckoutBanner('slow')
+      }
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [checkoutSuccess, user?.plan, user?.billing_interval, setSearchParams])
 
   // Fetches per-variant job counts for the "See Variants" popup, lazily --
   // only once it's actually open, and only re-fetching when the title,
@@ -667,6 +718,31 @@ export default function JobListings() {
       )}
 
       {showSubscribeModal && <SubscribeModal onClose={() => setShowSubscribeModal(false)} />}
+
+      {checkoutBanner && (
+        <div className="mx-auto mt-4 max-w-6xl px-6">
+          <div
+            role="status"
+            className="flex items-start justify-between gap-3 rounded-lg border border-line bg-mist px-4 py-3 text-sm"
+          >
+            <p className={checkoutBanner === 'done' ? 'text-moss' : 'text-ink-soft'}>
+              {checkoutBanner === 'pending' && 'Payment set up — finishing your subscription, one moment…'}
+              {checkoutBanner === 'done' && "You're all set! Your free week has started — happy job hunting."}
+              {checkoutBanner === 'slow' &&
+                'Your payment went through, but your subscription is taking a little longer to activate. Refresh in a minute, or check Profile → Billing.'}
+            </p>
+            {checkoutBanner !== 'pending' && (
+              <button
+                type="button"
+                onClick={() => setCheckoutBanner(null)}
+                className="shrink-0 text-xs font-medium text-ember hover:text-flame"
+              >
+                Dismiss
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {showAccessExpiredModal && (
         <AccessExpiredModal onClose={() => setShowAccessExpiredModal(false)} />
