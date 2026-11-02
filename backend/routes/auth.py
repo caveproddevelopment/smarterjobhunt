@@ -99,14 +99,19 @@ def _sanitize_google_name(raw_name, email):
 
 @bp.post("/register")
 def register():
-    """Creates the account and immediately logs it in (same {token, user}
-    shape as /login and /google) rather than requiring email verification
-    first. Registration now always continues straight into Stripe
-    Checkout on the frontend -- see AuthProvider.register() and
-    Login.jsx -- so the session needs to exist right away for that
-    authenticated /api/billing/checkout call. A verification email is
-    still sent, but is no longer required before logging in; the /login
-    endpoint's is_verified check is untouched and still applies there."""
+    """Creates the account (unverified) and emails a verification link.
+    It does NOT log the user in: the sign-up flow is
+
+        register -> verify email (link lands on /login?verified=1)
+                 -> log in -> Stripe / Razorpay checkout -> Job Listings
+
+    /login refuses unverified accounts (403 email_not_verified, with a
+    "Resend verification email" option on the page), so nobody reaches
+    checkout without a confirmed email. Google sign-ups skip this -- Google
+    has already verified the address (see google_login).
+
+    Signing up again with an email that's still unverified re-sends the
+    link instead of leaving the person stuck."""
     body = request.get_json(silent=True) or {}
     full_name = (body.get("full_name") or "").strip()
     email = (body.get("email") or "").strip().lower()
@@ -148,17 +153,31 @@ def register():
         cur.connection.commit()
     except psycopg2.errors.UniqueViolation:
         cur.connection.rollback()
-        return jsonify({"error": "An account with that email already exists"}), 409
+        cur.execute("SELECT id, full_name, is_verified FROM users WHERE email = %s", (email,))
+        existing = cur.fetchone()
+        if existing and not existing["is_verified"]:
+            send_verification_email(
+                email, issue_verification_token(existing["id"]), name=existing["full_name"]
+            )
+            return jsonify(
+                {
+                    "error": "You've already signed up with this email but haven't verified it yet. "
+                    "We've sent a new verification link -- check your inbox.",
+                    "code": "email_not_verified",
+                }
+            ), 409
+        return jsonify({"error": "An account with that email already exists. Log in instead."}), 409
 
     verification_token = issue_verification_token(new_user_id)
     send_verification_email(email, verification_token, name=full_name)
 
-    cur.execute(f"SELECT {USER_FIELDS} FROM users WHERE id = %s", (new_user_id,))
-    user = cur.fetchone()
-    user["last_login_at"] = _record_login(cur, new_user_id, "password")
-    cur.connection.commit()
-
-    return jsonify({"token": issue_token(new_user_id), "user": user}), 201
+    return jsonify(
+        {
+            "message": "Account created. Check your email for a link to verify it, then log in.",
+            "email": email,
+            "verification_required": True,
+        }
+    ), 201
 
 
 @bp.post("/login")

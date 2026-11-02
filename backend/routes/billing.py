@@ -159,7 +159,8 @@ def create_checkout_session():
                 client_reference_id=str(g.user_id),
                 payment_method_collection="always",
                 line_items=[{"price": price_id, "quantity": 1}],
-                success_url=f"{frontend_origin}/profile?checkout=success",
+                # Done setting up payment -> straight to Job Listings.
+                success_url=f"{frontend_origin}/dashboard?checkout=success",
                 cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
                 subscription_data={
                     "trial_period_days": 7,
@@ -183,7 +184,7 @@ def create_checkout_session():
                 client_reference_id=str(g.user_id),
                 payment_method_collection="always",
                 line_items=[{"price": price_id, "quantity": 1}],
-                success_url=f"{frontend_origin}/profile?checkout=success",
+                success_url=f"{frontend_origin}/dashboard?checkout=success",
                 cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
                 subscription_data={
                     "trial_period_days": 7,

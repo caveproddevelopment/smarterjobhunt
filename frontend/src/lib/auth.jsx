@@ -64,24 +64,23 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false))
   }, [token])
 
-  // Registration now logs the account straight in (same {token, user}
-  // shape as login/loginWithGoogle below) so the caller can immediately
-  // chain into startCheckout() -- see Login.jsx, which sends every new
-  // signup into Stripe Checkout for the weekly plan's 7-day free trial
-  // right after this resolves. The account is still unverified by email
-  // at this point; that no longer blocks using the app.
+  // Creates the account but does NOT log in: the backend emails a
+  // verification link first. Flow: sign up -> verify email (link lands on
+  // /login?verified=1) -> log in -> Stripe/Razorpay checkout -> Job
+  // Listings. Resolves with { message, email, verification_required }.
   async function register(fullName, email, password, country) {
     const res = await fetch(`${API_URL}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ full_name: fullName, email, password, country }),
     })
-    if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not create account'))
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      const err = new Error(body?.error || 'Could not create account')
+      err.code = body?.code
+      throw err
+    }
     const data = await res.json()
-    localStorage.setItem(TOKEN_KEY, data.token)
-    tokenRef.current = data.token
-    setToken(data.token)
-    setUser(data.user)
     trackCompleteRegistration()
     return data
   }
@@ -217,8 +216,9 @@ export function AuthProvider({ children }) {
   // interval is 'week' (the only plan offered). The backend picks the
   // payment provider from the user's country: Stripe redirects the whole
   // page to Stripe Checkout (no Stripe.js needed); Razorpay (India) opens
-  // Razorpay's checkout modal. Either way the user ends up back on
-  // /profile?checkout=success|cancelled, same as before.
+  // Razorpay's checkout modal. Either way, finishing payment setup lands on
+  // Job Listings (/dashboard?checkout=success); backing out lands on
+  // /profile?checkout=cancelled.
   async function startCheckout(
     interval,
     checkoutToken = tokenRef.current || localStorage.getItem(TOKEN_KEY),
@@ -264,7 +264,7 @@ export function AuthProvider({ children }) {
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${checkoutToken}` },
           body: JSON.stringify(response),
         }).catch(() => {})
-        window.location.href = '/profile?checkout=success'
+        window.location.href = '/dashboard?checkout=success'
       },
       modal: {
         ondismiss: () => {

@@ -40,7 +40,9 @@ class Config:
 
     # Email verification
     EMAIL_VERIFICATION_MAX_AGE_SECONDS = int(
-        os.environ.get("EMAIL_VERIFICATION_MAX_AGE_SECONDS", 60 * 5)  # 5 min
+        # 24 hours: sign-up now waits on this link before the user can log
+        # in, and people often open it much later or on another device.
+        os.environ.get("EMAIL_VERIFICATION_MAX_AGE_SECONDS", 60 * 60 * 24)
     )
 
     # Password reset
