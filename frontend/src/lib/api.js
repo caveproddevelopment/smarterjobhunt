@@ -64,7 +64,7 @@ export async function fetchJobs(filters) {
   }
   if (filters.companyId) params.set('company_id', filters.companyId)
   if (filters.status) params.set('status', filters.status)
-  if (filters.remoteOnly) params.set('remote_only', '1')
+  if (filters.remote && filters.remote !== 'include') params.set('remote', filters.remote)
   appendLocationParams(params, filters)
   for (const variantTitle of filters.variantTitles || []) {
     params.append('variant_title', variantTitle)
@@ -128,7 +128,9 @@ export async function createSavedSearch({
   companyTypes,
   statusFilter,
   companyId,
-  remoteOnly,
+  remoteMode,
+  location,
+  radiusMiles,
 }) {
   const res = await fetch(`${API_URL}/api/saved-searches`, {
     method: 'POST',
@@ -142,7 +144,9 @@ export async function createSavedSearch({
       company_types: companyTypes || [],
       status_filter: statusFilter || null,
       company_id: companyId || null,
-      remote_only: Boolean(remoteOnly),
+      remote_mode: remoteMode || 'include',
+      location: (location || '').trim() || null,
+      radius_miles: (location || '').trim() ? radiusMiles ?? DEFAULT_RADIUS_MILES : null,
     }),
   })
   if (!res.ok) throw new Error(await parseErrorOr(res, `Failed to save search (${res.status})`))
@@ -207,7 +211,10 @@ export async function fetchTitleVariants(title) {
 // whatever posted-days/company-type filters are applied everywhere else on
 // the page -- e.g. { "Product Owner": 4, "Senior Product Manager": 0 }.
 // Powers the "See Variants" pills on the Job Listings page.
-export async function fetchVariantCounts(variantTitles, { postedDays, companyTypes, location, radiusMiles } = {}) {
+export async function fetchVariantCounts(
+  variantTitles,
+  { postedDays, companyTypes, location, radiusMiles, remote } = {}
+) {
   if (!variantTitles || variantTitles.length === 0) return {}
   const params = new URLSearchParams()
   for (const variantTitle of variantTitles) {
@@ -219,6 +226,7 @@ export async function fetchVariantCounts(variantTitles, { postedDays, companyTyp
       params.append('company_type', companyType)
     }
   }
+  if (remote && remote !== 'include') params.set('remote', remote)
   appendLocationParams(params, { location, radiusMiles })
   const res = await fetch(`${API_URL}/api/jobs/variant-counts?${params.toString()}`, {
     headers: authHeaders(),

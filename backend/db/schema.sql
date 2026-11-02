@@ -330,11 +330,40 @@ ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS company_id INTEGER
 -- status filter -- the same as any other view with tracking off.
 ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS status_filter TEXT
     CHECK (status_filter IN ('applied', 'rejected'));
+
+-- Brought in line with production, where these two checks were already
+-- widened: company_type holds 'all' (no restriction) or a sorted,
+-- comma-joined list of databases (routes/saved_searches.py builds it), and
+-- Track Applications has a 'neither' radio too. Re-running drops and
+-- re-adds the same definitions, so it's a no-op there.
+ALTER TABLE saved_searches ALTER COLUMN company_type SET DEFAULT 'all';
+ALTER TABLE saved_searches DROP CONSTRAINT IF EXISTS saved_searches_company_type_check;
+ALTER TABLE saved_searches ADD CONSTRAINT saved_searches_company_type_check CHECK (
+    company_type = 'all'
+    OR company_type ~ '^(funded|fortune500|indianmajor|midsize|healthcare)(,(funded|fortune500|indianmajor|midsize|healthcare))*$'
+);
+ALTER TABLE saved_searches DROP CONSTRAINT IF EXISTS saved_searches_status_filter_check;
+ALTER TABLE saved_searches ADD CONSTRAINT saved_searches_status_filter_check
+    CHECK (status_filter IN ('applied', 'rejected', 'neither'));
 -- Mirrors the "Remote" sidebar checkbox for the 'search' and 'variant' view
 -- types, same reasoning as company_type above -- so re-applying a bookmark
 -- restores it exactly as it was checked, rather than leaving it at
 -- whatever the checkbox currently happens to be.
 ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS remote_only BOOLEAN NOT NULL DEFAULT false;
+
+-- The Remote filter became a three-way dropdown: 'only' (remote jobs only),
+-- 'include' (no remote filter -- the default), 'exclude' ("None": hide
+-- remote jobs). remote_mode replaces remote_only; old remote_only = true
+-- bookmarks carry over as 'only'. remote_only is still written (true for
+-- 'only') so anything reading the old column keeps working.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS remote_mode TEXT NOT NULL DEFAULT 'include'
+    CHECK (remote_mode IN ('only', 'include', 'exclude'));
+UPDATE saved_searches SET remote_mode = 'only' WHERE remote_only AND remote_mode = 'include';
+-- Location box + distance slider, so a bookmark brings back the place it
+-- was saved for. radius_miles is NULL whenever location is.
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS radius_miles INTEGER
+    CHECK (radius_miles IS NULL OR radius_miles BETWEEN 0 AND 500);
 
 -- The original UNIQUE (user_id, name) treated the display NAME as the
 -- definition of "already bookmarked" -- but `name` is just a human-readable
@@ -356,7 +385,7 @@ ALTER TABLE saved_searches DROP CONSTRAINT IF EXISTS saved_searches_user_id_name
 -- Dropped and recreated (rather than IF NOT EXISTS'd) whenever its column
 -- list changes -- CREATE INDEX IF NOT EXISTS is a no-op against an index
 -- that already exists under this name, even with a different definition,
--- so a rename-free ADD COLUMN like remote_only above would otherwise never
+-- so a rename-free ADD COLUMN like remote_mode above would otherwise never
 -- actually take effect on a database that already ran an earlier version
 -- of this file.
 DROP INDEX IF EXISTS uq_saved_searches_view;
@@ -369,7 +398,9 @@ CREATE UNIQUE INDEX uq_saved_searches_view ON saved_searches (
     company_type,
     COALESCE(status_filter, ''),
     COALESCE(company_id, -1),
-    remote_only
+    remote_mode,
+    lower(COALESCE(location, '')),
+    COALESCE(radius_miles, -1)
 );
 
 CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON saved_searches (user_id);

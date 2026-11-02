@@ -24,6 +24,7 @@ import {
 import { normalizePostedDays, postedDaysLabel } from '../lib/postedDays'
 import { useAuth } from '../lib/auth'
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
+import { DEFAULT_REMOTE_MODE, REMOTE_CHIP_LABELS, remoteModeOf } from '../lib/remote'
 
 // Describes a saved-search row (or the page's current scoped view, in the
 // same shape) as a human name. Distinct per view_type since each one means
@@ -48,11 +49,13 @@ function buildBookmarkName(view) {
   // Handle multiple company types
   const companyTypeLabels = (view.companyTypes || []).map((type) => COMPANY_TYPE_LABELS[type])
   const dbLabel = companyTypeLabels.length > 0 ? ` · ${companyTypeLabels.join(', ')}` : ''
-  const remoteLabel = view.remoteOnly ? ' · Remote' : ''
+  const place = (view.location || '').trim()
+  const locationLabel = place ? ` · ${place} (${view.radiusMiles ?? DEFAULT_RADIUS_MILES} mi)` : ''
+  const remoteLabel = REMOTE_CHIP_LABELS[view.remote] ? ` · ${REMOTE_CHIP_LABELS[view.remote]}` : ''
   if (view.viewType === 'variant') {
-    return `${view.variantTitle}${suffix}${dbLabel}${remoteLabel}`
+    return `${view.variantTitle}${suffix}${dbLabel}${locationLabel}${remoteLabel}`
   }
-  return `${(view.title || '').trim() || 'All jobs'}${suffix}${dbLabel}${remoteLabel}`
+  return `${(view.title || '').trim() || 'All jobs'}${suffix}${dbLabel}${locationLabel}${remoteLabel}`
 }
 
 export default function JobListings() {
@@ -73,7 +76,7 @@ export default function JobListings() {
     title: searchParams.get('title') || '',
     postedDays: '',
     companyTypes: linkedCompanyType ? [linkedCompanyType] : [DEFAULT_COMPANY_TYPE],
-    remoteOnly: false,
+    remote: DEFAULT_REMOTE_MODE,
     location: '',
     radiusMiles: DEFAULT_RADIUS_MILES,
   })
@@ -206,15 +209,15 @@ export default function JobListings() {
       // entirely, no OR'ing with the other variants). With nothing
       // selected, it's the normal combined title + all-variants view.
       const jobParams = selectedStatus
-        ? { title: '', postedDays: '', companyTypes: [], remoteOnly: false, status: selectedStatus }
+        ? { title: '', postedDays: '', companyTypes: [], remote: DEFAULT_REMOTE_MODE, status: selectedStatus }
         : selectedCompany
-          ? { title: '', postedDays: '', companyTypes: [], remoteOnly: false, companyId: selectedCompany.id }
+          ? { title: '', postedDays: '', companyTypes: [], remote: DEFAULT_REMOTE_MODE, companyId: selectedCompany.id }
           : selectedVariant
             ? {
                 title: '',
                 postedDays: appliedFilters.postedDays,
                 companyTypes: appliedFilters.companyTypes,
-                remoteOnly: appliedFilters.remoteOnly,
+                remote: appliedFilters.remote,
                 location: appliedFilters.location,
                 radiusMiles: appliedFilters.radiusMiles,
                 variantTitles: [selectedVariant],
@@ -271,7 +274,7 @@ export default function JobListings() {
   // that pill too, not just the variants.
   useEffect(() => {
     if (!showVariants || titleVariants.length === 0) return
-    const key = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${(appliedFilters.companyTypes || []).join(',')}|||${appliedFilters.location || ''}|||${appliedFilters.radiusMiles}`
+    const key = `${appliedFilters.title}|||${appliedFilters.postedDays}|||${(appliedFilters.companyTypes || []).join(',')}|||${appliedFilters.location || ''}|||${appliedFilters.radiusMiles}|||${appliedFilters.remote}`
     if (variantCountsKeyRef.current === key) return
 
     let cancelled = false
@@ -282,6 +285,7 @@ export default function JobListings() {
       companyTypes: appliedFilters.companyTypes,
       location: appliedFilters.location,
       radiusMiles: appliedFilters.radiusMiles,
+      remote: appliedFilters.remote,
     })
       .then((counts) => {
         if (cancelled) return
@@ -306,6 +310,7 @@ export default function JobListings() {
     appliedFilters.companyTypes,
     appliedFilters.location,
     appliedFilters.radiusMiles,
+    appliedFilters.remote,
   ])
 
   // Total jobs per company database, unfiltered -- fetched once on mount
@@ -356,6 +361,7 @@ export default function JobListings() {
         title: lastTitle || user.default_job_title || '',
         postedDays: normalizePostedDays(user.default_posted_within_days),
         companyTypes: filters.companyTypes || [DEFAULT_COMPANY_TYPE],
+        remote: DEFAULT_REMOTE_MODE,
         location: '',
         radiusMiles: DEFAULT_RADIUS_MILES,
       }
@@ -378,8 +384,9 @@ export default function JobListings() {
     setSavingDefaults(true)
     updateDefaultFilters(newFilters)
       .then(() => {
-        setFilters(newFilters)
-        setAppliedFilters(newFilters)
+        const withRemote = { remote: DEFAULT_REMOTE_MODE, ...newFilters }
+        setFilters(withRemote)
+        setAppliedFilters(withRemote)
         setSelectedVariant(null)
         setSelectedCompany(null)
         setSelectedStatus(null)
@@ -537,16 +544,18 @@ export default function JobListings() {
             title: appliedFilters.title,
             days: appliedFilters.postedDays,
             companyTypes: appliedFilters.companyTypes,
-            remoteOnly: appliedFilters.remoteOnly,
+            remote: appliedFilters.remote || DEFAULT_REMOTE_MODE,
             location: (appliedFilters.location || '').trim(),
+            radiusMiles: appliedFilters.radiusMiles ?? DEFAULT_RADIUS_MILES,
           }
         : {
             viewType: 'search',
             title: appliedFilters.title,
             days: appliedFilters.postedDays,
             companyTypes: appliedFilters.companyTypes,
-            remoteOnly: appliedFilters.remoteOnly,
+            remote: appliedFilters.remote || DEFAULT_REMOTE_MODE,
             location: (appliedFilters.location || '').trim(),
+            radiusMiles: appliedFilters.radiusMiles ?? DEFAULT_RADIUS_MILES,
           }
 
   const bookmarkedSearch = savedSearches.find((search) => {
@@ -557,8 +566,6 @@ export default function JobListings() {
     if (currentView.viewType === 'company') {
       return search.company_id === currentView.companyId
     }
-    // Saved bookmarks never carry a location (see handleToggleBookmark).
-    if (currentView.location) return false
     const sameDays = String(search.posted_within_days || '') === String(currentView.days || '')
     // Compare company types as arrays - sort both for consistent comparison
     const searchCompanyTypes = (search.company_types || []).sort()
@@ -566,13 +573,18 @@ export default function JobListings() {
     const sameCompanyTypes =
       searchCompanyTypes.length === currentCompanyTypes.length &&
       searchCompanyTypes.every((type, idx) => type === currentCompanyTypes[idx])
-    const sameRemote = Boolean(search.remote_only) === Boolean(currentView.remoteOnly)
+    const sameRemote = remoteModeOf(search.remote_mode, search.remote_only) === currentView.remote
+    // Location matches case-insensitively; the distance only matters when
+    // there is a location.
+    const savedPlace = (search.location || '').trim().toLowerCase()
+    const samePlace =
+      savedPlace === currentView.location.toLowerCase() &&
+      (!savedPlace || Number(search.radius_miles ?? DEFAULT_RADIUS_MILES) === Number(currentView.radiusMiles))
+    const sameFilters = sameDays && sameCompanyTypes && sameRemote && samePlace
     if (currentView.viewType === 'variant') {
-      return (
-        (search.variant_title || '') === currentView.variantTitle && sameDays && sameCompanyTypes && sameRemote
-      )
+      return (search.variant_title || '') === currentView.variantTitle && sameFilters
     }
-    return (search.job_title || '') === (currentView.title || '') && sameDays && sameCompanyTypes && sameRemote
+    return (search.job_title || '') === (currentView.title || '') && sameFilters
   })
 
   function handleToggleBookmark() {
@@ -585,12 +597,6 @@ export default function JobListings() {
       handleDeleteSearch(bookmarkedSearch.id)
       return
     }
-    // Bookmarks don't store a location yet, so saving one now would quietly
-    // drop it -- say so instead.
-    if (currentView.location) {
-      setBookmarkError('Bookmarks can\'t save a location yet. Clear the location to bookmark this search.')
-      return
-    }
     createSavedSearch({
       name: buildBookmarkName(currentView),
       viewType: currentView.viewType,
@@ -600,7 +606,10 @@ export default function JobListings() {
       companyTypes: currentView.viewType === 'company' ? undefined : currentView.companyTypes,
       statusFilter: currentView.viewType === 'status' ? currentView.statusFilter : null,
       companyId: currentView.viewType === 'company' ? currentView.companyId : null,
-      remoteOnly: currentView.viewType === 'company' ? undefined : currentView.remoteOnly,
+      // Remote dropdown and Location/Distance only apply to title searches.
+      remoteMode: currentView.remote,
+      location: currentView.location,
+      radiusMiles: currentView.radiusMiles,
     })
       .then((saved) => setSavedSearches((prev) => [saved, ...prev]))
       .catch((err) => setBookmarkError(err.message))
@@ -629,9 +638,9 @@ export default function JobListings() {
       title: search.job_title || '',
       postedDays: normalizePostedDays(search.posted_within_days),
       companyTypes: search.company_types || [DEFAULT_COMPANY_TYPE],
-      remoteOnly: Boolean(search.remote_only),
-      location: '',
-      radiusMiles: DEFAULT_RADIUS_MILES,
+      remote: remoteModeOf(search.remote_mode, search.remote_only),
+      location: search.location || '',
+      radiusMiles: search.location ? Number(search.radius_miles ?? DEFAULT_RADIUS_MILES) : DEFAULT_RADIUS_MILES,
     }
     setFilters(applied)
     setAppliedFilters(applied)

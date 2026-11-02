@@ -1,12 +1,13 @@
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 import { DEFAULT_RADIUS_MILES } from '../lib/api'
 import { postedDaysLabel } from '../lib/postedDays'
+import { DEFAULT_REMOTE_MODE, REMOTE_CHIP_LABELS } from '../lib/remote'
 
 const DEFAULT_FILTERS = {
   title: '',
   postedDays: '',
   companyTypes: [],
-  remoteOnly: false,
+  remote: DEFAULT_REMOTE_MODE,
   location: '',
   radiusMiles: DEFAULT_RADIUS_MILES,
 }
@@ -93,23 +94,27 @@ export default function ActiveFiltersBar({
       clear: () => onChange({ ...filters, companyTypes: [DEFAULT_COMPANY_TYPE] }),
     })
   }
+  const remote = filters.remote || DEFAULT_REMOTE_MODE
   const typedLocation = (filters.location || '').trim()
   if (typedLocation && !locationInfo?.notFound) {
     const place = locationInfo?.resolved || typedLocation
+    // "+ remote" only while remote jobs are added back in ('include'); with
+    // 'exclude' they're hidden, and 'only' has its own chip below.
+    const remoteSuffix = remote === 'include' ? ' + remote' : ''
     restChips.push({
       key: 'location',
       label:
         locationInfo?.kind === 'country'
-          ? `In ${place} + remote`
-          : `Within ${filters.radiusMiles ?? DEFAULT_RADIUS_MILES} mi of ${place} + remote`,
+          ? `In ${place}${remoteSuffix}`
+          : `Within ${filters.radiusMiles ?? DEFAULT_RADIUS_MILES} mi of ${place}${remoteSuffix}`,
       clear: () => onChange({ ...filters, location: '' }),
     })
   }
-  if (filters.remoteOnly) {
+  if (REMOTE_CHIP_LABELS[remote]) {
     restChips.push({
-      key: 'remoteOnly',
-      label: 'Remote',
-      clear: () => onChange({ ...filters, remoteOnly: false }),
+      key: 'remote',
+      label: REMOTE_CHIP_LABELS[remote],
+      clear: () => onChange({ ...filters, remote: DEFAULT_REMOTE_MODE }),
     })
   }
 

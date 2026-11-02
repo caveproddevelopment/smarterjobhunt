@@ -1,5 +1,6 @@
 import { COMPANY_TYPE_FILTER_OPTIONS } from '../lib/companyTypes'
 import { DEFAULT_RADIUS_MILES } from '../lib/api'
+import { DEFAULT_REMOTE_MODE, REMOTE_OPTIONS } from '../lib/remote'
 import PostedDaysPicker from './PostedDaysPicker'
 
 // Distance slider range, in miles. The backend caps radius_miles at 500 too.
@@ -24,6 +25,14 @@ export default function FilterSidebar({
 }) {
   const hasLocation = Boolean((filters.location || '').trim())
   const radius = filters.radiusMiles ?? DEFAULT_RADIUS_MILES
+  const remote = filters.remote || DEFAULT_REMOTE_MODE
+  const locationHint = !hasLocation
+    ? 'Type a location to use the distance slider.'
+    : remote === 'exclude'
+      ? 'Remote jobs are hidden.'
+      : remote === 'only'
+        ? 'Showing remote jobs only.'
+        : 'Remote jobs are always included.'
 
   // Small count label shown next to a Company Database option: plain
   // ink text (not ember) once we know the count, muted while the fetch
@@ -99,7 +108,25 @@ export default function FilterSidebar({
         />
       </div>
 
-      <div className={`mt-2 ${hasLocation ? '' : 'opacity-50'}`}>
+      <div className="mt-2 flex items-center gap-2">
+        <label htmlFor="filter-remote" className="shrink-0 text-sm text-ink">
+          Remote
+        </label>
+        <select
+          id="filter-remote"
+          value={remote}
+          onChange={(event) => onFilterChange({ ...filters, remote: event.target.value })}
+          className="min-w-0 flex-1 border border-line bg-paper px-2 py-1.5 text-sm text-ink focus:border-ink-soft focus:outline-none"
+        >
+          {REMOTE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className={`mt-3 ${hasLocation ? '' : 'opacity-50'}`}>
         <div className="flex items-center justify-between text-sm text-ink">
           <label htmlFor="filter-radius">Distance</label>
           <span className="font-medium">Within {radius} mi</span>
@@ -120,7 +147,7 @@ export default function FilterSidebar({
           <span>{MAX_RADIUS} mi</span>
         </div>
         <p className="mt-1 text-xs text-ink-soft">
-          {hasLocation ? 'Remote jobs are always included.' : 'Type a location to use the distance slider.'}
+          {locationHint}
         </p>
       </div>
 
@@ -152,16 +179,6 @@ export default function FilterSidebar({
             )
           })}
         </div>
-      </div>
-
-      <div className="mt-4 flex items-center justify-between text-sm text-ink">
-        <span>Remote Only</span>
-        <input
-          type="checkbox"
-          checked={Boolean(filters.remoteOnly)}
-          onChange={(event) => onFilterChange({ ...filters, remoteOnly: event.target.checked })}
-          className="h-4 w-4 accent-ember"
-        />
       </div>
 
       <button
