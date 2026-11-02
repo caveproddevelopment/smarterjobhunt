@@ -83,7 +83,12 @@ def list_saved_searches():
             ss.id, ss.name, ss.view_type, ss.job_title, ss.variant_title,
             ss.posted_within_days, ss.company_type,
             ss.status_filter, ss.company_id, c.name AS company_name,
-            ss.remote_only, ss.remote_mode, ss.location, ss.radius_miles, ss.created_at
+            ss.remote_only,
+            -- A bookmark saved by the pre-dropdown code only set remote_only;
+            -- read it as 'only' so it still restores "Remote only".
+            CASE WHEN ss.remote_only AND ss.remote_mode = 'include' THEN 'only'
+                 ELSE ss.remote_mode END AS remote_mode,
+            ss.location, ss.radius_miles, ss.created_at
         FROM saved_searches ss
         LEFT JOIN companies c ON c.id = ss.company_id
         WHERE ss.user_id = %s

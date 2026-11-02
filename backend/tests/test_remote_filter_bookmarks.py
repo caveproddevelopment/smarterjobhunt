@@ -124,3 +124,34 @@ def test_schema_backfills_old_remote_only_bookmarks(env, jobs):
         env["db"].execute(f.read())
     env["db"].execute("SELECT remote_mode FROM saved_searches WHERE name = 'old'")
     assert env["db"].fetchone()[0] == "only"
+
+
+def test_old_site_bookmarks_still_work_during_rollout(env, jobs):
+    """While the old site is still live it writes bookmarks with only
+    remote_only set. Those must list as 'only', must not collide with a
+    'Remote included' bookmark of the same search, and an old frontend
+    (sending just remote_only) must still save 'Remote only'."""
+    user_id, headers, _ = _start_trial(env)
+    db = env["db"]
+    db.execute("SELECT id FROM users ORDER BY id DESC LIMIT 1")
+    uid = db.fetchone()[0]
+    # What the pre-dropdown backend inserts (no remote_mode -> default 'include').
+    db.execute(
+        "INSERT INTO saved_searches (user_id, name, view_type, job_title, company_type, remote_only) "
+        "VALUES (%s, 'old remote', 'search', 'QA', 'all', true)", (uid,))
+    db.execute(
+        "INSERT INTO saved_searches (user_id, name, view_type, job_title, company_type, remote_only) "
+        "VALUES (%s, 'old plain', 'search', 'QA', 'all', false)", (uid,))  # no unique clash
+    listed = {s["name"]: s for s in env["client"].get("/api/saved-searches", headers=headers)
+              .get_json()["saved_searches"]}
+    assert listed["old remote"]["remote_mode"] == "only"
+    assert listed["old plain"]["remote_mode"] == "include"
+
+    # Old frontend: sends remote_only only.
+    resp = env["client"].post("/api/saved-searches", headers=headers, json={
+        "name": "old fe", "view_type": "search", "job_title": "Tester", "remote_only": True})
+    assert resp.status_code == 201 and resp.get_json()["remote_mode"] == "only"
+
+    # New frontend sends both remote and remote_only=1 for "Remote only".
+    resp = env["client"].get("/api/jobs?title=Data+Analyst&remote=only&remote_only=1", headers=headers)
+    assert sorted(j["location"] for j in resp.get_json()["jobs"]) == ["Chicago, IL", "New York, NY", "Remote (US)"]
