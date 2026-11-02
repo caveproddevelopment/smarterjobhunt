@@ -398,6 +398,11 @@ CREATE UNIQUE INDEX uq_saved_searches_view ON saved_searches (
     company_type,
     COALESCE(status_filter, ''),
     COALESCE(company_id, -1),
+    -- remote_only stays in the key alongside remote_mode: the pre-dropdown
+    -- code only writes remote_only, so this keeps its bookmarks distinct
+    -- while both versions of the site may be running. The new code keeps
+    -- the two in sync (remote_only = remote_mode = 'only').
+    remote_only,
     remote_mode,
     lower(COALESCE(location, '')),
     COALESCE(radius_miles, -1)
