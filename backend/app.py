@@ -6,6 +6,24 @@ from db.connection import init_pool, register_teardown, get_cursor
 from routes import auth, billing, contact, geo_ip, job_status, jobs, preferences, saved_searches, staging, title_variants
 
 
+def _ensure_utm_columns(app):
+    """Adds the sign-up campaign columns if this database predates them (same ALTERs as
+    db/schema.sql), so registration keeps working even if schema.sql hasn't been re-run.
+    Never stops the app from starting."""
+    from db import connection
+    try:
+        conn = connection._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                for col in ("utm_source", "utm_campaign", "utm_content"):
+                    cur.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} TEXT")
+            conn.commit()
+        finally:
+            connection._pool.putconn(conn)
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning("Could not ensure utm columns: %s", e)
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -14,6 +32,7 @@ def create_app():
 
     init_pool(app)
     register_teardown(app)
+    _ensure_utm_columns(app)
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(contact.bp)

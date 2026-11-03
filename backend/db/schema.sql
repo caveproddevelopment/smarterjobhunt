@@ -234,6 +234,13 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_ip_country TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_ip_is_vpn BOOLEAN;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_country TEXT;
+
+-- Campaign tracking (first touch): the utm_ tags on the first tagged link the person
+-- arrived through, sent by the frontend at sign-up (frontend/src/lib/utm.js).
+-- NULL = arrived without tags, read as "direct/other". Set once at account creation, never changed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS utm_source TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS utm_content TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_provider TEXT
     CHECK (payment_provider IN ('stripe', 'razorpay'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS razorpay_customer_id TEXT;

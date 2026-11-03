@@ -97,6 +97,17 @@ def _sanitize_google_name(raw_name, email):
     return "Google User"
 
 
+def _utm(body):
+    """utm_source / utm_campaign / utm_content from the sign-up request (saved by the
+    frontend from the first tagged link the person arrived through). Missing -> None."""
+    out = []
+    for key in ("utm_source", "utm_campaign", "utm_content"):
+        v = body.get(key)
+        v = "".join(ch for ch in str(v) if ch.isprintable()).strip()[:100] if v else ""
+        out.append(v or None)
+    return out
+
+
 @bp.post("/register")
 def register():
     """Creates the account (unverified) and emails a verification link.
@@ -140,13 +151,15 @@ def register():
         cur.execute(
             """
             INSERT INTO users (full_name, email, password_hash, is_verified,
-                               country, signup_ip_country, signup_ip_is_vpn, billing_country)
-            VALUES (%s, %s, %s, false, %s, %s, %s, %s)
+                               country, signup_ip_country, signup_ip_is_vpn, billing_country,
+                               utm_source, utm_campaign, utm_content)
+            VALUES (%s, %s, %s, false, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
                 full_name, email, generate_password_hash(password),
                 country, detected["country"], detected["is_vpn"], billing_country,
+                *_utm(body),
             ),
         )
         new_user_id = cur.fetchone()["id"]
@@ -286,11 +299,13 @@ def google_login():
             cur.execute(
                 f"""
                 INSERT INTO users (full_name, email, password_hash, google_id, is_verified,
-                                   signup_ip_country, signup_ip_is_vpn, billing_country)
-                VALUES (%s, %s, NULL, %s, true, %s, %s, %s)
+                                   signup_ip_country, signup_ip_is_vpn, billing_country,
+                                   utm_source, utm_campaign, utm_content)
+                VALUES (%s, %s, NULL, %s, true, %s, %s, %s, %s, %s, %s)
                 RETURNING {USER_FIELDS}
                 """,
-                (full_name, email, google_id, detected["country"], detected["is_vpn"], billing_country),
+                (full_name, email, google_id, detected["country"], detected["is_vpn"], billing_country,
+                 *_utm(body)),
             )
             user = cur.fetchone()
             cur.connection.commit()
