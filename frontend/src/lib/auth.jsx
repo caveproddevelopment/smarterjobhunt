@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { getUtm } from './utm.js'
 import { trackCompleteRegistration, trackGoogleAuthLead } from './pixel'
 import CountryPromptModal from '../components/CountryPromptModal'
 
@@ -72,7 +73,7 @@ export function AuthProvider({ children }) {
     const res = await fetch(`${API_URL}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: fullName, email, password, country }),
+      body: JSON.stringify({ full_name: fullName, email, password, country, ...getUtm() }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => null)
@@ -115,7 +116,7 @@ export function AuthProvider({ children }) {
     const res = await fetch(`${API_URL}/api/auth/google`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credential }),
+      body: JSON.stringify({ credential, ...getUtm() }),
     })
     if (!res.ok) throw new Error(await parseErrorOr(res, 'Could not sign in with Google'))
     const data = await res.json()
