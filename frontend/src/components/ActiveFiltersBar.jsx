@@ -48,8 +48,9 @@ export default function ActiveFiltersBar({
   // selected, the listing is scoped to just that title, company, or
   // application status. "Return to Full List" and "Current View" show in
   // this same gray bar instead of the chips below.
+  const statusTitle = (filters?.title || '').trim()
   const scopedLabel = selectedStatus
-    ? STATUS_LABELS[selectedStatus]
+    ? `${STATUS_LABELS[selectedStatus]}${statusTitle ? ` · ${statusTitle}` : ''}`
     : selectedCompany
       ? `All jobs at ${selectedCompany.name}`
       : selectedVariant

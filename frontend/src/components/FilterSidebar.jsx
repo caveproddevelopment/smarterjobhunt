@@ -193,7 +193,7 @@ export default function FilterSidebar({
         <div className="mt-5 border-t border-line pt-4">
           <p className="text-sm font-medium text-ink">Track Applications</p>
           <p className="mt-1 text-xs text-ink-soft">
-            Shows every job you've marked, across all searches — not just the current filters.
+            With a job title searched, shows only the jobs under that title. With no title, shows every job you've marked.
           </p>
           <div className="mt-2 space-y-1.5">
             <label className="flex items-center gap-1.5 text-sm text-ink">

@@ -40,9 +40,9 @@ function buildBookmarkName(view) {
   const days = view.days ? String(view.days) : ''
   const suffix = normalizePostedDays(days) ? ` · last ${postedDaysLabel(days)}` : ''
   if (view.viewType === 'status') {
-    if (view.statusFilter === 'applied') return 'Applied Jobs'
-    if (view.statusFilter === 'rejected') return 'Rejected Jobs'
-    return 'Neither Jobs'
+    const base = view.statusFilter === 'applied' ? 'Applied Jobs' : view.statusFilter === 'rejected' ? 'Rejected Jobs' : 'Neither Jobs'
+    const title = (view.title || '').trim()
+    return title ? `${base} · ${title}` : base
   }
   if (view.viewType === 'company') {
     return `All jobs at ${view.companyName}`
@@ -141,9 +141,12 @@ export default function JobListings() {
   // filters entirely. Mutually exclusive with selectedVariant.
   const [selectedCompany, setSelectedCompany] = useState(null)
   // Set from the sidebar's "Track Applications" radios (applied / rejected
-  // / tracked = both). Scopes the listing to the user's marked jobs across
-  // ALL searches, ignoring every other filter. Mutually exclusive with
-  // selectedVariant and selectedCompany.
+  // / neither / tracked = both). Scopes the listing to the user's marked
+  // jobs. With a searched job title it's only the jobs under that title
+  // (e.g. "Applied" + "developer" = developer jobs you applied to); with no
+  // title it's every job you've marked. Other filters (days, companies,
+  // remote, location) don't apply here. Stays on when a new title is
+  // searched. Mutually exclusive with selectedVariant and selectedCompany.
   const [selectedStatus, setSelectedStatus] = useState(null)
   // A job title is required to search. The one no-title list besides the
   // scoped views above is a Company Database opened from a landing-page
@@ -220,8 +223,16 @@ export default function JobListings() {
       // selected variant scopes to ONLY that variant's jobs (title left out
       // entirely, no OR'ing with the other variants). With nothing
       // selected, it's the normal combined title + all-variants view.
+      const statusTitle = (appliedFilters.title || '').trim()
       const jobParams = selectedStatus
-        ? { title: '', postedDays: '', companyTypes: [], remote: DEFAULT_REMOTE_MODE, status: selectedStatus }
+        ? {
+            title: statusTitle,
+            variantTitles: statusTitle ? variants : [],
+            postedDays: '',
+            companyTypes: [],
+            remote: DEFAULT_REMOTE_MODE,
+            status: selectedStatus,
+          }
         : selectedCompany
           ? { title: '', postedDays: '', companyTypes: [], remote: DEFAULT_REMOTE_MODE, companyId: selectedCompany.id }
           : selectedVariant
@@ -476,16 +487,20 @@ export default function JobListings() {
     // A job title is required -- there's no "all titles" search. Anyone
     // can search; for non-subscribers the API only returns job titles and
     // the rest of each card stays blurred.
-    if (!filters.title.trim()) {
+    // Exception: in a Track Applications view an empty title is fine -- it
+    // means "every job I've marked", not "every job".
+    if (!filters.title.trim() && !selectedStatus) {
       setTitleError('Enter a job title to search.')
       return
     }
     setTitleError(null)
     setBadgeBrowse(false)
-    setAppliedFilters(filters)
+    // New object every time, so pressing Search again always re-runs it.
+    setAppliedFilters({ ...filters })
     setSelectedVariant(null)
     setSelectedCompany(null)
-    setSelectedStatus(null)
+    // A picked Applied / Rejected / Neither stays on: the new title is
+    // searched within it. "All" (or Return to Full List) leaves it.
     setShowVariants(false)
   }
 
@@ -522,8 +537,8 @@ export default function JobListings() {
   }
 
   // The sidebar's "Track Applications" radios. Picking one shows the
-  // user's marked jobs of that kind, across every search -- not just
-  // whatever's in the title box right now.
+  // user's marked jobs of that kind under the searched title, or across
+  // every search when no title has been searched.
   function handleSelectStatus(value) {
     setSelectedVariant(null)
     setSelectedCompany(null)
@@ -585,7 +600,7 @@ export default function JobListings() {
   // sent to the API when saving a new one — so those two things can never
   // drift out of sync with each other.
   const currentView = selectedStatus
-    ? { viewType: 'status', statusFilter: selectedStatus }
+    ? { viewType: 'status', statusFilter: selectedStatus, title: (appliedFilters.title || '').trim() }
     : selectedCompany
       ? { viewType: 'company', companyId: selectedCompany.id, companyName: selectedCompany.name }
       : selectedVariant
@@ -612,7 +627,7 @@ export default function JobListings() {
   const bookmarkedSearch = savedSearches.find((search) => {
     if (search.view_type !== currentView.viewType) return false
     if (currentView.viewType === 'status') {
-      return search.status_filter === currentView.statusFilter
+      return search.status_filter === currentView.statusFilter && (search.job_title || '') === currentView.title
     }
     if (currentView.viewType === 'company') {
       return search.company_id === currentView.companyId
@@ -674,6 +689,11 @@ export default function JobListings() {
   // Track Applications on the same radio.
   function handleApplySearch(search) {
     if (search.view_type === 'status') {
+      // Older status bookmarks have no title: they show every marked job.
+      const withTitle = { ...appliedFilters, title: search.job_title || '' }
+      setFilters(withTitle)
+      setAppliedFilters(withTitle)
+      setBadgeBrowse(false)
       setSelectedVariant(null)
       setSelectedCompany(null)
       setSelectedStatus(search.status_filter)
