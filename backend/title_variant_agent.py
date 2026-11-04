@@ -19,7 +19,7 @@ from typing import Optional
 
 import anthropic
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-5-5"
 
 SYSTEM_PROMPT = """You are a job title normalization engine for a job search \
 platform. Given a single input job title, generate the top 15 real-world \
