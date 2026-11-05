@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import SEO from '../components/SEO'
 import { BlogShell, PostCard, SubscribePrompt } from '../components/BlogParts'
-import { fetchBlogMe, fetchPosts } from '../lib/blogApi'
+import { fetchBlogMe, fetchCategories, fetchPosts } from '../lib/blogApi'
 import { useAuth } from '../lib/auth'
 
 export default function Blog() {
   const { user } = useAuth()
+  const [params, setParams] = useSearchParams()
+  const category = params.get('category') || ''
+  const [categories, setCategories] = useState([])
   const [me, setMe] = useState({ logged_in: false, can_write: false, can_engage: false, is_admin: false })
   const [posts, setPosts] = useState([])
   const [page, setPage] = useState(1)
@@ -19,10 +22,20 @@ export default function Blog() {
   }, [user])
 
   useEffect(() => {
+    fetchCategories().then(setCategories).catch(() => {})
+  }, [])
+
+  function pickCategory(name) {
+    setPage(1)
+    setPosts([])
+    setParams(name ? { category: name } : {})
+  }
+
+  useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetchPosts(page)
+    fetchPosts(page, category)
       .then((data) => {
         if (cancelled) return
         setPosts((prev) => (page === 1 ? data.posts : [...prev, ...data.posts]))
@@ -33,7 +46,7 @@ export default function Blog() {
     return () => {
       cancelled = true
     }
-  }, [page, user])
+  }, [page, user, category])
 
   return (
     <BlogShell>
@@ -75,11 +88,27 @@ export default function Blog() {
           </div>
         )}
 
+        {categories.length > 0 && (
+          <div className="mb-8 flex flex-wrap gap-2">
+            {[{ name: '' }, ...categories].map((c) => {
+              const active = c.name.toLowerCase() === category.toLowerCase()
+              return (
+                <button key={c.name || 'all'} type="button" onClick={() => pickCategory(c.name)}
+                  className={`rounded-full border px-4 py-1.5 font-mono text-xs font-semibold uppercase tracking-wider transition-colors ${
+                    active ? 'border-ink bg-ink text-white' : 'border-line text-ink-soft hover:border-ink hover:text-ink'
+                  }`}>
+                  {c.name || 'All'}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {error && <p className="rounded-xl bg-ember/10 p-4 text-sm text-ember">{error}</p>}
 
         {!loading && !error && posts.length === 0 && (
           <div className="rounded-2xl border border-dashed border-line p-10 text-center text-ink-soft">
-            No posts yet. Check back soon!
+            {category ? `No posts in ${category} yet.` : 'No posts yet. Check back soon!'}
           </div>
         )}
 

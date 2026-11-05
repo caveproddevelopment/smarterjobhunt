@@ -183,3 +183,42 @@ def test_ban_without_delete_all_removes_only_that_comment(env):
     resp = c.post(f"/api/blog/admin/comments/{bad['id']}/ban", json={}, headers=admin)
     assert resp.get_json()["deleted_comments"] == 1
     assert [x["id"] for x in c.get(url).get_json()] == [first["id"]]
+
+
+def test_subtitle_optional_saved_and_editable(env):
+    c = env["client"]
+    admin = _admin(env)
+    plain = _post(env, admin).get_json()
+    assert plain["subtitle"] is None
+    post = _post(env, admin, title="Org Charts Before Brick and Mortar",
+                 subtitle="LifeStance's Specialty Expansion Takes Shape").get_json()
+    assert post["subtitle"] == "LifeStance's Specialty Expansion Takes Shape"
+    assert c.get(f"/api/blog/posts/{post['id']}").get_json()["subtitle"] == post["subtitle"]
+    listed = {p["id"]: p for p in c.get("/api/blog/posts").get_json()["posts"]}
+    assert listed[post["id"]]["subtitle"] == post["subtitle"]
+    edited = c.put(f"/api/blog/posts/{post['id']}", json={"title": post["title"], "subtitle": "New angle",
+                   "body": BODY}, headers=admin).get_json()
+    assert edited["subtitle"] == "New angle"
+    cleared = c.put(f"/api/blog/posts/{post['id']}", json={"title": post["title"], "subtitle": "  ",
+                    "body": BODY}, headers=admin).get_json()
+    assert cleared["subtitle"] is None
+    assert _post(env, admin, subtitle="x" * 201).status_code == 400
+
+
+def test_category_label_filter_and_list(env):
+    c = env["client"]
+    admin = _admin(env)
+    a = _post(env, admin, title="LifeStance hiring update", category="Healthcare").get_json()
+    b = _post(env, admin, title="Hospital network expands", category="  healthcare ").get_json()
+    f = _post(env, admin, title="Fintech roles this week", category="Fintech").get_json()
+    n = _post(env, admin, title="No category post").get_json()
+    assert a["category"] == "Healthcare" and b["category"] == "Healthcare"  # same spelling reused
+    assert n["category"] is None
+    ids = [p["id"] for p in c.get("/api/blog/posts?category=HEALTHCARE").get_json()["posts"]]
+    assert set(ids) == {a["id"], b["id"]}
+    cats = {x["name"]: x["count"] for x in c.get("/api/blog/categories").get_json()}
+    assert cats["Healthcare"] >= 2 and cats["Fintech"] >= 1
+    edited = c.put(f"/api/blog/posts/{f['id']}", json={"title": f["title"], "body": BODY, "category": ""},
+                   headers=admin).get_json()
+    assert edited["category"] is None
+    assert _post(env, admin, category="x" * 41).status_code == 400
