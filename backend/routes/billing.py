@@ -45,9 +45,10 @@ def _plan_label(interval):
 def _provider_for(user, chosen_country):
     """('stripe' | 'razorpay' | None, billing_country) for a checkout.
 
-    Anyone who already has a Stripe customer stays on Stripe. Otherwise the
-    billing country decides: India -> Razorpay (when it's configured),
-    everywhere else -> Stripe. The billing country is the one saved at
+    Everyone goes to Stripe (India is charged in INR there, so Checkout can
+    offer UPI). Razorpay is only used for India when RAZORPAY_CHECKOUT_ENABLED
+    is on and Razorpay is configured, and never for an existing Stripe
+    customer. The billing country is the one saved at
     sign-up; for accounts made before that existed (or Google sign-ups
     behind a VPN), work it out now from this request's IP, falling back to
     the country sent with this checkout. None = still unknown -- the
@@ -64,7 +65,11 @@ def _provider_for(user, chosen_country):
         if billing_country is None:
             return None, None
 
-    if billing_country == "IN" and razorpay_client.is_configured():
+    if (
+        billing_country == "IN"
+        and current_app.config.get("RAZORPAY_CHECKOUT_ENABLED")
+        and razorpay_client.is_configured()
+    ):
         return "razorpay", billing_country
     return "stripe", billing_country
 
@@ -78,7 +83,8 @@ def create_checkout_session():
     anyone re-subscribing later from Pricing/Profile. Every new subscription
     includes a 7-day free trial.
 
-    Users in India go to Razorpay, everyone else to Stripe (_provider_for).
+    Everyone goes to Stripe; users in India are charged in INR so Stripe
+    Checkout shows UPI. Razorpay only if re-enabled (_provider_for).
     Responses:
       {"provider": "stripe", "url": ...}            -> redirect the browser
       {"provider": "razorpay", "key_id", "subscription_id", ...}
@@ -151,22 +157,10 @@ def create_checkout_session():
         if customer_id is None:
             customer_id = _create_customer()
 
-        frontend_origin = current_app.config["FRONTEND_ORIGIN"]
+        # India: charge in rupees so Checkout offers UPI (UPI is INR-only).
+        currency = "inr" if billing_country == "IN" else None
         try:
-            session = stripe.checkout.Session.create(
-                mode="subscription",
-                customer=customer_id,
-                client_reference_id=str(g.user_id),
-                payment_method_collection="always",
-                line_items=[{"price": price_id, "quantity": 1}],
-                # Done setting up payment -> straight to Job Listings.
-                success_url=f"{frontend_origin}/dashboard?checkout=success",
-                cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
-                subscription_data={
-                    "trial_period_days": 7,
-                    "metadata": {"user_id": str(g.user_id)},
-                },
-            )
+            session = _create_stripe_session(customer_id, price_id, currency)
         except stripe.error.InvalidRequestError as e:
             # The stored customer_id doesn't exist on Stripe's side anymore --
             # most commonly because it's a leftover test-mode ID from before a
@@ -178,23 +172,45 @@ def create_checkout_session():
             if getattr(e, "code", None) != "resource_missing":
                 raise
             customer_id = _create_customer()
-            session = stripe.checkout.Session.create(
-                mode="subscription",
-                customer=customer_id,
-                client_reference_id=str(g.user_id),
-                payment_method_collection="always",
-                line_items=[{"price": price_id, "quantity": 1}],
-                success_url=f"{frontend_origin}/dashboard?checkout=success",
-                cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
-                subscription_data={
-                    "trial_period_days": 7,
-                    "metadata": {"user_id": str(g.user_id)},
-                },
-            )
+            session = _create_stripe_session(customer_id, price_id, currency)
     except stripe.error.StripeError as e:
         return jsonify({"error": str(e)}), 502
 
     return jsonify({"provider": "stripe", "url": session.url})
+
+
+def _create_stripe_session(customer_id, price_id, currency=None):
+    """Stripe Checkout for the weekly plan with a 7-day trial. currency="inr"
+    (users in India) needs an INR currency option on the price; if the price
+    doesn't have one, or this customer is already locked to another currency
+    from an earlier subscription, fall back to the price's default currency
+    (no UPI then, but the user can still subscribe by card)."""
+    frontend_origin = current_app.config["FRONTEND_ORIGIN"]
+    params = dict(
+        mode="subscription",
+        customer=customer_id,
+        client_reference_id=str(g.user_id),
+        payment_method_collection="always",
+        line_items=[{"price": price_id, "quantity": 1}],
+        # Done setting up payment -> straight to Job Listings.
+        success_url=f"{frontend_origin}/dashboard?checkout=success",
+        cancel_url=f"{frontend_origin}/profile?checkout=cancelled",
+        subscription_data={
+            "trial_period_days": 7,
+            "metadata": {"user_id": str(g.user_id)},
+        },
+    )
+    if currency:
+        try:
+            return stripe.checkout.Session.create(currency=currency, **params)
+        except stripe.error.InvalidRequestError as e:
+            if getattr(e, "code", None) == "resource_missing":
+                raise  # stale customer -- the caller handles that
+            current_app.logger.warning(
+                "Stripe checkout in %s failed (%s); retrying in the price's default currency",
+                currency, e,
+            )
+    return stripe.checkout.Session.create(**params)
 
 
 def _start_razorpay_checkout(cur, user):
