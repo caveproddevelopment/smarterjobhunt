@@ -29,7 +29,7 @@ PAGE_SIZE = 12
 TITLE_MIN, TITLE_MAX = 5, 150
 SUBTITLE_MAX = 200
 CATEGORY_MAX = 40
-BODY_MIN, BODY_MAX = 50, 20000
+AUTHOR_NAME_MAX = 80
 COMMENT_MAX = 2000
 IMAGE_MAX_BYTES = 3 * 1024 * 1024
 EXCERPT_CHARS = 220
@@ -149,7 +149,7 @@ def _is_comment_banned(user_id):
 _POST_SELECT = """
     SELECT p.id, p.author_id, p.title, p.subtitle, p.category, p.slug, p.body, p.body_html, p.cover_image_id, p.status,
            p.reject_reason, p.created_at, p.updated_at, p.published_at,
-           u.full_name AS author_name,
+           p.author_name AS author_name, p.author_name AS byline,
            (SELECT count(*) FROM blog_likes l WHERE l.post_id = p.id) AS like_count,
            (SELECT count(*) FROM blog_comments c WHERE c.post_id = p.id) AS comment_count,
            EXISTS (SELECT 1 FROM blog_likes l WHERE l.post_id = p.id AND l.user_id = %(viewer_id)s)
@@ -171,7 +171,11 @@ def _post_json(row, full=False):
         "cover_url": (f"/api/blog/images/{row['cover_image_id']}" if row["cover_image_id"] else None),
         "cover_image_id": str(row["cover_image_id"]) if row["cover_image_id"] else None,
         "status": row["status"],
-        "author": {"name": row["author_name"], "initials": _initials(row["author_name"])},
+        # The optional byline typed in the editor; never the account/user name.
+        # No byline -> no author shown.
+        "author": ({"name": row["author_name"], "initials": _initials(row["author_name"])}
+                   if row["author_name"] else None),
+        "byline": row["byline"],
         "created_at": row["created_at"].isoformat(),
         "updated_at": row["updated_at"].isoformat(),
         "published_at": row["published_at"].isoformat() if row["published_at"] else None,
@@ -218,10 +222,16 @@ def _validate_post(body):
         existing = cur.fetchone()
         if existing:
             category = existing["category"]
+    author_name = re.sub(r"\s+", " ", _clean_text(body.get("author_name"))) or None
+    if author_name and len(author_name) > AUTHOR_NAME_MAX:
+        return None, f"Author name must be {AUTHOR_NAME_MAX} characters or fewer."
     body_html = None
     if body.get("body_html") is not None:
         # rich text from the editor: keep only safe tags/styles, derive plain text
-        body_html = blog_html.sanitize(body.get("body_html"))
+        try:
+            body_html = blog_html.sanitize(body.get("body_html"))
+        except ValueError:
+            return None, "This post is too large to save. Try splitting it into two posts."
         text = blog_html.to_text(body_html)
     else:
         text = _clean_text(body.get("body"), keep_newlines=True)
@@ -229,15 +239,16 @@ def _validate_post(body):
         return None, f"Title must be {TITLE_MIN}-{TITLE_MAX} characters."
     if subtitle and len(subtitle) > SUBTITLE_MAX:
         return None, f"Subtitle must be {SUBTITLE_MAX} characters or fewer."
-    if not BODY_MIN <= len(text) <= BODY_MAX:
-        return None, f"Post must be {BODY_MIN}-{BODY_MAX} characters."
+    if not text:
+        return None, "Write something in the post first."
     cover = body.get("cover_image_id") or None
     if cover is not None:
         try:
             cover = str(uuid.UUID(str(cover)))
         except ValueError:
             return None, "Invalid cover image."
-    return {"title": title, "subtitle": subtitle, "category": category, "body": text,
+    return {"title": title, "subtitle": subtitle, "category": category, "author_name": author_name,
+            "body": text,
             "body_html": body_html or None, "cover_image_id": cover,
             "republish": bool(body.get("republish"))}, None
 
@@ -407,12 +418,12 @@ def create_post():
     cur = get_cursor()
     cur.execute(
         """
-        INSERT INTO blog_posts (author_id, title, subtitle, category, slug, body, body_html,
+        INSERT INTO blog_posts (author_id, title, subtitle, category, author_name, slug, body, body_html,
                                 cover_image_id, status, published_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'published', now()) RETURNING id
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'published', now()) RETURNING id
         """,
-        (viewer["id"], data["title"], data["subtitle"], data["category"], _slugify(data["title"]),
-         data["body"], data["body_html"], data["cover_image_id"]),
+        (viewer["id"], data["title"], data["subtitle"], data["category"], data["author_name"],
+         _slugify(data["title"]), data["body"], data["body_html"], data["cover_image_id"]),
     )
     post_id = cur.fetchone()["id"]
     cur.connection.commit()
@@ -440,14 +451,14 @@ def update_post(post_id):
     cur.execute(
         """
         UPDATE blog_posts
-        SET title = %s, subtitle = %s, category = %s, slug = %s, body = %s, body_html = %s,
+        SET title = %s, subtitle = %s, category = %s, author_name = %s, slug = %s, body = %s, body_html = %s,
             cover_image_id = %s, status = 'published', reject_reason = NULL, updated_at = now(),
             -- "Republish" moves the post back to the top with today's date
             published_at = CASE WHEN %s THEN now() ELSE COALESCE(published_at, now()) END
         WHERE id = %s
         """,
-        (data["title"], data["subtitle"], data["category"], _slugify(data["title"]), data["body"],
-         data["body_html"], data["cover_image_id"], data["republish"], post_id),
+        (data["title"], data["subtitle"], data["category"], data["author_name"], _slugify(data["title"]),
+         data["body"], data["body_html"], data["cover_image_id"], data["republish"], post_id),
     )
     cur.connection.commit()
     return jsonify(_post_json(_fetch_post(post_id), full=True))
