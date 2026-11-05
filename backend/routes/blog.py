@@ -26,6 +26,7 @@ bp = Blueprint("blog", __name__, url_prefix="/api/blog")
 
 PAGE_SIZE = 12
 TITLE_MIN, TITLE_MAX = 5, 150
+SUBTITLE_MAX = 200
 BODY_MIN, BODY_MAX = 50, 20000
 COMMENT_MAX = 2000
 IMAGE_MAX_BYTES = 3 * 1024 * 1024
@@ -144,7 +145,7 @@ def _is_comment_banned(user_id):
 # --- serialization -----------------------------------------------------------
 
 _POST_SELECT = """
-    SELECT p.id, p.author_id, p.title, p.slug, p.body, p.cover_image_id, p.status,
+    SELECT p.id, p.author_id, p.title, p.subtitle, p.slug, p.body, p.cover_image_id, p.status,
            p.reject_reason, p.created_at, p.updated_at, p.published_at,
            u.full_name AS author_name,
            (SELECT count(*) FROM blog_likes l WHERE l.post_id = p.id) AS like_count,
@@ -162,6 +163,7 @@ def _post_json(row, full=False):
         "slug": row["slug"],
         "path": f"/blog/{row['id']}-{row['slug']}",
         "title": row["title"],
+        "subtitle": row["subtitle"],
         "excerpt": _excerpt(row["body"]),
         "cover_url": (f"/api/blog/images/{row['cover_image_id']}" if row["cover_image_id"] else None),
         "cover_image_id": str(row["cover_image_id"]) if row["cover_image_id"] else None,
@@ -199,9 +201,12 @@ def _can_see(row):
 
 def _validate_post(body):
     title = _clean_text(body.get("title"))
+    subtitle = _clean_text(body.get("subtitle")) or None
     text = _clean_text(body.get("body"), keep_newlines=True)
     if not TITLE_MIN <= len(title) <= TITLE_MAX:
         return None, f"Title must be {TITLE_MIN}-{TITLE_MAX} characters."
+    if subtitle and len(subtitle) > SUBTITLE_MAX:
+        return None, f"Subtitle must be {SUBTITLE_MAX} characters or fewer."
     if not BODY_MIN <= len(text) <= BODY_MAX:
         return None, f"Post must be {BODY_MIN}-{BODY_MAX} characters."
     cover = body.get("cover_image_id") or None
@@ -210,7 +215,7 @@ def _validate_post(body):
             cover = str(uuid.UUID(str(cover)))
         except ValueError:
             return None, "Invalid cover image."
-    return {"title": title, "body": text, "cover_image_id": cover}, None
+    return {"title": title, "subtitle": subtitle, "body": text, "cover_image_id": cover}, None
 
 
 def _check_cover_owner(cover_id, user_id, current_cover=None):
@@ -360,10 +365,11 @@ def create_post():
     cur = get_cursor()
     cur.execute(
         """
-        INSERT INTO blog_posts (author_id, title, slug, body, cover_image_id, status, published_at)
-        VALUES (%s, %s, %s, %s, %s, 'published', now()) RETURNING id
+        INSERT INTO blog_posts (author_id, title, subtitle, slug, body, cover_image_id, status, published_at)
+        VALUES (%s, %s, %s, %s, %s, %s, 'published', now()) RETURNING id
         """,
-        (viewer["id"], data["title"], _slugify(data["title"]), data["body"], data["cover_image_id"]),
+        (viewer["id"], data["title"], data["subtitle"], _slugify(data["title"]), data["body"],
+         data["cover_image_id"]),
     )
     post_id = cur.fetchone()["id"]
     cur.connection.commit()
@@ -390,11 +396,12 @@ def update_post(post_id):
     cur.execute(
         """
         UPDATE blog_posts
-        SET title = %s, slug = %s, body = %s, cover_image_id = %s, status = 'published',
+        SET title = %s, subtitle = %s, slug = %s, body = %s, cover_image_id = %s, status = 'published',
             reject_reason = NULL, updated_at = now(), published_at = COALESCE(published_at, now())
         WHERE id = %s
         """,
-        (data["title"], _slugify(data["title"]), data["body"], data["cover_image_id"], post_id),
+        (data["title"], data["subtitle"], _slugify(data["title"]), data["body"], data["cover_image_id"],
+         post_id),
     )
     cur.connection.commit()
     return jsonify(_post_json(_fetch_post(post_id), full=True))
