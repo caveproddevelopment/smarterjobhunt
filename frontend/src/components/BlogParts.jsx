@@ -2,7 +2,7 @@
 import { Link } from 'react-router-dom'
 import Navbar from './Navbar'
 import Footer from './Footer'
-import { formatDate, imageUrl } from '../lib/blogApi'
+import { imageUrl, kickerLabel } from '../lib/blogApi'
 
 export function BlogShell({ children }) {
   return (
@@ -78,6 +78,7 @@ export function PostCard({ post }) {
         <div className="flame-gradient aspect-[16/9] w-full opacity-80" />
       )}
       <div className="flex flex-1 flex-col p-5">
+        <p className="mb-2 font-mono text-[11px] font-semibold tracking-[0.12em] text-ember">{kickerLabel(post)}</p>
         <h2 className="font-display text-lg font-semibold leading-snug text-ink group-hover:text-ember">
           {post.title}
         </h2>
@@ -89,7 +90,7 @@ export function PostCard({ post }) {
           <span className="flex min-w-0 items-center gap-2">
             <Avatar initials={post.author.initials} size="h-7 w-7 text-[10px]" />
             <span className="truncate">
-              {post.author.name} · {formatDate(post.published_at || post.updated_at)}
+              {post.author.name}
             </span>
           </span>
           <span className="flex shrink-0 items-center gap-3">
