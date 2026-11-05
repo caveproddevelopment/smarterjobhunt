@@ -183,3 +183,23 @@ def test_ban_without_delete_all_removes_only_that_comment(env):
     resp = c.post(f"/api/blog/admin/comments/{bad['id']}/ban", json={}, headers=admin)
     assert resp.get_json()["deleted_comments"] == 1
     assert [x["id"] for x in c.get(url).get_json()] == [first["id"]]
+
+
+def test_subtitle_optional_saved_and_editable(env):
+    c = env["client"]
+    admin = _admin(env)
+    plain = _post(env, admin).get_json()
+    assert plain["subtitle"] is None
+    post = _post(env, admin, title="Org Charts Before Brick and Mortar",
+                 subtitle="LifeStance's Specialty Expansion Takes Shape").get_json()
+    assert post["subtitle"] == "LifeStance's Specialty Expansion Takes Shape"
+    assert c.get(f"/api/blog/posts/{post['id']}").get_json()["subtitle"] == post["subtitle"]
+    listed = {p["id"]: p for p in c.get("/api/blog/posts").get_json()["posts"]}
+    assert listed[post["id"]]["subtitle"] == post["subtitle"]
+    edited = c.put(f"/api/blog/posts/{post['id']}", json={"title": post["title"], "subtitle": "New angle",
+                   "body": BODY}, headers=admin).get_json()
+    assert edited["subtitle"] == "New angle"
+    cleared = c.put(f"/api/blog/posts/{post['id']}", json={"title": post["title"], "subtitle": "  ",
+                    "body": BODY}, headers=admin).get_json()
+    assert cleared["subtitle"] is None
+    assert _post(env, admin, subtitle="x" * 201).status_code == 400
