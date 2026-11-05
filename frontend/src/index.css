@@ -35,3 +35,18 @@ body {
   background-clip: text;
   color: transparent;
 }
+
+/* The JobBeggar Brief: rich-text article body (also used inside the editor) */
+.brief-content { font-size: 17px; line-height: 1.7; color: var(--color-ink); overflow-wrap: anywhere; }
+.brief-content > * + * { margin-top: 1.1em; }
+.brief-content h2 { font-family: var(--font-display); font-size: 1.6em; font-weight: 600; line-height: 1.25; margin-top: 1.6em; }
+.brief-content h3 { font-family: var(--font-display); font-size: 1.25em; font-weight: 600; line-height: 1.3; margin-top: 1.4em; }
+.brief-content a { color: var(--color-ember); text-decoration: underline; text-underline-offset: 2px; }
+.brief-content ul { list-style: disc; padding-left: 1.4em; }
+.brief-content ol { list-style: decimal; padding-left: 1.4em; }
+.brief-content li + li { margin-top: 0.3em; }
+.brief-content li > p { margin: 0; }
+.brief-content blockquote { border-left: 3px solid var(--color-flame); padding-left: 1em; color: var(--color-ink-soft); font-style: italic; }
+.brief-content hr { border: 0; border-top: 1px solid var(--color-line); }
+.brief-content strong, .brief-content b { font-weight: 700; }
+.ProseMirror p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--color-ink-soft); float: left; height: 0; pointer-events: none; }
