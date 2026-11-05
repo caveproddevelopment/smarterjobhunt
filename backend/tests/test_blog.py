@@ -23,6 +23,7 @@ def _admin(env):
 
 
 def _post(env, headers, title="Who is hiring this week", body=BODY, **extra):
+    extra.setdefault("author_name", "Priya Sharma")
     return env["client"].post("/api/blog/posts", json={"title": title, "body": body, **extra},
                               headers=headers)
 
@@ -63,10 +64,10 @@ def test_edit_and_delete_admin_only(env):
     admin = _admin(env)
     post = _post(env, admin).get_json()
     _, subscriber, _ = _user(env)
-    assert c.put(f"/api/blog/posts/{post['id']}", json={"title": "Hijacked title", "body": BODY},
+    assert c.put(f"/api/blog/posts/{post['id']}", json={"author_name": "Priya Sharma", "title": "Hijacked title", "body": BODY},
                  headers=subscriber).status_code == 403
     assert c.delete(f"/api/blog/posts/{post['id']}", headers=subscriber).status_code == 404
-    resp = c.put(f"/api/blog/posts/{post['id']}", json={"title": "Edited title here", "body": BODY},
+    resp = c.put(f"/api/blog/posts/{post['id']}", json={"author_name": "Priya Sharma", "title": "Edited title here", "body": BODY},
                  headers=admin)
     assert resp.status_code == 200
     edited = resp.get_json()
@@ -79,7 +80,7 @@ def test_edit_and_delete_admin_only(env):
 def test_validation(env):
     admin = _admin(env)
     assert _post(env, admin, title="Hi").status_code == 400
-    assert _post(env, admin, body="too short").status_code == 400
+    assert _post(env, admin, body="   ").status_code == 400  # empty post
 
 
 def test_likes_toggle_and_need_subscription(env):
@@ -196,10 +197,10 @@ def test_subtitle_optional_saved_and_editable(env):
     assert c.get(f"/api/blog/posts/{post['id']}").get_json()["subtitle"] == post["subtitle"]
     listed = {p["id"]: p for p in c.get("/api/blog/posts").get_json()["posts"]}
     assert listed[post["id"]]["subtitle"] == post["subtitle"]
-    edited = c.put(f"/api/blog/posts/{post['id']}", json={"title": post["title"], "subtitle": "New angle",
+    edited = c.put(f"/api/blog/posts/{post['id']}", json={"author_name": "Priya Sharma", "title": post["title"], "subtitle": "New angle",
                    "body": BODY}, headers=admin).get_json()
     assert edited["subtitle"] == "New angle"
-    cleared = c.put(f"/api/blog/posts/{post['id']}", json={"title": post["title"], "subtitle": "  ",
+    cleared = c.put(f"/api/blog/posts/{post['id']}", json={"author_name": "Priya Sharma", "title": post["title"], "subtitle": "  ",
                     "body": BODY}, headers=admin).get_json()
     assert cleared["subtitle"] is None
     assert _post(env, admin, subtitle="x" * 201).status_code == 400
@@ -218,7 +219,7 @@ def test_category_label_filter_and_list(env):
     assert set(ids) == {a["id"], b["id"]}
     cats = {x["name"]: x["count"] for x in c.get("/api/blog/categories").get_json()}
     assert cats["Healthcare"] >= 2 and cats["Fintech"] >= 1
-    edited = c.put(f"/api/blog/posts/{f['id']}", json={"title": f["title"], "body": BODY, "category": ""},
+    edited = c.put(f"/api/blog/posts/{f['id']}", json={"author_name": "Priya Sharma", "title": f["title"], "body": BODY, "category": ""},
                    headers=admin).get_json()
     assert edited["category"] is None
     assert _post(env, admin, category="x" * 41).status_code == 400
@@ -233,7 +234,7 @@ RICH = ('<p>Hiring is <strong>up</strong> this week at <a href="https://example.
 def test_rich_text_is_sanitized_and_has_plain_text(env):
     c = env["client"]
     admin = _admin(env)
-    resp = c.post("/api/blog/posts", json={"title": "Rich text post here", "body_html": RICH}, headers=admin)
+    resp = c.post("/api/blog/posts", json={"author_name": "Priya Sharma", "title": "Rich text post here", "body_html": RICH}, headers=admin)
     assert resp.status_code == 201, resp.get_json()
     post = c.get(f"/api/blog/posts/{resp.get_json()['id']}").get_json()
     h = post["body_html"]
@@ -244,25 +245,28 @@ def test_rich_text_is_sanitized_and_has_plain_text(env):
         assert bad not in h
     assert post["body"].startswith("Hiring is up this week at Acme.")
     assert "<" not in post["excerpt"]
-    # too little text after stripping tags
-    short = c.post("/api/blog/posts", json={"title": "Too short rich", "body_html": "<p><b>hi</b></p>"},
+    # short posts are fine now (no minimum); empty ones aren't
+    short = c.post("/api/blog/posts", json={"author_name": "Priya Sharma", "title": "Short rich post", "body_html": "<p><b>hi</b></p>"},
                    headers=admin)
-    assert short.status_code == 400
+    assert short.status_code == 201
+    empty = c.post("/api/blog/posts", json={"author_name": "Priya Sharma", "title": "Empty rich post", "body_html": "<p><b> </b></p>"},
+                   headers=admin)
+    assert empty.status_code == 400
 
 
 def test_edit_keeps_date_unless_republished(env):
     c = env["client"]
     admin = _admin(env)
-    post = c.post("/api/blog/posts", json={"title": "Republish me later", "body_html": RICH,
+    post = c.post("/api/blog/posts", json={"author_name": "Priya Sharma", "title": "Republish me later", "body_html": RICH,
                                            "category": "RepubTest"}, headers=admin).get_json()
     env["db"].execute("UPDATE blog_posts SET published_at = now() - interval '30 days' WHERE id = %s",
                       (post["id"],))
     newer = _post(env, admin, title="A newer post here", category="RepubTest").get_json()
-    edited = c.put(f"/api/blog/posts/{post['id']}", json={"title": "Republish me later", "body_html": RICH,
+    edited = c.put(f"/api/blog/posts/{post['id']}", json={"author_name": "Priya Sharma", "title": "Republish me later", "body_html": RICH,
                    "category": "RepubTest"}, headers=admin).get_json()
     ids = [p["id"] for p in c.get("/api/blog/posts?category=RepubTest").get_json()["posts"]]
     assert ids == [newer["id"], post["id"]]  # plain edit keeps the old date
-    republished = c.put(f"/api/blog/posts/{post['id']}", json={"title": "Republish me later", "body_html": RICH,
+    republished = c.put(f"/api/blog/posts/{post['id']}", json={"author_name": "Priya Sharma", "title": "Republish me later", "body_html": RICH,
                         "category": "RepubTest", "republish": True}, headers=admin).get_json()
     assert republished["published_at"] > edited["published_at"]
     ids = [p["id"] for p in c.get("/api/blog/posts?category=RepubTest").get_json()["posts"]]
@@ -331,3 +335,36 @@ def test_visit_tracking_cannot_be_abused(env):
     env["db"].execute("SELECT count(*) FROM blog_post_visits WHERE post_id = %s AND day = CURRENT_DATE",
                       (post["id"],))
     assert env["db"].fetchone()[0] <= blog_routes.MAX_SOURCES_PER_POST_PER_DAY + 1
+
+
+def test_no_length_limit_on_long_posts(env):
+    c = env["client"]
+    admin = _admin(env)
+    para = "<p>" + ("Hiring signals from company career pages. " * 40) + "</p>"
+    long_html = para * 150  # ~250,000 characters, well past the old 20,000 limit
+    resp = c.post("/api/blog/posts", json={"author_name": "Priya Sharma", "title": "A very long article", "body_html": long_html},
+                  headers=admin)
+    assert resp.status_code == 201, resp.get_json()
+    post = c.get(f"/api/blog/posts/{resp.get_json()['id']}").get_json()
+    assert len(post["body"]) > 200_000 and post["body_html"].count("<p>") == 150
+
+
+def test_author_name_byline(env):
+    c = env["client"]
+    admin = _admin(env)
+    # optional, and the account name is never used in its place
+    plain = c.post("/api/blog/posts", json={"title": "No byline post", "body": BODY}, headers=admin)
+    assert plain.status_code == 201
+    assert plain.get_json()["author"] is None and plain.get_json()["byline"] is None
+    blank = _post(env, admin, title="Blank byline post", author_name="   ").get_json()
+    assert blank["author"] is None
+    named = _post(env, admin, title="Uses real name", author_name="  Monte   Scott Turner ").get_json()
+    assert named["author"] == {"name": "Monte Scott Turner", "initials": "MS"}
+    assert named["byline"] == "Monte Scott Turner"
+    listed = {p["id"]: p for p in c.get("/api/blog/posts").get_json()["posts"]}
+    assert listed[named["id"]]["author"]["name"] == "Monte Scott Turner"
+    assert listed[plain.get_json()["id"]]["author"] is None
+    cleared = c.put(f"/api/blog/posts/{named['id']}", json={"title": "Uses real name", "body": BODY,
+                    "author_name": ""}, headers=admin).get_json()
+    assert cleared["author"] is None
+    assert _post(env, admin, author_name="x" * 81).status_code == 400
