@@ -14,7 +14,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy'
 import Blog from './pages/Blog'
 import BlogPost from './pages/BlogPost'
 import BlogEditor from './pages/BlogEditor'
-import BlogAdmin from './pages/BlogAdmin'
+import BlogModeration from './pages/BlogModeration'
 import { AuthProvider } from './lib/auth'
 import { trackPageView } from './lib/pixel'
 
@@ -55,7 +55,7 @@ export default function App() {
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/blog" element={<Blog />} />
         <Route path="/blog/new" element={<BlogEditor />} />
-        <Route path="/blog/admin" element={<BlogAdmin />} />
+        <Route path="/blog/moderation" element={<BlogModeration />} />
         <Route path="/blog/:id/edit" element={<BlogEditor />} />
         <Route path="/blog/:slug" element={<BlogPost />} />
       </Routes>
