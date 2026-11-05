@@ -1,5 +1,5 @@
-// Blog API (backend: routes/blog.py). Reading is public; writing, liking and
-// commenting need a logged-in subscriber; approving needs an admin.
+// The JobBeggar Brief API (backend: routes/blog.py). Reading is public; liking
+// and commenting need a subscriber; writing posts needs an admin.
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 function authHeaders() {
@@ -40,7 +40,6 @@ export function postIdFromParam(param) {
 
 export const fetchBlogMe = () => request('/me')
 export const fetchPosts = (page = 1) => request(`/posts?page=${page}`)
-export const fetchMyPosts = (page = 1) => request(`/posts?mine=1&page=${page}`)
 export const fetchPost = (id) => request(`/posts/${id}`)
 export const createPost = (post) => request('/posts', { method: 'POST', body: post })
 export const updatePost = (id, post) => request(`/posts/${id}`, { method: 'PUT', body: post })
@@ -49,10 +48,10 @@ export const toggleLike = (id) => request(`/posts/${id}/like`, { method: 'POST' 
 export const fetchComments = (id) => request(`/posts/${id}/comments`)
 export const addComment = (id, body) => request(`/posts/${id}/comments`, { method: 'POST', body: { body } })
 export const deleteComment = (id) => request(`/comments/${id}`, { method: 'DELETE' })
-export const fetchAdminPosts = (status = 'pending') => request(`/admin/posts?status=${status}`)
-export const approvePost = (id) => request(`/admin/posts/${id}/approve`, { method: 'POST' })
-export const rejectPost = (id, reason) =>
-  request(`/admin/posts/${id}/reject`, { method: 'POST', body: { reason } })
+export const banCommenter = (commentId, { reason, deleteAll }) =>
+  request(`/admin/comments/${commentId}/ban`, { method: 'POST', body: { reason, delete_all: deleteAll } })
+export const fetchBans = () => request('/admin/bans')
+export const unbanUser = (userId) => request(`/admin/bans/${userId}`, { method: 'DELETE' })
 
 export function uploadImage(file) {
   const form = new FormData()
