@@ -80,12 +80,21 @@ class Config:
     STRIPE_PRICE_WEEKLY = os.environ.get("STRIPE_PRICE_WEEKLY")
     STRIPE_PORTAL_CONFIGURATION = os.environ.get("STRIPE_PORTAL_CONFIGURATION")
 
-    # Razorpay billing for users in India (routes/billing.py). Same weekly
-    # plan and 7-day trial as Stripe, priced in INR. Create the plan once with
-    # scripts/create_razorpay_plan.py and paste its ID below. The webhook
-    # secret is whatever you type when adding the webhook in the Razorpay
-    # Dashboard. Until all three of KEY_ID, KEY_SECRET and PLAN_ID_WEEKLY are
-    # set, Indian users are simply sent to Stripe like everyone else.
+    # Users in India now check out on Stripe like everyone else, charged in
+    # INR so Stripe Checkout can offer UPI. That needs an INR currency option
+    # on STRIPE_PRICE_WEEKLY (Dashboard -> product -> price -> "Add currency");
+    # without one, Indian users get the USD price and card-only checkout.
+    #
+    # Razorpay billing for users in India (routes/billing.py) is switched off
+    # for NEW checkouts. Existing Razorpay subscribers keep working: their
+    # verify / webhook / cancel routes still need the keys below. Set
+    # RAZORPAY_CHECKOUT_ENABLED=true to send new Indian sign-ups to Razorpay
+    # again (also needs KEY_ID, KEY_SECRET and PLAN_ID_WEEKLY; create the plan
+    # with scripts/create_razorpay_plan.py). The webhook secret is whatever
+    # you type when adding the webhook in the Razorpay Dashboard.
+    RAZORPAY_CHECKOUT_ENABLED = os.environ.get("RAZORPAY_CHECKOUT_ENABLED", "false").lower() in (
+        "1", "true", "yes",
+    )
     RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID")
     RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET")
     RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET")
