@@ -125,11 +125,14 @@ export default function BlogPost() {
 
   return (
     <BlogShell>
-      <SEO title={`${post.title} | The JobBeggar Brief`} description={post.excerpt} path={post.path} image={cover || undefined} />
+      <SEO title={`${post.title} | The JobBeggar Brief`} description={post.subtitle || post.excerpt} path={post.path} image={cover || undefined} />
       <article className="mx-auto max-w-3xl py-6">
         <Link to="/blog" className="text-sm font-semibold text-ink-soft hover:text-ink">&larr; The JobBeggar Brief</Link>
 
         <h1 className="mt-6 font-display text-3xl font-semibold leading-tight text-ink md:text-5xl">{post.title}</h1>
+        {post.subtitle && (
+          <p className="mt-3 text-xl leading-snug text-ink-soft md:text-2xl">{post.subtitle}</p>
+        )}
         <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-ink-soft">
           <Avatar initials={post.author.initials} />
           <span className="font-semibold text-ink">{post.author.name}</span>
