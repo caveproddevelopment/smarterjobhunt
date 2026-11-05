@@ -39,7 +39,9 @@ export function postIdFromParam(param) {
 }
 
 export const fetchBlogMe = () => request('/me')
-export const fetchPosts = (page = 1) => request(`/posts?page=${page}`)
+export const fetchPosts = (page = 1, category = '') =>
+  request(`/posts?page=${page}${category ? `&category=${encodeURIComponent(category)}` : ''}`)
+export const fetchCategories = () => request('/categories')
 export const fetchPost = (id) => request(`/posts/${id}`)
 export const createPost = (post) => request('/posts', { method: 'POST', body: post })
 export const updatePost = (id, post) => request(`/posts/${id}`, { method: 'PUT', body: post })
@@ -57,6 +59,13 @@ export function uploadImage(file) {
   const form = new FormData()
   form.append('image', file)
   return request('/images', { method: 'POST', form })
+}
+
+// "HEALTHCARE · NOV 2026" style label (category part optional).
+export function kickerLabel(post) {
+  const iso = post.published_at || post.updated_at
+  const month = iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''
+  return [post.category, month].filter(Boolean).join(' · ').toUpperCase()
 }
 
 export function formatDate(iso) {
