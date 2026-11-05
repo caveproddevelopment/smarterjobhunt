@@ -126,6 +126,9 @@ def env(db_url, monkeypatch):
         TESTING=True, STRIPE_PRICE_WEEKLY="price_week", STRIPE_SECRET_KEY="sk_test",
         RAZORPAY_KEY_ID="rzp_test_key", RAZORPAY_KEY_SECRET=KEY_SECRET,
         RAZORPAY_PLAN_ID_WEEKLY="plan_inr_week", RAZORPAY_WEBHOOK_SECRET=WEBHOOK_SECRET,
+        # Off by default in production; on here so the legacy Razorpay tests
+        # below can still create Razorpay subscriptions.
+        RAZORPAY_CHECKOUT_ENABLED=True,
     )
     ip_country._CACHE.clear()
     monkeypatch.setattr(
@@ -258,11 +261,44 @@ def test_india_goes_to_razorpay_with_7_day_trial(env):
     assert row["subscription_status"] == "incomplete" and row["plan"] == "free"
 
 
+def test_razorpay_checkout_off_by_default(env):
+    import config
+    assert config.Config.RAZORPAY_CHECKOUT_ENABLED is False
+
+
+def test_india_goes_to_stripe_in_inr_when_razorpay_disabled(env):
+    env["app"].config["RAZORPAY_CHECKOUT_ENABLED"] = False
+    _, headers = _register(env["client"], INDIA_IP, country="IN")
+    data = env["client"].post("/api/billing/checkout", json={}, headers=headers).get_json()
+    assert data == {"provider": "stripe", "url": "https://checkout.stripe.test/s"}
+    call = env["stripe_calls"][-1]
+    assert call["currency"] == "inr"  # INR -> Stripe Checkout can offer UPI
+    assert call["subscription_data"]["trial_period_days"] == 7
+    assert not env["rzp"].calls
+
+
+def test_india_falls_back_to_default_currency_without_inr_price(env, monkeypatch):
+    env["app"].config["RAZORPAY_CHECKOUT_ENABLED"] = False
+    import stripe
+    calls = []
+    def fake_session(**kw):
+        calls.append(kw)
+        if "currency" in kw:
+            raise stripe.error.InvalidRequestError("no inr option", "currency")
+        return type("S", (), {"url": "https://checkout.stripe.test/usd"})()
+    monkeypatch.setattr(stripe.checkout.Session, "create", fake_session)
+    _, headers = _register(env["client"], INDIA_IP, country="IN")
+    data = env["client"].post("/api/billing/checkout", json={}, headers=headers).get_json()
+    assert data == {"provider": "stripe", "url": "https://checkout.stripe.test/usd"}
+    assert calls[0]["currency"] == "inr" and "currency" not in calls[1]
+
+
 def test_rest_of_world_goes_to_stripe(env):
     user_id, headers = _register(env["client"], US_IP, country="US")
     data = env["client"].post("/api/billing/checkout", json={}, headers=headers).get_json()
     assert data == {"provider": "stripe", "url": "https://checkout.stripe.test/s"}
     assert env["stripe_calls"][-1]["subscription_data"]["trial_period_days"] == 7
+    assert "currency" not in env["stripe_calls"][-1]
 
 
 def test_india_falls_back_to_stripe_until_razorpay_configured(env):
