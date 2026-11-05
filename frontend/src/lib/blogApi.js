@@ -42,6 +42,34 @@ export const fetchBlogMe = () => request('/me')
 export const fetchPosts = (page = 1, category = '') =>
   request(`/posts?page=${page}${category ? `&category=${encodeURIComponent(category)}` : ''}`)
 export const fetchCategories = () => request('/categories')
+export const fetchPostStats = (id) => request(`/admin/posts/${id}/stats`)
+
+// Count one visit per article per browser session. Source = the link's
+// utm_source, else the referring site, else "direct". Fire-and-forget.
+export function recordVisit(postId) {
+  try {
+    const key = `brief_visit_${postId}`
+    if (sessionStorage.getItem(key)) return
+    sessionStorage.setItem(key, '1')
+  } catch {
+    // storage blocked -> still count it
+  }
+  let source = new URLSearchParams(window.location.search).get('utm_source') || ''
+  if (!source && document.referrer) {
+    try {
+      const host = new URL(document.referrer).hostname
+      if (host !== window.location.hostname) source = host
+    } catch {
+      // ignore bad referrer
+    }
+  }
+  fetch(`${API_URL}/api/blog/posts/${postId}/visit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: source.slice(0, 100) }),
+    keepalive: true,
+  }).catch(() => {})
+}
 export const fetchPost = (id) => request(`/posts/${id}`)
 export const createPost = (post) => request('/posts', { method: 'POST', body: post })
 export const updatePost = (id, post) => request(`/posts/${id}`, { method: 'PUT', body: post })
