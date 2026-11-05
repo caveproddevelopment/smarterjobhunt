@@ -203,3 +203,22 @@ def test_subtitle_optional_saved_and_editable(env):
                     "body": BODY}, headers=admin).get_json()
     assert cleared["subtitle"] is None
     assert _post(env, admin, subtitle="x" * 201).status_code == 400
+
+
+def test_category_label_filter_and_list(env):
+    c = env["client"]
+    admin = _admin(env)
+    a = _post(env, admin, title="LifeStance hiring update", category="Healthcare").get_json()
+    b = _post(env, admin, title="Hospital network expands", category="  healthcare ").get_json()
+    f = _post(env, admin, title="Fintech roles this week", category="Fintech").get_json()
+    n = _post(env, admin, title="No category post").get_json()
+    assert a["category"] == "Healthcare" and b["category"] == "Healthcare"  # same spelling reused
+    assert n["category"] is None
+    ids = [p["id"] for p in c.get("/api/blog/posts?category=HEALTHCARE").get_json()["posts"]]
+    assert set(ids) == {a["id"], b["id"]}
+    cats = {x["name"]: x["count"] for x in c.get("/api/blog/categories").get_json()}
+    assert cats["Healthcare"] >= 2 and cats["Fintech"] >= 1
+    edited = c.put(f"/api/blog/posts/{f['id']}", json={"title": f["title"], "body": BODY, "category": ""},
+                   headers=admin).get_json()
+    assert edited["category"] is None
+    assert _post(env, admin, category="x" * 41).status_code == 400
