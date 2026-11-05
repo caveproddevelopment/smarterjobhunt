@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import SEO from '../components/SEO'
-import { BlogBody, BlogShell, SubscribePrompt } from '../components/BlogParts'
+import { BlogBody, BlogShell } from '../components/BlogParts'
 import {
   createPost, fetchBlogMe, fetchPost, imageUrl, postIdFromParam, updatePost, uploadImage,
 } from '../lib/blogApi'
@@ -39,7 +39,6 @@ export default function BlogEditor() {
     if (!editing) return
     fetchPost(postId)
       .then((p) => {
-        if (!p.is_mine) throw new Error("You can only edit your own posts.")
         setTitle(p.title)
         setBody(p.body)
         setCover(p.cover_image_id ? { id: p.cover_image_id, url: p.cover_url } : null)
@@ -91,7 +90,10 @@ export default function BlogEditor() {
       <BlogShell>
         <div className="mx-auto max-w-2xl py-16">
           <h1 className="mb-6 font-display text-3xl font-semibold text-ink">Write a post</h1>
-          <SubscribePrompt loggedIn={me.logged_in} action="write blog posts" />
+          <p className="rounded-2xl border border-line bg-mist p-5 text-sm text-ink-soft">
+            Posts on The JobBeggar Brief are written by the JobBeggar team.{' '}
+            <Link to="/blog" className="font-semibold text-ember hover:underline">Read the latest posts</Link>
+          </p>
         </div>
       </BlogShell>
     )
@@ -99,18 +101,17 @@ export default function BlogEditor() {
 
   return (
     <BlogShell>
-      <SEO title={editing ? 'Edit post | JobBeggar Blog' : 'Write a post | JobBeggar Blog'} path="/blog/new" />
+      <SEO title={editing ? 'Edit post | The JobBeggar Brief' : 'Write a post | The JobBeggar Brief'} path="/blog/new" />
       <form onSubmit={onSubmit} className="mx-auto max-w-3xl py-6">
-        <Link to="/blog" className="text-sm font-semibold text-ink-soft hover:text-ink">&larr; All posts</Link>
+        <Link to="/blog" className="text-sm font-semibold text-ink-soft hover:text-ink">&larr; The JobBeggar Brief</Link>
         <h1 className="mt-4 font-display text-3xl font-semibold text-ink">{editing ? 'Edit post' : 'Write a post'}</h1>
         <p className="mt-2 text-sm text-ink-soft">
-          Posts are reviewed by the JobBeggar team before they appear on the blog
-          {editing ? ', and edits go back to review too' : ''}.
+          {editing ? 'Changes go live as soon as you save.' : 'Your post goes live on The JobBeggar Brief as soon as you publish.'}
         </p>
 
         <label className="mt-8 block text-sm font-semibold text-ink" htmlFor="blog-title">Title</label>
         <input id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={TITLE_MAX}
-          placeholder="How I landed interviews in 3 weeks"
+          placeholder="Who's hiring this week"
           className="mt-2 w-full rounded-xl border border-line bg-white px-4 py-3 font-display text-xl text-ink outline-none focus:border-ember" />
 
         <div className="mt-6">
@@ -148,7 +149,7 @@ export default function BlogEditor() {
           </div>
         ) : (
           <textarea id="blog-body" value={body} onChange={(e) => setBody(e.target.value)} maxLength={BODY_MAX} rows={16}
-            placeholder={'Share your story...\n\nLeave a blank line between paragraphs.\n\n## Start a line with two hashes for a heading'}
+            placeholder={'Write the post...\n\nLeave a blank line between paragraphs.\n\n## Start a line with two hashes for a heading'}
             className="mt-2 w-full rounded-xl border border-line bg-white p-4 text-[15px] leading-relaxed text-ink outline-none focus:border-ember" />
         )}
         <p className="mt-1 text-right text-xs text-ink-soft">{body.length.toLocaleString()} / {BODY_MAX.toLocaleString()}</p>
@@ -158,7 +159,7 @@ export default function BlogEditor() {
         <div className="mt-6 flex flex-wrap gap-3">
           <button type="submit" disabled={busy || uploading}
             className="flame-gradient rounded-full px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 disabled:opacity-50">
-            {busy ? 'Submitting...' : editing ? 'Save and resubmit' : 'Submit for review'}
+            {busy ? 'Saving...' : editing ? 'Save changes' : 'Publish'}
           </button>
           <Link to="/blog" className="rounded-full border border-line px-6 py-2.5 text-sm font-semibold text-ink hover:bg-mist">Cancel</Link>
         </div>
