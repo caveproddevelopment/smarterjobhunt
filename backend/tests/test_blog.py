@@ -222,3 +222,112 @@ def test_category_label_filter_and_list(env):
                    headers=admin).get_json()
     assert edited["category"] is None
     assert _post(env, admin, category="x" * 41).status_code == 400
+
+
+RICH = ('<p>Hiring is <strong>up</strong> this week at <a href="https://example.com" target="_blank">Acme</a>. '
+        '<span style="color: #E24B34; font-size: 20px; font-family: Georgia, serif; font-weight: 800">Big</span> '
+        'news for job seekers everywhere.</p><script>alert(1)</script><img src=x onerror=alert(1)>'
+        '<p><a href="javascript:alert(1)">bad link</a> <span style="position: fixed">x</span></p>')
+
+
+def test_rich_text_is_sanitized_and_has_plain_text(env):
+    c = env["client"]
+    admin = _admin(env)
+    resp = c.post("/api/blog/posts", json={"title": "Rich text post here", "body_html": RICH}, headers=admin)
+    assert resp.status_code == 201, resp.get_json()
+    post = c.get(f"/api/blog/posts/{resp.get_json()['id']}").get_json()
+    h = post["body_html"]
+    assert "<strong>up</strong>" in h
+    assert 'href="https://example.com"' in h and 'target="_blank"' in h and "noopener" in h
+    assert "color:#E24B34" in h.replace(" ", "") and "font-weight:800" in h.replace(" ", "")
+    for bad in ("<script", "<img", "onerror", "javascript:", "position"):
+        assert bad not in h
+    assert post["body"].startswith("Hiring is up this week at Acme.")
+    assert "<" not in post["excerpt"]
+    # too little text after stripping tags
+    short = c.post("/api/blog/posts", json={"title": "Too short rich", "body_html": "<p><b>hi</b></p>"},
+                   headers=admin)
+    assert short.status_code == 400
+
+
+def test_edit_keeps_date_unless_republished(env):
+    c = env["client"]
+    admin = _admin(env)
+    post = c.post("/api/blog/posts", json={"title": "Republish me later", "body_html": RICH,
+                                           "category": "RepubTest"}, headers=admin).get_json()
+    env["db"].execute("UPDATE blog_posts SET published_at = now() - interval '30 days' WHERE id = %s",
+                      (post["id"],))
+    newer = _post(env, admin, title="A newer post here", category="RepubTest").get_json()
+    edited = c.put(f"/api/blog/posts/{post['id']}", json={"title": "Republish me later", "body_html": RICH,
+                   "category": "RepubTest"}, headers=admin).get_json()
+    ids = [p["id"] for p in c.get("/api/blog/posts?category=RepubTest").get_json()["posts"]]
+    assert ids == [newer["id"], post["id"]]  # plain edit keeps the old date
+    republished = c.put(f"/api/blog/posts/{post['id']}", json={"title": "Republish me later", "body_html": RICH,
+                        "category": "RepubTest", "republish": True}, headers=admin).get_json()
+    assert republished["published_at"] > edited["published_at"]
+    ids = [p["id"] for p in c.get("/api/blog/posts?category=RepubTest").get_json()["posts"]]
+    assert ids == [post["id"], newer["id"]]
+
+
+def test_visits_and_article_signup_stats(env):
+    from routes import blog as blog_routes
+    blog_routes._visit_hits.clear()
+    c = env["client"]
+    admin = _admin(env)
+    post = _post(env, admin, title="Tracked article here").get_json()
+    url = f"/api/blog/posts/{post['id']}/visit"
+    for src in ("linkedin", "LinkedIn", "www.google.com", None):
+        assert c.post(url, json={"source": src}).status_code == 200
+    assert c.post("/api/blog/posts/999999/visit", json={"source": "x"}).status_code == 404
+    # someone signs up after arriving from the article's LinkedIn share link
+    from tests.test_country_billing import US_IP as ip
+    import uuid
+    email = f"u{uuid.uuid4().hex[:8]}@example.com"
+    c.post("/api/auth/register", json={"full_name": "Link Reader", "email": email, "password": "password123",
+           "utm_source": "linkedin", "utm_campaign": "the_brief", "utm_content": f"brief-{post['id']}"},
+           headers={"X-Real-IP": ip})
+    _, reader, _ = _user(env)
+    assert c.get(f"/api/blog/admin/posts/{post['id']}/stats", headers=reader).status_code == 403
+    stats = c.get(f"/api/blog/admin/posts/{post['id']}/stats", headers=admin).get_json()
+    by_source = {v["source"]: v["visits"] for v in stats["visits_by_source"]}
+    assert by_source == {"linkedin": 2, "google": 1, "direct": 1}
+    assert stats["total_visits"] == 4 and stats["utm_content"] == f"brief-{post['id']}"
+    assert stats["total_signups"] == 1 and stats["signups_by_source"][0]["source"] == "linkedin"
+
+
+def test_visit_tracking_cannot_be_abused(env):
+    from routes import blog as blog_routes
+    blog_routes._visit_hits.clear()
+    c = env["client"]
+    admin = _admin(env)
+    post = _post(env, admin, title="Abuse target post").get_json()
+    url = f"/api/blog/posts/{post['id']}/visit"
+    hostile = ["<script>alert(1)</script>", "'; DROP TABLE users;--", "a" * 900, {"$gt": 1}, ["x"], 12345,
+               "evil.com/../../etc/passwd", "\x00\x01"]
+    for src in hostile:
+        assert c.post(url, json={"source": src}).status_code == 200
+    assert c.post(url, data="not json", content_type="text/plain").status_code == 200
+    assert c.post(url, json=["not", "a", "dict"]).status_code == 200
+    # oversized body rejected
+    assert c.post(url, json={"source": "a" * 5000}).status_code == 413
+    # users table untouched, sources normalized to safe labels
+    env["db"].execute("SELECT count(*) FROM users"); assert env["db"].fetchone()[0] > 0
+    env["db"].execute("SELECT source FROM blog_post_visits WHERE post_id = %s", (post["id"],))
+    sources = {r[0] for r in env["db"].fetchall()}
+    assert all(len(s) <= 40 and "<" not in s and "'" not in s for s in sources)
+    # unpublished / missing posts can't be tracked
+    env["db"].execute("UPDATE blog_posts SET status = 'pending' WHERE id = %s", (post["id"],))
+    assert c.post(url, json={"source": "linkedin"}).status_code == 404
+    env["db"].execute("UPDATE blog_posts SET status = 'published' WHERE id = %s", (post["id"],))
+    # per-IP rate limit
+    blog_routes._visit_hits.clear()
+    codes = [c.post(url, json={"source": "linkedin"}, headers={"X-Real-IP": "9.9.9.9"}).status_code
+             for _ in range(25)]
+    assert codes.count(200) == blog_routes.VISITS_PER_IP_PER_MINUTE and codes[-1] == 429
+    # distinct junk sources per post per day are capped
+    blog_routes._visit_hits.clear()
+    for i in range(40):
+        c.post(url, json={"source": f"site{i}.example.com"}, headers={"X-Real-IP": f"10.0.{i}.1"})
+    env["db"].execute("SELECT count(*) FROM blog_post_visits WHERE post_id = %s AND day = CURRENT_DATE",
+                      (post["id"],))
+    assert env["db"].fetchone()[0] <= blog_routes.MAX_SOURCES_PER_POST_PER_DAY + 1
