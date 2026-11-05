@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS blog_posts (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     published_at    TIMESTAMPTZ
 );
+-- Optional line under the title (e.g. "LifeStance's Specialty Expansion Takes Shape").
+ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS subtitle TEXT;
 CREATE INDEX IF NOT EXISTS blog_posts_status_published_idx ON blog_posts (status, published_at DESC);
 CREATE INDEX IF NOT EXISTS blog_posts_author_idx ON blog_posts (author_id);
 
