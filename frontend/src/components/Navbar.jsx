@@ -6,7 +6,7 @@ const links = [
   { label: 'What is this?', to: '/what-is-this' },
   { label: 'Pricing', to: '/pricing' },
   { label: 'FAQ', to: '/faq' },
-  { label: 'Blog', to: '/blog' },
+  { label: 'The Brief', to: '/blog' },
   { label: 'About us', to: '/about' },
 ]
 

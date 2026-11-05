@@ -1,4 +1,4 @@
-// Small pieces shared by the blog pages (Blog, BlogPost, BlogEditor, BlogAdmin).
+// Small pieces shared by The JobBeggar Brief pages (Blog, BlogPost, BlogEditor).
 import { Link } from 'react-router-dom'
 import Navbar from './Navbar'
 import Footer from './Footer'
@@ -47,21 +47,6 @@ export function Avatar({ initials, size = 'h-9 w-9 text-xs' }) {
   )
 }
 
-const STATUS_STYLES = {
-  pending: 'bg-spark/25 text-ink',
-  published: 'bg-moss/15 text-moss',
-  rejected: 'bg-ember/15 text-ember',
-}
-const STATUS_LABELS = { pending: 'Waiting for approval', published: 'Published', rejected: 'Not approved' }
-
-export function StatusBadge({ status }) {
-  return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_STYLES[status] || ''}`}>
-      {STATUS_LABELS[status] || status}
-    </span>
-  )
-}
-
 export function HeartIcon({ filled }) {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true"
@@ -80,7 +65,7 @@ export function CommentIcon() {
   )
 }
 
-export function PostCard({ post, showStatus = false }) {
+export function PostCard({ post }) {
   const cover = imageUrl(post.cover_url)
   return (
     <Link
@@ -93,16 +78,11 @@ export function PostCard({ post, showStatus = false }) {
         <div className="flame-gradient aspect-[16/9] w-full opacity-80" />
       )}
       <div className="flex flex-1 flex-col p-5">
-        {showStatus && (
-          <div className="mb-3">
-            <StatusBadge status={post.status} />
-          </div>
-        )}
         <h2 className="font-display text-lg font-semibold leading-snug text-ink group-hover:text-ember">
           {post.title}
         </h2>
         <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-ink-soft">{post.excerpt}</p>
-        <div className="mt-auto flex items-center justify-between pt-5 text-xs text-ink-soft">
+        <div className="mt-auto flex items-center justify-between gap-3 pt-5 text-xs text-ink-soft">
           <span className="flex min-w-0 items-center gap-2">
             <Avatar initials={post.author.initials} size="h-7 w-7 text-[10px]" />
             <span className="truncate">
@@ -119,7 +99,7 @@ export function PostCard({ post, showStatus = false }) {
   )
 }
 
-export function SubscribePrompt({ loggedIn, action = 'write posts, comment and like' }) {
+export function SubscribePrompt({ loggedIn, action = 'comment on and like posts' }) {
   return (
     <div className="rounded-2xl border border-line bg-mist p-5 text-sm text-ink-soft">
       {loggedIn ? (
