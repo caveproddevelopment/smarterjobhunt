@@ -13,6 +13,7 @@ Posts are plain text: blank lines separate paragraphs and a line starting
 with "## " is a heading. The frontend renders them as text nodes, so there's
 no HTML to sanitize.
 """
+import datetime
 import re
 import secrets
 import uuid
@@ -229,7 +230,21 @@ def _validate_post(body):
             cover = str(uuid.UUID(str(cover)))
         except ValueError:
             return None, "Invalid cover image."
-    return {"title": title, "subtitle": subtitle, "category": category, "body": text, "cover_image_id": cover}, None
+    # Optional "YYYY-MM-DD" from the editor's date picker: the date shown on the
+    # post and used for ordering. Stored at 12:00 UTC so it reads as the same
+    # calendar day in every timezone. Not a schedule: the post is public now.
+    published_at = None
+    raw_date = str(body.get("published_on") or "").strip()
+    if raw_date:
+        try:
+            day = datetime.date.fromisoformat(raw_date)
+        except ValueError:
+            return None, "Invalid publish date."
+        if not 2000 <= day.year <= 2100:
+            return None, "Invalid publish date."
+        published_at = datetime.datetime(day.year, day.month, day.day, 12, tzinfo=datetime.timezone.utc)
+    return {"title": title, "subtitle": subtitle, "category": category, "body": text,
+            "cover_image_id": cover, "published_at": published_at}, None
 
 
 def _check_cover_owner(cover_id, user_id, current_cover=None):
@@ -399,11 +414,10 @@ def create_post():
         """
         INSERT INTO blog_posts (author_id, title, subtitle, category, slug, body, cover_image_id,
                                 status, published_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'published', now()) RETURNING id
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'published', COALESCE(%s, now())) RETURNING id
         """,
         (viewer["id"], data["title"], data["subtitle"], data["category"], _slugify(data["title"]),
-         data["body"],
-         data["cover_image_id"]),
+         data["body"], data["cover_image_id"], data["published_at"]),
     )
     post_id = cur.fetchone()["id"]
     cur.connection.commit()
@@ -431,12 +445,12 @@ def update_post(post_id):
         """
         UPDATE blog_posts
         SET title = %s, subtitle = %s, category = %s, slug = %s, body = %s, cover_image_id = %s, status = 'published',
-            reject_reason = NULL, updated_at = now(), published_at = COALESCE(published_at, now())
+            reject_reason = NULL, updated_at = now(),
+            published_at = COALESCE(%s, published_at, now())
         WHERE id = %s
         """,
         (data["title"], data["subtitle"], data["category"], _slugify(data["title"]), data["body"],
-         data["cover_image_id"],
-         post_id),
+         data["cover_image_id"], data["published_at"], post_id),
     )
     cur.connection.commit()
     return jsonify(_post_json(_fetch_post(post_id), full=True))
