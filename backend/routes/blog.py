@@ -1,9 +1,13 @@
-"""Blog: anyone can read published posts; subscribers (plan == 'pro') can
-write posts, comment and like; every new or edited post waits for an admin
-to approve it before it's public.
+"""The JobBeggar Brief (the blog): hiring signals pulled straight from company
+career pages. Only admins write and publish posts; anyone can read them;
+subscribers (plan == 'pro') can comment and like.
 
-Admins are the accounts whose email is listed in ADMIN_EMAILS (config.py),
-or any request carrying the shared X-Admin-Key (same key as routes/staging.py).
+Admins are the accounts whose email is listed in ADMIN_EMAILS (config.py).
+They can also delete any comment and ban a user from commenting
+(blog_comment_bans); banned users can still read and like.
+Moderation-only calls (deleting comments) also accept the shared X-Admin-Key
+(same key as routes/staging.py); writing a post needs a logged-in admin so
+it has an author.
 
 Posts are plain text: blank lines separate paragraphs and a line starting
 with "## " is a heading. The frontend renders them as text nodes, so there's
@@ -17,7 +21,6 @@ from flask import Blueprint, Response, current_app, g, jsonify, request
 
 from auth_utils import optional_auth, require_auth
 from db.connection import get_cursor
-from email_utils import send_contact_email
 
 bp = Blueprint("blog", __name__, url_prefix="/api/blog")
 
@@ -25,7 +28,6 @@ PAGE_SIZE = 12
 TITLE_MIN, TITLE_MAX = 5, 150
 BODY_MIN, BODY_MAX = 50, 20000
 COMMENT_MAX = 2000
-MAX_PENDING_PER_USER = 5
 IMAGE_MAX_BYTES = 3 * 1024 * 1024
 EXCERPT_CHARS = 220
 
@@ -97,7 +99,8 @@ def _viewer():
         if row:
             viewer = dict(row)
             viewer["is_admin"] = row["email"].lower() in _admin_emails()
-            viewer["can_write"] = row["plan"] == "pro"
+            # comment + like: subscribers, and admins whatever their plan
+            viewer["can_engage"] = row["plan"] == "pro" or viewer["is_admin"]
     g._blog_viewer = viewer
     return viewer
 
@@ -108,16 +111,34 @@ def _is_admin():
 
 
 def _subscriber_or_error():
+    """For comments and likes."""
     v = _viewer()
     if v is None:
         return None, (jsonify({"error": "Log in to continue.", "code": "login_required"}), 401)
-    if not v["can_write"]:
+    if not v["can_engage"]:
         return None, (
-            jsonify({"error": "Only subscribers can do this. Subscribe to join in.",
+            jsonify({"error": "Only subscribers can comment and like. Subscribe to join in.",
                      "code": "subscription_required"}),
             403,
         )
     return v, None
+
+
+def _writer_or_error():
+    """Writing, editing, deleting posts and uploading images: logged-in admins only."""
+    v = _viewer()
+    if v is None:
+        return None, (jsonify({"error": "Log in to continue.", "code": "login_required"}), 401)
+    if not v["is_admin"]:
+        return None, (jsonify({"error": "Only the JobBeggar team can write posts.",
+                               "code": "admin_required"}), 403)
+    return v, None
+
+
+def _is_comment_banned(user_id):
+    cur = get_cursor()
+    cur.execute("SELECT 1 FROM blog_comment_bans WHERE user_id = %s", (user_id,))
+    return cur.fetchone() is not None
 
 
 # --- serialization -----------------------------------------------------------
@@ -154,8 +175,6 @@ def _post_json(row, full=False):
         "liked_by_me": bool(row["liked_by_me"]),
         "is_mine": bool(viewer and viewer["id"] == row["author_id"]),
     }
-    if out["is_mine"] or _is_admin():
-        out["reject_reason"] = row["reject_reason"]
     if full:
         out["body"] = row["body"]
     return out
@@ -204,19 +223,6 @@ def _check_cover_owner(cover_id, user_id, current_cover=None):
     return bool(row and row["owner_id"] == user_id)
 
 
-def _notify_admin_of_pending(post_id, title, author_name):
-    try:
-        link = f"{current_app.config['FRONTEND_ORIGIN']}/blog/admin"
-        send_contact_email(
-            "JobBeggar Blog",
-            "noreply@jobbeggar.com",
-            f"Blog post waiting for approval: {title}",
-            f"{author_name} submitted a blog post (#{post_id}) that needs review.\n\nReview it here: {link}",
-        )
-    except Exception:  # noqa: BLE001 -- a notification must never break posting
-        current_app.logger.exception("Couldn't send blog approval notification")
-
-
 # --- reading -----------------------------------------------------------------
 
 @bp.get("/me")
@@ -225,7 +231,9 @@ def blog_me():
     v = _viewer()
     return jsonify({
         "logged_in": v is not None,
-        "can_write": bool(v and v["can_write"]),
+        "can_write": bool(v and v["is_admin"]),
+        "can_engage": bool(v and v["can_engage"]),
+        "comment_banned": bool(v and _is_comment_banned(v["id"])),
         "is_admin": _is_admin(),
     })
 
@@ -233,8 +241,7 @@ def blog_me():
 @bp.get("/posts")
 @optional_auth
 def list_posts():
-    """Published posts, newest first. ?mine=1 lists the caller's own posts in
-    every status (so authors can see pending/rejected ones)."""
+    """Published posts, newest first."""
     try:
         page = max(1, int(request.args.get("page", 1)))
     except ValueError:
@@ -242,12 +249,7 @@ def list_posts():
     viewer = _viewer()
     params = {"viewer_id": viewer["id"] if viewer else None,
               "limit": PAGE_SIZE + 1, "offset": (page - 1) * PAGE_SIZE}
-    if request.args.get("mine"):
-        if viewer is None:
-            return jsonify({"error": "Log in to see your posts.", "code": "login_required"}), 401
-        where, order = "p.author_id = %(viewer_id)s", "p.updated_at DESC"
-    else:
-        where, order = "p.status = 'published'", "p.published_at DESC"
+    where, order = "p.status = 'published'", "p.published_at DESC"
     cur = get_cursor()
     cur.execute(_POST_SELECT + f" WHERE {where} ORDER BY {order}, p.id DESC"
                 " LIMIT %(limit)s OFFSET %(offset)s", params)
@@ -276,10 +278,12 @@ def list_comments(post_id):
         return jsonify({"error": "Post not found"}), 404
     viewer = _viewer()
     admin = _is_admin()
+    admin_emails = _admin_emails()
     cur = get_cursor()
     cur.execute(
         """
-        SELECT c.id, c.author_id, c.body, c.created_at, u.full_name AS author_name
+        SELECT c.id, c.author_id, c.body, c.created_at, u.full_name AS author_name,
+               u.email AS author_email
         FROM blog_comments c JOIN users u ON u.id = c.author_id
         WHERE c.post_id = %s ORDER BY c.created_at, c.id
         """,
@@ -292,6 +296,7 @@ def list_comments(post_id):
             "created_at": c["created_at"].isoformat(),
             "author": {"name": c["author_name"], "initials": _initials(c["author_name"])},
             "can_delete": admin or bool(viewer and viewer["id"] == c["author_id"]),
+            "can_ban": admin and c["author_email"].lower() not in admin_emails,
         }
         for c in cur.fetchall()
     ])
@@ -319,7 +324,7 @@ def get_image(image_id):
 @bp.post("/images")
 @require_auth
 def upload_image():
-    viewer, err = _subscriber_or_error()
+    viewer, err = _writer_or_error()
     if err:
         return err
     file = request.files.get("image")
@@ -344,7 +349,7 @@ def upload_image():
 @bp.post("/posts")
 @require_auth
 def create_post():
-    viewer, err = _subscriber_or_error()
+    viewer, err = _writer_or_error()
     if err:
         return err
     data, problem = _validate_post(request.get_json(silent=True) or {})
@@ -353,32 +358,27 @@ def create_post():
     if not _check_cover_owner(data["cover_image_id"], viewer["id"]):
         return jsonify({"error": "Invalid cover image."}), 400
     cur = get_cursor()
-    cur.execute("SELECT count(*) AS n FROM blog_posts WHERE author_id = %s AND status = 'pending'",
-                (viewer["id"],))
-    if cur.fetchone()["n"] >= MAX_PENDING_PER_USER:
-        return jsonify({"error": f"You already have {MAX_PENDING_PER_USER} posts waiting for review. "
-                                 "Please wait until they're approved."}), 429
     cur.execute(
         """
-        INSERT INTO blog_posts (author_id, title, slug, body, cover_image_id)
-        VALUES (%s, %s, %s, %s, %s) RETURNING id
+        INSERT INTO blog_posts (author_id, title, slug, body, cover_image_id, status, published_at)
+        VALUES (%s, %s, %s, %s, %s, 'published', now()) RETURNING id
         """,
         (viewer["id"], data["title"], _slugify(data["title"]), data["body"], data["cover_image_id"]),
     )
     post_id = cur.fetchone()["id"]
     cur.connection.commit()
-    _notify_admin_of_pending(post_id, data["title"], viewer["full_name"])
     return jsonify(_post_json(_fetch_post(post_id), full=True)), 201
 
 
 @bp.put("/posts/<int:post_id>")
 @require_auth
 def update_post(post_id):
-    viewer, err = _subscriber_or_error()
+    """Any admin can edit any post; it stays published."""
+    viewer, err = _writer_or_error()
     if err:
         return err
     row = _fetch_post(post_id)
-    if row is None or row["author_id"] != viewer["id"]:
+    if row is None:
         return jsonify({"error": "Post not found"}), 404
     data, problem = _validate_post(request.get_json(silent=True) or {})
     if problem:
@@ -387,32 +387,28 @@ def update_post(post_id):
     if not _check_cover_owner(data["cover_image_id"], viewer["id"], current_cover):
         return jsonify({"error": "Invalid cover image."}), 400
     cur = get_cursor()
-    # Any edit goes back through review, so an approved post can't be
-    # swapped for something else afterwards.
     cur.execute(
         """
         UPDATE blog_posts
-        SET title = %s, slug = %s, body = %s, cover_image_id = %s,
-            status = 'pending', reject_reason = NULL, updated_at = now()
+        SET title = %s, slug = %s, body = %s, cover_image_id = %s, status = 'published',
+            reject_reason = NULL, updated_at = now(), published_at = COALESCE(published_at, now())
         WHERE id = %s
         """,
         (data["title"], _slugify(data["title"]), data["body"], data["cover_image_id"], post_id),
     )
     cur.connection.commit()
-    _notify_admin_of_pending(post_id, data["title"], viewer["full_name"])
     return jsonify(_post_json(_fetch_post(post_id), full=True))
 
 
 @bp.delete("/posts/<int:post_id>")
 @optional_auth
 def delete_post(post_id):
-    row = _fetch_post(post_id)
-    viewer = _viewer()
-    is_author = bool(row and viewer and viewer["id"] == row["author_id"])
-    if row is None or not (is_author or _is_admin()):
+    if not _is_admin():
         return jsonify({"error": "Post not found"}), 404
     cur = get_cursor()
-    cur.execute("DELETE FROM blog_posts WHERE id = %s", (post_id,))
+    cur.execute("DELETE FROM blog_posts WHERE id = %s RETURNING id", (post_id,))
+    if cur.fetchone() is None:
+        return jsonify({"error": "Post not found"}), 404
     cur.connection.commit()
     return jsonify({"deleted": True})
 
@@ -449,6 +445,8 @@ def add_comment(post_id):
     row = _fetch_post(post_id)
     if row is None or row["status"] != "published":
         return jsonify({"error": "Post not found"}), 404
+    if _is_comment_banned(viewer["id"]):
+        return jsonify({"error": "You've been blocked from commenting.", "code": "comment_banned"}), 403
     text = _clean_text((request.get_json(silent=True) or {}).get("body"), keep_newlines=True)
     if not 1 <= len(text) <= COMMENT_MAX:
         return jsonify({"error": f"Comment must be 1-{COMMENT_MAX} characters."}), 400
@@ -484,62 +482,73 @@ def delete_comment(comment_id):
 
 # --- moderation (admins) -----------------------------------------------------
 
-def _admin_or_error():
+@bp.post("/admin/comments/<int:comment_id>/ban")
+@optional_auth
+def ban_commenter(comment_id):
+    """Ban this comment's author from commenting and delete the comment.
+    {"delete_all": true} also removes every other comment they've written."""
     if not _is_admin():
         return jsonify({"error": "Admins only."}), 403
-    return None
-
-
-@bp.get("/admin/posts")
-@optional_auth
-def admin_list():
-    err = _admin_or_error()
-    if err:
-        return err
-    status = request.args.get("status", "pending")
-    if status not in ("pending", "published", "rejected"):
-        return jsonify({"error": "Unknown status"}), 400
-    cur = get_cursor()
-    cur.execute(_POST_SELECT + " WHERE p.status = %(status)s ORDER BY p.updated_at ASC LIMIT 100",
-                {"viewer_id": None, "status": status})
-    return jsonify([_post_json(r, full=True) for r in cur.fetchall()])
-
-
-@bp.post("/admin/posts/<int:post_id>/approve")
-@optional_auth
-def admin_approve(post_id):
-    err = _admin_or_error()
-    if err:
-        return err
+    body = request.get_json(silent=True) or {}
     cur = get_cursor()
     cur.execute(
         """
-        UPDATE blog_posts
-        SET status = 'published', reject_reason = NULL,
-            published_at = COALESCE(published_at, now())
-        WHERE id = %s RETURNING id
+        SELECT c.author_id, u.full_name, u.email FROM blog_comments c
+        JOIN users u ON u.id = c.author_id WHERE c.id = %s
         """,
-        (post_id,),
+        (comment_id,),
     )
-    if cur.fetchone() is None:
-        return jsonify({"error": "Post not found"}), 404
+    row = cur.fetchone()
+    if row is None:
+        return jsonify({"error": "Comment not found"}), 404
+    if row["email"].lower() in _admin_emails():
+        return jsonify({"error": "Admins can't be banned."}), 400
+    viewer = _viewer()
+    reason = _clean_text(body.get("reason"))[:500] or None
+    cur.execute(
+        """
+        INSERT INTO blog_comment_bans (user_id, banned_by, reason) VALUES (%s, %s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET reason = EXCLUDED.reason, banned_by = EXCLUDED.banned_by
+        """,
+        (row["author_id"], viewer["id"] if viewer else None, reason),
+    )
+    if body.get("delete_all"):
+        cur.execute("DELETE FROM blog_comments WHERE author_id = %s", (row["author_id"],))
+    else:
+        cur.execute("DELETE FROM blog_comments WHERE id = %s", (comment_id,))
+    deleted = cur.rowcount
     cur.connection.commit()
-    return jsonify(_post_json(_fetch_post(post_id), full=True))
+    return jsonify({"banned": row["full_name"], "deleted_comments": deleted})
 
 
-@bp.post("/admin/posts/<int:post_id>/reject")
+@bp.get("/admin/bans")
 @optional_auth
-def admin_reject(post_id):
-    err = _admin_or_error()
-    if err:
-        return err
-    reason = _clean_text((request.get_json(silent=True) or {}).get("reason"))[:500] or None
+def list_bans():
+    if not _is_admin():
+        return jsonify({"error": "Admins only."}), 403
     cur = get_cursor()
     cur.execute(
-        "UPDATE blog_posts SET status = 'rejected', reject_reason = %s WHERE id = %s RETURNING id",
-        (reason, post_id),
+        """
+        SELECT b.user_id, u.full_name, u.email, b.reason, b.created_at
+        FROM blog_comment_bans b JOIN users u ON u.id = b.user_id
+        ORDER BY b.created_at DESC
+        """
     )
+    return jsonify([
+        {"user_id": r["user_id"], "name": r["full_name"], "email": r["email"],
+         "reason": r["reason"], "created_at": r["created_at"].isoformat()}
+        for r in cur.fetchall()
+    ])
+
+
+@bp.delete("/admin/bans/<int:user_id>")
+@optional_auth
+def unban(user_id):
+    if not _is_admin():
+        return jsonify({"error": "Admins only."}), 403
+    cur = get_cursor()
+    cur.execute("DELETE FROM blog_comment_bans WHERE user_id = %s RETURNING user_id", (user_id,))
     if cur.fetchone() is None:
-        return jsonify({"error": "Post not found"}), 404
+        return jsonify({"error": "Not banned"}), 404
     cur.connection.commit()
-    return jsonify(_post_json(_fetch_post(post_id), full=True))
+    return jsonify({"unbanned": True})
