@@ -123,9 +123,8 @@ class Config:
     # treat-it-like-a-credential approach as APPS_SCRIPT_URL above.
     ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY")
 
-    # Blog moderators: comma-separated emails of accounts that can approve,
-    # reject and delete blog posts/comments from /blog/admin. (Requests with
-    # the X-Admin-Key header above count as admin too.)
+    # The JobBeggar Brief (blog) writers: comma-separated emails of the
+    # accounts that can write, edit and delete posts and delete comments.
     ADMIN_EMAILS = os.environ.get("ADMIN_EMAILS", "")
 
     # Largest request body Flask accepts (blog cover uploads are capped at
