@@ -465,3 +465,8 @@ ALTER TABLE companies DROP COLUMN IF EXISTS funding_amount;
 ALTER TABLE companies DROP COLUMN IF EXISTS funding_date;
 ALTER TABLE users DROP COLUMN IF EXISTS default_funding_filter;
 ALTER TABLE saved_searches DROP COLUMN IF EXISTS funding_filter;
+-- ---------------------------------------------------------------------------
+-- Blog tables (blog_posts, blog_comments, blog_likes, blog_images) live in
+-- db/blog.sql and are created automatically when the backend starts.
+-- To create them by hand: psql -d smarterjobhunt -f db/blog.sql
+-- ---------------------------------------------------------------------------
