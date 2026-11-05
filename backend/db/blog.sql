@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS blog_posts (
 ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS subtitle TEXT;
 -- Optional topic label (e.g. "Healthcare"); readers can filter by it.
 ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS category TEXT;
+-- Rich text from the editor (sanitized by blog_html.py). NULL = an older
+-- plain-text post, rendered from `body`. `body` always holds the plain-text
+-- version for excerpts and reading time.
+ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS body_html TEXT;
 CREATE INDEX IF NOT EXISTS blog_posts_category_idx ON blog_posts (lower(category));
 CREATE INDEX IF NOT EXISTS blog_posts_status_published_idx ON blog_posts (status, published_at DESC);
 CREATE INDEX IF NOT EXISTS blog_posts_author_idx ON blog_posts (author_id);
@@ -58,4 +62,14 @@ CREATE TABLE IF NOT EXISTS blog_comment_bans (
     banned_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
     reason      TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Article visits by traffic source, one row per post/source/day. Source is the
+-- link's utm_source (e.g. linkedin), else the referring site, else "direct".
+CREATE TABLE IF NOT EXISTS blog_post_visits (
+    post_id  INTEGER NOT NULL REFERENCES blog_posts(id) ON DELETE CASCADE,
+    source   TEXT NOT NULL,
+    day      DATE NOT NULL DEFAULT CURRENT_DATE,
+    visits   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (post_id, source, day)
 );
