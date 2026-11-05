@@ -11,8 +11,7 @@ import { useAuth } from '../lib/auth'
 const TITLE_MAX = 150
 const SUBTITLE_MAX = 200
 const CATEGORY_MAX = 40
-const BODY_MIN = 50
-const BODY_MAX = 20000
+const AUTHOR_NAME_MAX = 80
 const IMAGE_MAX = 3 * 1024 * 1024
 
 export default function BlogEditor() {
@@ -26,6 +25,7 @@ export default function BlogEditor() {
   const [me, setMe] = useState(null)
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
+  const [authorName, setAuthorName] = useState('')
   const [category, setCategory] = useState('')
   const [categories, setCategories] = useState([])
   const [bodyHtml, setBodyHtml] = useState('')
@@ -53,6 +53,7 @@ export default function BlogEditor() {
       .then((p) => {
         setTitle(p.title)
         setSubtitle(p.subtitle || '')
+        setAuthorName(p.byline || '')
         setCategory(p.category || '')
         // older plain-text posts open in the rich editor as paragraphs
         setBodyHtml(p.body_html || plainTextToHtml(p.body))
@@ -86,11 +87,10 @@ export default function BlogEditor() {
     e.preventDefault()
     setError(null)
     if (title.trim().length < 5) return setError('Title must be at least 5 characters.')
-    if (bodyText.trim().length < BODY_MIN) return setError(`Post must be at least ${BODY_MIN} characters.`)
-    if (bodyText.length > BODY_MAX) return setError(`Post must be at most ${BODY_MAX.toLocaleString()} characters.`)
+    if (!bodyText.trim()) return setError('Write something in the post first.')
     setBusy(true)
     try {
-      const payload = { title, subtitle, category, body_html: bodyHtml, republish: editing && republish, cover_image_id: cover?.id || null }
+      const payload = { title, subtitle, category, author_name: authorName, body_html: bodyHtml, republish: editing && republish, cover_image_id: cover?.id || null }
       const saved = editing ? await updatePost(postId, payload) : await createPost(payload)
       navigate(saved.path)
     } catch (err) {
@@ -140,6 +140,14 @@ export default function BlogEditor() {
         </datalist>
         <p className="mt-1 text-xs text-ink-soft">Pick an existing one or type a new one. Shown as &ldquo;HEALTHCARE · NOV 2026&rdquo;.</p>
 
+        <label className="mt-6 block text-sm font-semibold text-ink" htmlFor="blog-author">Author name (optional)</label>
+        <input id="blog-author" value={authorName} onChange={(e) => setAuthorName(e.target.value)} maxLength={AUTHOR_NAME_MAX}
+          placeholder="e.g. Priya Sharma"
+          className="mt-2 w-full rounded-xl border border-line bg-white px-4 py-3 text-ink outline-none focus:border-ember sm:w-96" />
+        <p className="mt-1 text-xs text-ink-soft">
+          Shown on the post and at the end of the article. Leave empty to show no author name.
+        </p>
+
         <label className="mt-6 block text-sm font-semibold text-ink" htmlFor="blog-subtitle">Subtitle (optional)</label>
         <input id="blog-subtitle" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} maxLength={SUBTITLE_MAX}
           placeholder="LifeStance's specialty expansion takes shape"
@@ -183,7 +191,9 @@ export default function BlogEditor() {
         <div className={preview ? 'hidden' : 'mt-2'}>
           <RichEditor value={bodyHtml} onChange={(html, text) => { setBodyHtml(html); setBodyText(text) }} />
         </div>
-        <p className="mt-1 text-right text-xs text-ink-soft">{bodyText.length.toLocaleString()} / {BODY_MAX.toLocaleString()}</p>
+        <p className="mt-1 text-right text-xs text-ink-soft">
+          {bodyText.trim() ? bodyText.trim().split(/\s+/).length.toLocaleString() : 0} words
+        </p>
 
         {editing && (
           <label className="mt-4 flex items-start gap-3 rounded-xl border border-line bg-white p-4 text-sm text-ink">
