@@ -135,10 +135,12 @@ export function PostCard({ post }) {
         <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-ink-soft">{post.excerpt}</p>
         <div className="mt-auto flex items-center justify-between gap-3 pt-5 text-xs text-ink-soft">
           <span className="flex min-w-0 items-center gap-2">
-            <Avatar initials={post.author.initials} size="h-7 w-7 text-[10px]" />
-            <span className="truncate">
-              {post.author.name}
-            </span>
+            {post.author && (
+              <>
+                <Avatar initials={post.author.initials} size="h-7 w-7 text-[10px]" />
+                <span className="truncate">{post.author.name}</span>
+              </>
+            )}
           </span>
           <span className="flex shrink-0 items-center gap-3">
             <span className="flex items-center gap-1"><HeartIcon filled={post.liked_by_me} />{post.like_count}</span>
