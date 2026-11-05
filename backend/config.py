@@ -122,3 +122,12 @@ class Config:
     # purely by this one key (sent as the X-Admin-Key header), same
     # treat-it-like-a-credential approach as APPS_SCRIPT_URL above.
     ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY")
+
+    # Blog moderators: comma-separated emails of accounts that can approve,
+    # reject and delete blog posts/comments from /blog/admin. (Requests with
+    # the X-Admin-Key header above count as admin too.)
+    ADMIN_EMAILS = os.environ.get("ADMIN_EMAILS", "")
+
+    # Largest request body Flask accepts (blog cover uploads are capped at
+    # 3 MB in routes/blog.py; this leaves room for the multipart wrapper).
+    MAX_CONTENT_LENGTH = 4 * 1024 * 1024
