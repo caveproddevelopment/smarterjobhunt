@@ -143,9 +143,13 @@ export default function BlogPost() {
           <p className="mt-3 text-xl leading-snug text-ink-soft md:text-2xl">{post.subtitle}</p>
         )}
         <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-ink-soft">
-          <Avatar initials={post.author.initials} />
-          <span className="font-semibold text-ink">{post.author.name}</span>
-          <span>·</span>
+          {post.author && (
+            <>
+              <Avatar initials={post.author.initials} />
+              <span className="font-semibold text-ink">{post.author.name}</span>
+              <span>·</span>
+            </>
+          )}
           <span>{formatDate(post.published_at || post.updated_at)}</span>
           <span>·</span>
           <span>{readingMinutes(post.body)} min read</span>
@@ -156,6 +160,16 @@ export default function BlogPost() {
         <div className="mt-8">
           {post.body_html ? <RichBody html={post.body_html} /> : <BlogBody text={post.body} />}
         </div>
+
+        {post.author && (
+          <div className="mt-10 flex items-center gap-4 rounded-2xl border border-line bg-mist p-5">
+            <Avatar initials={post.author.initials} size="h-12 w-12 text-sm" />
+            <div>
+              <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-soft">Written by</p>
+              <p className="font-display text-lg font-semibold text-ink">{post.author.name}</p>
+            </div>
+          </div>
+        )}
 
         {me.can_write && (
           <div className="mt-10 flex flex-wrap gap-3 border-t border-line pt-6">

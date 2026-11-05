@@ -127,6 +127,6 @@ class Config:
     # accounts that can write, edit and delete posts and delete comments.
     ADMIN_EMAILS = os.environ.get("ADMIN_EMAILS", "")
 
-    # Largest request body Flask accepts (blog cover uploads are capped at
-    # 3 MB in routes/blog.py; this leaves room for the multipart wrapper).
-    MAX_CONTENT_LENGTH = 4 * 1024 * 1024
+    # Largest request body Flask accepts: room for a 3 MB blog cover upload or
+    # a very long rich-text post (routes/blog.py, blog_html.py).
+    MAX_CONTENT_LENGTH = 8 * 1024 * 1024

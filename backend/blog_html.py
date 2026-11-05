@@ -29,7 +29,9 @@ _STYLE_VALUE_PATTERNS = {
 }
 _FONT_SIZE_PX_LIMITS = {"px": (8, 96), "pt": (6, 72), "rem": (0.5, 6), "em": (0.5, 6), "%": (50, 600)}
 
-MAX_HTML_CHARS = 200_000
+# No practical length limit for writers; this only stops absurd payloads
+# (about 2 MB of HTML, far beyond any real article).
+MAX_HTML_CHARS = 2_000_000
 
 
 def _clean_style(value):
@@ -60,9 +62,13 @@ def _attribute_filter(tag, attr, value):
 
 
 def sanitize(raw_html):
-    """Allowlisted, safe HTML (may be an empty string)."""
+    """Allowlisted, safe HTML (may be an empty string). Raises ValueError if the
+    input is larger than MAX_HTML_CHARS (never silently cuts a post short)."""
+    raw_html = str(raw_html or "")
+    if len(raw_html) > MAX_HTML_CHARS:
+        raise ValueError("too long")
     cleaned = nh3.clean(
-        str(raw_html or "")[:MAX_HTML_CHARS],
+        raw_html,
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
         attribute_filter=_attribute_filter,
