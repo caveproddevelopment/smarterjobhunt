@@ -1,4 +1,4 @@
--- Blog: subscribers write posts, an admin approves them, everyone can read.
+-- The JobBeggar Brief (blog): admins write posts, everyone reads, subscribers comment and like.
 -- Run automatically at app start (app.py _ensure_blog_tables), and also
 -- included at the end of schema.sql. Every statement is idempotent.
 
@@ -12,9 +12,8 @@ CREATE TABLE IF NOT EXISTS blog_images (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- status: 'pending' (waiting for an admin), 'published', 'rejected'.
--- Editing a published post sends it back to 'pending' so nothing goes live
--- without review.
+-- status: posts written by admins are 'published' straight away. 'pending' and
+-- 'rejected' are kept for a possible drafts/review step later.
 CREATE TABLE IF NOT EXISTS blog_posts (
     id              SERIAL PRIMARY KEY,
     author_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -46,4 +45,12 @@ CREATE TABLE IF NOT EXISTS blog_likes (
     user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (post_id, user_id)
+);
+
+-- Users an admin has blocked from commenting (they can still read and like).
+CREATE TABLE IF NOT EXISTS blog_comment_bans (
+    user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    banned_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reason      TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
