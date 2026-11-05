@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import SEO from '../components/SEO'
-import { BlogBody, BlogShell } from '../components/BlogParts'
+import { BlogShell, RichBody, plainTextToHtml } from '../components/BlogParts'
+import RichEditor from '../components/RichEditor'
 import {
   createPost, fetchBlogMe, fetchCategories, fetchPost, imageUrl, postIdFromParam, updatePost, uploadImage,
 } from '../lib/blogApi'
@@ -27,7 +28,9 @@ export default function BlogEditor() {
   const [subtitle, setSubtitle] = useState('')
   const [category, setCategory] = useState('')
   const [categories, setCategories] = useState([])
-  const [body, setBody] = useState('')
+  const [bodyHtml, setBodyHtml] = useState('')
+  const [bodyText, setBodyText] = useState('')
+  const [republish, setRepublish] = useState(false)
   const [cover, setCover] = useState(null) // { id, url }
   const [preview, setPreview] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -51,7 +54,9 @@ export default function BlogEditor() {
         setTitle(p.title)
         setSubtitle(p.subtitle || '')
         setCategory(p.category || '')
-        setBody(p.body)
+        // older plain-text posts open in the rich editor as paragraphs
+        setBodyHtml(p.body_html || plainTextToHtml(p.body))
+        setBodyText(p.body)
         setCover(p.cover_image_id ? { id: p.cover_image_id, url: p.cover_url } : null)
       })
       .catch((err) => setError(err.message))
@@ -81,10 +86,11 @@ export default function BlogEditor() {
     e.preventDefault()
     setError(null)
     if (title.trim().length < 5) return setError('Title must be at least 5 characters.')
-    if (body.trim().length < BODY_MIN) return setError(`Post must be at least ${BODY_MIN} characters.`)
+    if (bodyText.trim().length < BODY_MIN) return setError(`Post must be at least ${BODY_MIN} characters.`)
+    if (bodyText.length > BODY_MAX) return setError(`Post must be at most ${BODY_MAX.toLocaleString()} characters.`)
     setBusy(true)
     try {
-      const payload = { title, subtitle, category, body, cover_image_id: cover?.id || null }
+      const payload = { title, subtitle, category, body_html: bodyHtml, republish: editing && republish, cover_image_id: cover?.id || null }
       const saved = editing ? await updatePost(postId, payload) : await createPost(payload)
       navigate(saved.path)
     } catch (err) {
@@ -160,7 +166,7 @@ export default function BlogEditor() {
         </div>
 
         <div className="mt-6 flex items-center justify-between">
-          <label className="text-sm font-semibold text-ink" htmlFor="blog-body">Post</label>
+          <span className="text-sm font-semibold text-ink">Post</span>
           <div className="flex rounded-full border border-line p-0.5 text-xs font-semibold">
             {[[false, 'Write'], [true, 'Preview']].map(([value, label]) => (
               <button key={label} type="button" onClick={() => setPreview(value)}
@@ -170,21 +176,34 @@ export default function BlogEditor() {
         </div>
         {preview ? (
           <div className="mt-2 min-h-[320px] rounded-xl border border-line bg-white p-5">
-            {body.trim() ? <BlogBody text={body} /> : <p className="text-sm text-ink-soft">Nothing to preview yet.</p>}
+            {bodyText.trim() ? <RichBody html={bodyHtml} /> : <p className="text-sm text-ink-soft">Nothing to preview yet.</p>}
           </div>
-        ) : (
-          <textarea id="blog-body" value={body} onChange={(e) => setBody(e.target.value)} maxLength={BODY_MAX} rows={16}
-            placeholder={'Write the post...\n\nLeave a blank line between paragraphs.\n\n## Start a line with two hashes for a heading'}
-            className="mt-2 w-full rounded-xl border border-line bg-white p-4 text-[15px] leading-relaxed text-ink outline-none focus:border-ember" />
+        ) : null}
+        {/* kept mounted while previewing so undo history and cursor survive */}
+        <div className={preview ? 'hidden' : 'mt-2'}>
+          <RichEditor value={bodyHtml} onChange={(html, text) => { setBodyHtml(html); setBodyText(text) }} />
+        </div>
+        <p className="mt-1 text-right text-xs text-ink-soft">{bodyText.length.toLocaleString()} / {BODY_MAX.toLocaleString()}</p>
+
+        {editing && (
+          <label className="mt-4 flex items-start gap-3 rounded-xl border border-line bg-white p-4 text-sm text-ink">
+            <input type="checkbox" checked={republish} onChange={(e) => setRepublish(e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-ember" />
+            <span>
+              <span className="font-semibold">Republish now</span>
+              <span className="block text-ink-soft">
+                Moves this post back to the top of The Brief with today&rsquo;s date. Leave unticked to just save your edits.
+              </span>
+            </span>
+          </label>
         )}
-        <p className="mt-1 text-right text-xs text-ink-soft">{body.length.toLocaleString()} / {BODY_MAX.toLocaleString()}</p>
 
         {error && <p className="mt-4 rounded-xl bg-ember/10 p-3 text-sm text-ember">{error}</p>}
 
         <div className="mt-6 flex flex-wrap gap-3">
           <button type="submit" disabled={busy || uploading}
             className="flame-gradient rounded-full px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-ember/20 disabled:opacity-50">
-            {busy ? 'Saving...' : editing ? 'Save changes' : 'Publish'}
+            {busy ? 'Saving...' : editing ? (republish ? 'Save and republish' : 'Save changes') : 'Publish'}
           </button>
           <Link to="/blog" className="rounded-full border border-line px-6 py-2.5 text-sm font-semibold text-ink hover:bg-mist">Cancel</Link>
         </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import Landing from './pages/Landing'
 import JobListings from './pages/JobListings'
@@ -13,10 +13,12 @@ import TermsOfService from './pages/TermsOfService'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import Blog from './pages/Blog'
 import BlogPost from './pages/BlogPost'
-import BlogEditor from './pages/BlogEditor'
 import BlogModeration from './pages/BlogModeration'
 import { AuthProvider } from './lib/auth'
 import { trackPageView } from './lib/pixel'
+
+// The rich-text editor is big and only admins use it, so it loads on demand.
+const BlogEditor = lazy(() => import('./pages/BlogEditor'))
 
 // initPixel() (main.jsx) already fires the first PageView on load. This
 // covers every client-side navigation after that, since BrowserRouter never
@@ -54,9 +56,9 @@ export default function App() {
         <Route path="/terms" element={<TermsOfService />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/blog" element={<Blog />} />
-        <Route path="/blog/new" element={<BlogEditor />} />
+        <Route path="/blog/new" element={<Suspense fallback={null}><BlogEditor /></Suspense>} />
         <Route path="/blog/moderation" element={<BlogModeration />} />
-        <Route path="/blog/:id/edit" element={<BlogEditor />} />
+        <Route path="/blog/:id/edit" element={<Suspense fallback={null}><BlogEditor /></Suspense>} />
         <Route path="/blog/:slug" element={<BlogPost />} />
       </Routes>
     </AuthProvider>

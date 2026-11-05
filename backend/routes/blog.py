@@ -19,6 +19,7 @@ import uuid
 
 from flask import Blueprint, Response, current_app, g, jsonify, request
 
+import blog_html
 from auth_utils import optional_auth, require_auth
 from db.connection import get_cursor
 
@@ -146,7 +147,7 @@ def _is_comment_banned(user_id):
 # --- serialization -----------------------------------------------------------
 
 _POST_SELECT = """
-    SELECT p.id, p.author_id, p.title, p.subtitle, p.category, p.slug, p.body, p.cover_image_id, p.status,
+    SELECT p.id, p.author_id, p.title, p.subtitle, p.category, p.slug, p.body, p.body_html, p.cover_image_id, p.status,
            p.reject_reason, p.created_at, p.updated_at, p.published_at,
            u.full_name AS author_name,
            (SELECT count(*) FROM blog_likes l WHERE l.post_id = p.id) AS like_count,
@@ -181,6 +182,7 @@ def _post_json(row, full=False):
     }
     if full:
         out["body"] = row["body"]
+        out["body_html"] = row["body_html"]
     return out
 
 
@@ -216,7 +218,13 @@ def _validate_post(body):
         existing = cur.fetchone()
         if existing:
             category = existing["category"]
-    text = _clean_text(body.get("body"), keep_newlines=True)
+    body_html = None
+    if body.get("body_html") is not None:
+        # rich text from the editor: keep only safe tags/styles, derive plain text
+        body_html = blog_html.sanitize(body.get("body_html"))
+        text = blog_html.to_text(body_html)
+    else:
+        text = _clean_text(body.get("body"), keep_newlines=True)
     if not TITLE_MIN <= len(title) <= TITLE_MAX:
         return None, f"Title must be {TITLE_MIN}-{TITLE_MAX} characters."
     if subtitle and len(subtitle) > SUBTITLE_MAX:
@@ -229,7 +237,9 @@ def _validate_post(body):
             cover = str(uuid.UUID(str(cover)))
         except ValueError:
             return None, "Invalid cover image."
-    return {"title": title, "subtitle": subtitle, "category": category, "body": text, "cover_image_id": cover}, None
+    return {"title": title, "subtitle": subtitle, "category": category, "body": text,
+            "body_html": body_html or None, "cover_image_id": cover,
+            "republish": bool(body.get("republish"))}, None
 
 
 def _check_cover_owner(cover_id, user_id, current_cover=None):
@@ -397,13 +407,12 @@ def create_post():
     cur = get_cursor()
     cur.execute(
         """
-        INSERT INTO blog_posts (author_id, title, subtitle, category, slug, body, cover_image_id,
-                                status, published_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'published', now()) RETURNING id
+        INSERT INTO blog_posts (author_id, title, subtitle, category, slug, body, body_html,
+                                cover_image_id, status, published_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'published', now()) RETURNING id
         """,
         (viewer["id"], data["title"], data["subtitle"], data["category"], _slugify(data["title"]),
-         data["body"],
-         data["cover_image_id"]),
+         data["body"], data["body_html"], data["cover_image_id"]),
     )
     post_id = cur.fetchone()["id"]
     cur.connection.commit()
@@ -413,7 +422,8 @@ def create_post():
 @bp.put("/posts/<int:post_id>")
 @require_auth
 def update_post(post_id):
-    """Any admin can edit any post; it stays published."""
+    """Any admin can edit any post; it stays published. {"republish": true}
+    also moves it to the top of the list with today's date."""
     viewer, err = _writer_or_error()
     if err:
         return err
@@ -430,13 +440,14 @@ def update_post(post_id):
     cur.execute(
         """
         UPDATE blog_posts
-        SET title = %s, subtitle = %s, category = %s, slug = %s, body = %s, cover_image_id = %s, status = 'published',
-            reject_reason = NULL, updated_at = now(), published_at = COALESCE(published_at, now())
+        SET title = %s, subtitle = %s, category = %s, slug = %s, body = %s, body_html = %s,
+            cover_image_id = %s, status = 'published', reject_reason = NULL, updated_at = now(),
+            -- "Republish" moves the post back to the top with today's date
+            published_at = CASE WHEN %s THEN now() ELSE COALESCE(published_at, now()) END
         WHERE id = %s
         """,
         (data["title"], data["subtitle"], data["category"], _slugify(data["title"]), data["body"],
-         data["cover_image_id"],
-         post_id),
+         data["body_html"], data["cover_image_id"], data["republish"], post_id),
     )
     cur.connection.commit()
     return jsonify(_post_json(_fetch_post(post_id), full=True))
@@ -594,3 +605,137 @@ def unban(user_id):
         return jsonify({"error": "Not banned"}), 404
     cur.connection.commit()
     return jsonify({"unbanned": True})
+
+
+# --- traffic tracking ----------------------------------------------------------
+
+# Visit tracking is a public, unauthenticated endpoint, so it is locked down:
+# it only ever increments a counter (no other reads or writes), works only on
+# published posts, accepts a tiny JSON body, normalizes the source to a short
+# safe label, caps how many distinct sources a post can collect per day, and
+# rate-limits each IP. A crafted link can't do more than add one visit.
+KNOWN_SOURCES = {
+    "linkedin", "x", "twitter", "facebook", "instagram", "threads", "whatsapp", "telegram",
+    "reddit", "youtube", "email", "newsletter", "google", "bing", "duckduckgo", "direct",
+    "jobbeggar",
+}
+MAX_SOURCES_PER_POST_PER_DAY = 25
+VISITS_PER_IP_PER_MINUTE = 20
+_DOMAIN_RE = re.compile(r"^[a-z0-9-]{1,30}(\.[a-z0-9-]{1,30}){1,3}$")
+_visit_hits = {}  # ip -> [timestamps]; per process, good enough to stop floods
+
+
+def _source_label(raw):
+    src = str(raw or "").strip().lower()[:100]
+    src = re.sub(r"^https?://", "", src).split("/")[0]
+    if src.startswith("www."):
+        src = src[4:]
+    if not src:
+        return "direct"
+    # referrer domains -> their site name (linkedin.com, lnkd.in -> linkedin)
+    aliases = {"lnkd.in": "linkedin", "t.co": "x", "x.com": "x", "m.facebook.com": "facebook",
+               "l.facebook.com": "facebook", "lm.facebook.com": "facebook", "wa.me": "whatsapp",
+               "out.reddit.com": "reddit", "old.reddit.com": "reddit"}
+    if src in aliases:
+        return aliases[src]
+    base = src.split(".")[-2] if "." in src else src
+    if base in KNOWN_SOURCES:
+        return base
+    if src in KNOWN_SOURCES or re.fullmatch(r"[a-z0-9_-]{1,30}", src):
+        return src
+    if _DOMAIN_RE.match(src):
+        return src
+    return "other"
+
+
+def _rate_limited(ip):
+    import time
+    now = time.monotonic()
+    hits = [t for t in _visit_hits.get(ip, []) if now - t < 60]
+    if len(hits) >= VISITS_PER_IP_PER_MINUTE:
+        _visit_hits[ip] = hits
+        return True
+    hits.append(now)
+    _visit_hits[ip] = hits
+    if len(_visit_hits) > 10000:  # keep memory bounded
+        _visit_hits.clear()
+    return False
+
+
+@bp.post("/posts/<int:post_id>/visit")
+def record_visit(post_id):
+    """Called once per browser session when someone opens an article. The
+    source is the link's utm_source (share links from the admin panel), else
+    the referring site, else "direct"."""
+    from ip_country import client_ip
+    if request.content_length and request.content_length > 1024:
+        return jsonify({"error": "Too large"}), 413
+    if _rate_limited(client_ip() or "unknown"):
+        return jsonify({"recorded": False}), 429
+    body = request.get_json(silent=True)
+    source = _source_label(body.get("source") if isinstance(body, dict) else None)
+    cur = get_cursor()
+    if source not in KNOWN_SOURCES:
+        cur.execute("SELECT count(*) AS n FROM blog_post_visits WHERE post_id = %s AND day = CURRENT_DATE",
+                    (post_id,))
+        if cur.fetchone()["n"] >= MAX_SOURCES_PER_POST_PER_DAY:
+            source = "other"
+    cur.execute(
+        """
+        INSERT INTO blog_post_visits (post_id, source, visits)
+        SELECT id, %s, 1 FROM blog_posts WHERE id = %s AND status = 'published'
+        ON CONFLICT (post_id, source, day) DO UPDATE SET visits = blog_post_visits.visits + 1
+        RETURNING post_id
+        """,
+        (source, post_id),
+    )
+    recorded = cur.fetchone() is not None
+    cur.connection.commit()
+    return jsonify({"recorded": recorded}), (200 if recorded else 404)
+
+
+def article_utm_content(post_id):
+    """utm_content value used on an article's share links; sign-ups store it
+    (first touch, routes/auth.py) so they can be credited to the article."""
+    return f"brief-{post_id}"
+
+
+@bp.get("/admin/posts/<int:post_id>/stats")
+@optional_auth
+def post_stats(post_id):
+    """Visits by source, plus sign-ups (and how many are subscribers now) whose
+    first tagged visit was a share link for this article, by source."""
+    if not _is_admin():
+        return jsonify({"error": "Admins only."}), 403
+    cur = get_cursor()
+    cur.execute("SELECT 1 FROM blog_posts WHERE id = %s", (post_id,))
+    if cur.fetchone() is None:
+        return jsonify({"error": "Post not found"}), 404
+    cur.execute(
+        """
+        SELECT source, sum(visits) AS visits,
+               sum(visits) FILTER (WHERE day > CURRENT_DATE - 7) AS last_7_days
+        FROM blog_post_visits WHERE post_id = %s GROUP BY source ORDER BY sum(visits) DESC
+        """,
+        (post_id,),
+    )
+    visits = [{"source": r["source"], "visits": int(r["visits"]), "last_7_days": int(r["last_7_days"] or 0)}
+              for r in cur.fetchall()]
+    cur.execute(
+        """
+        SELECT COALESCE(lower(utm_source), 'unknown') AS source, count(*) AS signups,
+               count(*) FILTER (WHERE plan = 'pro') AS subscribers
+        FROM users WHERE utm_content = %s GROUP BY 1 ORDER BY count(*) DESC
+        """,
+        (article_utm_content(post_id),),
+    )
+    signups = [{"source": r["source"], "signups": r["signups"], "subscribers": r["subscribers"]}
+               for r in cur.fetchall()]
+    return jsonify({
+        "utm_content": article_utm_content(post_id),
+        "total_visits": sum(v["visits"] for v in visits),
+        "visits_by_source": visits,
+        "total_signups": sum(s["signups"] for s in signups),
+        "total_subscribers": sum(s["subscribers"] for s in signups),
+        "signups_by_source": signups,
+    })

@@ -1,4 +1,5 @@
 // Small pieces shared by The JobBeggar Brief pages (Blog, BlogPost, BlogEditor).
+import DOMPurify from 'dompurify'
 import { Link } from 'react-router-dom'
 import Navbar from './Navbar'
 import Footer from './Footer'
@@ -35,6 +36,52 @@ export function BlogBody({ text }) {
       )}
     </div>
   )
+}
+
+// Same allowlist as backend/blog_html.py. The server already sanitized the
+// HTML; this second pass means a bad row in the database still can't run code.
+const ALLOWED_STYLE = /^(color|font-size|font-family|font-weight)$/
+DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+  if (data.attrName === 'style') {
+    data.attrValue = data.attrValue
+      .split(';')
+      .map((d) => d.trim())
+      .filter((d) => {
+        const [prop, ...rest] = d.split(':')
+        const val = rest.join(':').trim().toLowerCase()
+        return prop && ALLOWED_STYLE.test(prop.trim().toLowerCase()) && !/url\(|expression|javascript/.test(val)
+      })
+      .join('; ')
+  }
+  if (data.attrName === 'target' && data.attrValue !== '_blank') data.keepAttr = false
+})
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  // every link in an article opens in a new tab, safely
+  if (node.tagName === 'A' && node.getAttribute('href')) {
+    node.setAttribute('target', '_blank')
+    node.setAttribute('rel', 'noopener noreferrer')
+  }
+})
+
+export function RichBody({ html }) {
+  const safe = DOMPurify.sanitize(html || '', {
+    ALLOWED_TAGS: ['p', 'br', 'h2', 'h3', 'strong', 'b', 'em', 'i', 'u', 's', 'a', 'ul', 'ol', 'li',
+      'blockquote', 'span', 'hr'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'style'],
+    ALLOWED_URI_REGEXP: /^(https?:|mailto:)/i,
+  })
+  return <div className="brief-content" dangerouslySetInnerHTML={{ __html: safe }} />
+}
+
+// Older plain-text posts -> HTML for the rich editor ("## " lines become headings).
+export function plainTextToHtml(text) {
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return String(text || '')
+    .split(/\n{2,}/)
+    .map((b) => b.trim())
+    .filter(Boolean)
+    .map((b) => (b.startsWith('## ') ? `<h2>${esc(b.slice(3))}</h2>` : `<p>${esc(b).replace(/\n/g, '<br>')}</p>`))
+    .join('')
 }
 
 export function Avatar({ initials, size = 'h-9 w-9 text-xs' }) {

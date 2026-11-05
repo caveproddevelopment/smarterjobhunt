@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import SEO from '../components/SEO'
+import BriefSharePanel from '../components/BriefSharePanel'
 import {
-  Avatar, BlogBody, BlogShell, CommentIcon, HeartIcon, SubscribePrompt,
+  Avatar, BlogBody, BlogShell, RichBody, CommentIcon, HeartIcon, SubscribePrompt,
 } from '../components/BlogParts'
 import {
   addComment, banCommenter, deleteComment, deletePost, fetchBlogMe, fetchComments, fetchPost,
-  formatDate, imageUrl, kickerLabel, postIdFromParam, readingMinutes, toggleLike,
+  formatDate, imageUrl, kickerLabel, postIdFromParam, readingMinutes, recordVisit, toggleLike,
 } from '../lib/blogApi'
 import { useAuth } from '../lib/auth'
 
@@ -36,6 +37,7 @@ export default function BlogPost() {
     fetchPost(postId)
       .then((p) => {
         setPost(p)
+        if (p.status === 'published') recordVisit(p.id)
         // keep the URL's slug in sync with the title
         if (`/blog/${slug}` !== p.path) navigate(p.path, { replace: true })
       })
@@ -152,7 +154,7 @@ export default function BlogPost() {
         {cover && <img src={cover} alt="" className="mt-8 w-full rounded-2xl object-cover" />}
 
         <div className="mt-8">
-          <BlogBody text={post.body} />
+          {post.body_html ? <RichBody html={post.body_html} /> : <BlogBody text={post.body} />}
         </div>
 
         {me.can_write && (
@@ -165,6 +167,8 @@ export default function BlogPost() {
             </button>
           </div>
         )}
+
+        {me.is_admin && post.status === 'published' && <BriefSharePanel post={post} />}
 
         {error && <p className="mt-6 rounded-xl bg-ember/10 p-3 text-sm text-ember">{error}</p>}
 
