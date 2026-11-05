@@ -36,6 +36,8 @@ ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS category TEXT;
 -- plain-text post, rendered from `body`. `body` always holds the plain-text
 -- version for excerpts and reading time.
 ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS body_html TEXT;
+-- Byline shown on the post (a real name); NULL = the writer's account name.
+ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS author_name TEXT;
 CREATE INDEX IF NOT EXISTS blog_posts_category_idx ON blog_posts (lower(category));
 CREATE INDEX IF NOT EXISTS blog_posts_status_published_idx ON blog_posts (status, published_at DESC);
 CREATE INDEX IF NOT EXISTS blog_posts_author_idx ON blog_posts (author_id);
