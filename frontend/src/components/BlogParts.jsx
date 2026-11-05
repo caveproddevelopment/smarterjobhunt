@@ -81,6 +81,9 @@ export function PostCard({ post }) {
         <h2 className="font-display text-lg font-semibold leading-snug text-ink group-hover:text-ember">
           {post.title}
         </h2>
+        {post.subtitle && (
+          <p className="mt-1 text-sm font-medium leading-snug text-ink">{post.subtitle}</p>
+        )}
         <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-ink-soft">{post.excerpt}</p>
         <div className="mt-auto flex items-center justify-between gap-3 pt-5 text-xs text-ink-soft">
           <span className="flex min-w-0 items-center gap-2">
