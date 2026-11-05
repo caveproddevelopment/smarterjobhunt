@@ -3,7 +3,7 @@ from flask_cors import CORS
 
 from config import Config
 from db.connection import init_pool, register_teardown, get_cursor
-from routes import auth, billing, contact, geo_ip, job_status, jobs, preferences, saved_searches, staging, title_variants
+from routes import auth, billing, blog, contact, geo_ip, job_status, jobs, preferences, saved_searches, staging, title_variants
 
 
 def _ensure_utm_columns(app):
@@ -24,6 +24,25 @@ def _ensure_utm_columns(app):
         app.logger.warning("Could not ensure utm columns: %s", e)
 
 
+def _ensure_blog_tables(app):
+    """Creates the blog tables (db/blog.sql, all IF NOT EXISTS) so the blog works
+    on an existing database without re-running schema.sql. Never stops startup."""
+    import os
+    from db import connection
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "db", "blog.sql")) as f:
+            ddl = f.read()
+        conn = connection._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(ddl)
+            conn.commit()
+        finally:
+            connection._pool.putconn(conn)
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning("Could not ensure blog tables: %s", e)
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -33,6 +52,7 @@ def create_app():
     init_pool(app)
     register_teardown(app)
     _ensure_utm_columns(app)
+    _ensure_blog_tables(app)
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(contact.bp)
@@ -42,6 +62,7 @@ def create_app():
     app.register_blueprint(preferences.bp)
     app.register_blueprint(title_variants.bp)
     app.register_blueprint(billing.bp)
+    app.register_blueprint(blog.bp)
     app.register_blueprint(staging.bp)
     app.register_blueprint(geo_ip.bp)
 

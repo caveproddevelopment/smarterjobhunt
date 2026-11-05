@@ -122,3 +122,11 @@ class Config:
     # purely by this one key (sent as the X-Admin-Key header), same
     # treat-it-like-a-credential approach as APPS_SCRIPT_URL above.
     ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY")
+
+    # The JobBeggar Brief (blog) writers: comma-separated emails of the
+    # accounts that can write, edit and delete posts and delete comments.
+    ADMIN_EMAILS = os.environ.get("ADMIN_EMAILS", "")
+
+    # Largest request body Flask accepts (blog cover uploads are capped at
+    # 3 MB in routes/blog.py; this leaves room for the multipart wrapper).
+    MAX_CONTENT_LENGTH = 4 * 1024 * 1024

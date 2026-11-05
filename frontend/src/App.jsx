@@ -11,6 +11,10 @@ import Pricing from './pages/Pricing'
 import AboutUs from './pages/AboutUs'
 import TermsOfService from './pages/TermsOfService'
 import PrivacyPolicy from './pages/PrivacyPolicy'
+import Blog from './pages/Blog'
+import BlogPost from './pages/BlogPost'
+import BlogEditor from './pages/BlogEditor'
+import BlogModeration from './pages/BlogModeration'
 import { AuthProvider } from './lib/auth'
 import { trackPageView } from './lib/pixel'
 
@@ -49,6 +53,11 @@ export default function App() {
         <Route path="/about" element={<AboutUs />} />
         <Route path="/terms" element={<TermsOfService />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/blog" element={<Blog />} />
+        <Route path="/blog/new" element={<BlogEditor />} />
+        <Route path="/blog/moderation" element={<BlogModeration />} />
+        <Route path="/blog/:id/edit" element={<BlogEditor />} />
+        <Route path="/blog/:slug" element={<BlogPost />} />
       </Routes>
     </AuthProvider>
   )
