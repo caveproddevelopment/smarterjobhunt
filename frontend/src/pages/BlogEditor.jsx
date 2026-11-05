@@ -3,12 +3,13 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import SEO from '../components/SEO'
 import { BlogBody, BlogShell } from '../components/BlogParts'
 import {
-  createPost, fetchBlogMe, fetchPost, imageUrl, postIdFromParam, updatePost, uploadImage,
+  createPost, fetchBlogMe, fetchCategories, fetchPost, imageUrl, postIdFromParam, updatePost, uploadImage,
 } from '../lib/blogApi'
 import { useAuth } from '../lib/auth'
 
 const TITLE_MAX = 150
 const SUBTITLE_MAX = 200
+const CATEGORY_MAX = 40
 const BODY_MIN = 50
 const BODY_MAX = 20000
 const IMAGE_MAX = 3 * 1024 * 1024
@@ -24,6 +25,8 @@ export default function BlogEditor() {
   const [me, setMe] = useState(null)
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
+  const [category, setCategory] = useState('')
+  const [categories, setCategories] = useState([])
   const [body, setBody] = useState('')
   const [cover, setCover] = useState(null) // { id, url }
   const [preview, setPreview] = useState(false)
@@ -38,11 +41,16 @@ export default function BlogEditor() {
   }, [user, authLoading])
 
   useEffect(() => {
+    fetchCategories().then(setCategories).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     if (!editing) return
     fetchPost(postId)
       .then((p) => {
         setTitle(p.title)
         setSubtitle(p.subtitle || '')
+        setCategory(p.category || '')
         setBody(p.body)
         setCover(p.cover_image_id ? { id: p.cover_image_id, url: p.cover_url } : null)
       })
@@ -76,7 +84,7 @@ export default function BlogEditor() {
     if (body.trim().length < BODY_MIN) return setError(`Post must be at least ${BODY_MIN} characters.`)
     setBusy(true)
     try {
-      const payload = { title, subtitle, body, cover_image_id: cover?.id || null }
+      const payload = { title, subtitle, category, body, cover_image_id: cover?.id || null }
       const saved = editing ? await updatePost(postId, payload) : await createPost(payload)
       navigate(saved.path)
     } catch (err) {
@@ -116,6 +124,15 @@ export default function BlogEditor() {
         <input id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={TITLE_MAX}
           placeholder="Org charts before brick and mortar"
           className="mt-2 w-full rounded-xl border border-line bg-white px-4 py-3 font-display text-xl text-ink outline-none focus:border-ember" />
+
+        <label className="mt-6 block text-sm font-semibold text-ink" htmlFor="blog-category">Category (optional)</label>
+        <input id="blog-category" list="blog-categories" value={category} onChange={(e) => setCategory(e.target.value)}
+          maxLength={CATEGORY_MAX} placeholder="Healthcare"
+          className="mt-2 w-full rounded-xl border border-line bg-white px-4 py-3 text-ink outline-none focus:border-ember sm:w-72" />
+        <datalist id="blog-categories">
+          {categories.map((c) => <option key={c.name} value={c.name} />)}
+        </datalist>
+        <p className="mt-1 text-xs text-ink-soft">Pick an existing one or type a new one. Shown as &ldquo;HEALTHCARE · NOV 2026&rdquo;.</p>
 
         <label className="mt-6 block text-sm font-semibold text-ink" htmlFor="blog-subtitle">Subtitle (optional)</label>
         <input id="blog-subtitle" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} maxLength={SUBTITLE_MAX}

@@ -6,7 +6,7 @@ import {
 } from '../components/BlogParts'
 import {
   addComment, banCommenter, deleteComment, deletePost, fetchBlogMe, fetchComments, fetchPost,
-  formatDate, imageUrl, postIdFromParam, readingMinutes, toggleLike,
+  formatDate, imageUrl, kickerLabel, postIdFromParam, readingMinutes, toggleLike,
 } from '../lib/blogApi'
 import { useAuth } from '../lib/auth'
 
@@ -129,7 +129,14 @@ export default function BlogPost() {
       <article className="mx-auto max-w-3xl py-6">
         <Link to="/blog" className="text-sm font-semibold text-ink-soft hover:text-ink">&larr; The JobBeggar Brief</Link>
 
-        <h1 className="mt-6 font-display text-3xl font-semibold leading-tight text-ink md:text-5xl">{post.title}</h1>
+        <p className="mt-6 font-mono text-xs font-semibold tracking-[0.14em] text-ember">
+          {post.category ? (
+            <Link to={`/blog?category=${encodeURIComponent(post.category)}`} className="hover:underline">
+              {kickerLabel(post)}
+            </Link>
+          ) : kickerLabel(post)}
+        </p>
+        <h1 className="mt-3 font-display text-3xl font-semibold leading-tight text-ink md:text-5xl">{post.title}</h1>
         {post.subtitle && (
           <p className="mt-3 text-xl leading-snug text-ink-soft md:text-2xl">{post.subtitle}</p>
         )}
