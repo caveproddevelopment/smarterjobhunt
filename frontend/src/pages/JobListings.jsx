@@ -44,21 +44,30 @@ function buildBookmarkName(view) {
   if (view.viewType === 'status') {
     const base = view.statusFilter === 'applied' ? 'Applied Jobs' : view.statusFilter === 'rejected' ? 'Rejected Jobs' : 'Neither Jobs'
     const title = (view.title || '').trim()
-    return title ? `${base} · ${title}` : base
+    const named = title ? `${base} · ${title}` : base
+    if (view.statusFilter !== 'neither') return named
+    // "Neither" keeps every sidebar filter, so they go in the name too --
+    // otherwise two Neither bookmarks with different filters would clash.
+    return `${named}${suffix}${filterLabels(view)}`
   }
   if (view.viewType === 'company') {
     return `All jobs at ${view.companyName}`
   }
-  // Handle multiple company types
+  if (view.viewType === 'variant') {
+    return `${view.variantTitle}${suffix}${filterLabels(view)}`
+  }
+  return `${(view.title || '').trim() || 'All jobs'}${suffix}${filterLabels(view)}`
+}
+
+// " · Funded Startups · Austin, TX (50 mi) · Remote only" for a view's
+// Company Database / location / remote filters.
+function filterLabels(view) {
   const companyTypeLabels = (view.companyTypes || []).map((type) => COMPANY_TYPE_LABELS[type])
   const dbLabel = companyTypeLabels.length > 0 ? ` · ${companyTypeLabels.join(', ')}` : ''
   const place = (view.location || '').trim()
   const locationLabel = place ? ` · ${place} (${view.radiusMiles ?? DEFAULT_RADIUS_MILES} mi)` : ''
   const remoteLabel = REMOTE_CHIP_LABELS[view.remote] ? ` · ${REMOTE_CHIP_LABELS[view.remote]}` : ''
-  if (view.viewType === 'variant') {
-    return `${view.variantTitle}${suffix}${dbLabel}${locationLabel}${remoteLabel}`
-  }
-  return `${(view.title || '').trim() || 'All jobs'}${suffix}${dbLabel}${locationLabel}${remoteLabel}`
+  return `${dbLabel}${locationLabel}${remoteLabel}`
 }
 
 export default function JobListings() {
@@ -160,6 +169,24 @@ export default function JobListings() {
   const [titleError, setTitleError] = useState(null)
   // 1-based page of results; the API sends JOBS_PAGE_SIZE (20) at a time.
   const [page, setPage] = useState(1)
+  // Sort dropdown above the list: 'newest' (default) or 'match' (best match
+  // first). Remembered in this browser.
+  const [sortBy, setSortBy] = useState(() => {
+    try {
+      return localStorage.getItem('jb_sort') === 'match' ? 'match' : 'newest'
+    } catch {
+      return 'newest'
+    }
+  })
+  function changeSort(value) {
+    setSortBy(value)
+    setPage(1)
+    try {
+      localStorage.setItem('jb_sort', value)
+    } catch {
+      // storage blocked: just don't remember it
+    }
+  }
   // Which view the current page number belongs to -- when the view changes,
   // paging starts again from page 1.
   const pageViewKeyRef = useRef(null)
@@ -271,7 +298,7 @@ export default function JobListings() {
       }
 
       try {
-        const { jobs: results, totalCount: total, locationInfo: placeInfo } = await fetchJobs({ ...jobParams, page })
+        const { jobs: results, totalCount: total, locationInfo: placeInfo } = await fetchJobs({ ...jobParams, page, sort: sortBy })
         if (cancelled) return
         jobCardRefs.current = {}
         setJobs(results)
@@ -305,7 +332,7 @@ export default function JobListings() {
     }
     // canApply: re-fetch when the account becomes 'pro' (e.g. just after
     // checkout) so full job details replace the title-only results.
-  }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus, badgeBrowse, page, canApply])
+  }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus, badgeBrowse, page, canApply, sortBy])
 
   // After checkout: poll /me until the payment webhook has made the account
   // 'pro' (about 20 seconds at most), then confirm, fire the pixel's
@@ -590,13 +617,15 @@ export default function JobListings() {
   }
 
   // Whether a job with this status still belongs in the list on screen.
-  // Marked jobs (Applied / Rejected) only appear in the matching Track
-  // Applications view; the normal search and "Neither" show unmarked jobs.
+  // The normal ("All") list shows every job; "Neither" only unmarked ones;
+  // Applied / Rejected only jobs marked that way.
   function belongsInView(value) {
     if (selectedStatus === 'applied') return value === 'applied'
     if (selectedStatus === 'rejected') return value === 'rejected'
     if (selectedStatus === 'tracked') return Boolean(value)
-    return !value
+    if (selectedStatus === 'neither') return !value
+    // The normal ("All") list keeps every job; marking one just updates it.
+    return true
   }
 
   // The last job that left the list, so the notice can offer Undo and (for
@@ -680,7 +709,16 @@ export default function JobListings() {
   // bookmark (if any) is already saved for the current view, and what gets
   // sent to the API when saving a new one — so those two things can never
   // drift out of sync with each other.
-  const currentView = selectedStatus
+  const sidebarFilters = {
+    days: appliedFilters.postedDays,
+    companyTypes: appliedFilters.companyTypes,
+    remote: appliedFilters.remote || DEFAULT_REMOTE_MODE,
+    location: (appliedFilters.location || '').trim(),
+    radiusMiles: appliedFilters.radiusMiles ?? DEFAULT_RADIUS_MILES,
+  }
+  const currentView = selectedStatus === 'neither'
+    ? { viewType: 'status', statusFilter: 'neither', title: (appliedFilters.title || '').trim(), ...sidebarFilters }
+    : selectedStatus
     ? { viewType: 'status', statusFilter: selectedStatus, title: (appliedFilters.title || '').trim() }
     : selectedCompany
       ? { viewType: 'company', companyId: selectedCompany.id, companyName: selectedCompany.name }
@@ -707,16 +745,17 @@ export default function JobListings() {
 
   const bookmarkedSearch = savedSearches.find((search) => {
     if (search.view_type !== currentView.viewType) return false
-    if (currentView.viewType === 'status') {
+    if (currentView.viewType === 'status' && currentView.statusFilter !== 'neither') {
       return search.status_filter === currentView.statusFilter && (search.job_title || '') === currentView.title
     }
+    if (currentView.viewType === 'status' && search.status_filter !== 'neither') return false
     if (currentView.viewType === 'company') {
       return search.company_id === currentView.companyId
     }
     const sameDays = String(search.posted_within_days || '') === String(currentView.days || '')
     // Compare company types as arrays - sort both for consistent comparison
-    const searchCompanyTypes = (search.company_types || []).sort()
-    const currentCompanyTypes = (currentView.companyTypes || []).sort()
+    const searchCompanyTypes = [...(search.company_types || [])].sort()
+    const currentCompanyTypes = [...(currentView.companyTypes || [])].sort()
     const sameCompanyTypes =
       searchCompanyTypes.length === currentCompanyTypes.length &&
       searchCompanyTypes.every((type, idx) => type === currentCompanyTypes[idx])
@@ -749,11 +788,12 @@ export default function JobListings() {
       viewType: currentView.viewType,
       jobTitle: currentView.viewType === 'company' ? null : currentView.title,
       variantTitle: currentView.viewType === 'variant' ? currentView.variantTitle : null,
-      postedWithinDays: currentView.viewType === 'company' ? null : currentView.days,
+      postedWithinDays: currentView.viewType === 'company' ? null : currentView.days || null,
       companyTypes: currentView.viewType === 'company' ? undefined : currentView.companyTypes,
       statusFilter: currentView.viewType === 'status' ? currentView.statusFilter : null,
       companyId: currentView.viewType === 'company' ? currentView.companyId : null,
-      // Remote dropdown and Location/Distance only apply to title searches.
+      // Remote dropdown and Location/Distance apply to title searches and
+      // Neither (undefined for the other views; the server ignores them).
       remoteMode: currentView.remote,
       location: currentView.location,
       radiusMiles: currentView.radiusMiles,
@@ -769,7 +809,7 @@ export default function JobListings() {
   // that company's "See them all" list, and a status bookmark re-enters
   // Track Applications on the same radio.
   function handleApplySearch(search) {
-    if (search.view_type === 'status') {
+    if (search.view_type === 'status' && search.status_filter !== 'neither') {
       // Older status bookmarks have no title: they show every marked job.
       const withTitle = { ...appliedFilters, title: search.job_title || '' }
       setFilters(withTitle)
@@ -798,7 +838,8 @@ export default function JobListings() {
     setAppliedFilters(applied)
     setBadgeBrowse(false)
     setSelectedCompany(null)
-    setSelectedStatus(null)
+    // A Neither bookmark restores all its sidebar filters, then the radio.
+    setSelectedStatus(search.view_type === 'status' ? 'neither' : null)
     setSelectedVariant(search.view_type === 'variant' ? search.variant_title || '' : null)
   }
 
@@ -902,6 +943,20 @@ export default function JobListings() {
                     ? `Showing ${(page - 1) * JOBS_PAGE_SIZE + 1}–${Math.min(page * JOBS_PAGE_SIZE, totalCount)} of ${totalCount} jobs`
                     : `${totalCount} Job${totalCount === 1 ? '' : 's'} in current search`}
                 </p>
+              )}
+              {!needsTitle && (
+                <label className="mt-2 inline-flex items-center gap-2 text-xs text-ink-soft">
+                  Sort:
+                  <select
+                    value={sortBy}
+                    onChange={(e) => changeSort(e.target.value)}
+                    aria-label="Sort jobs"
+                    className="border border-line bg-paper px-2 py-1 text-xs text-ink focus:border-ink-soft focus:outline-none"
+                  >
+                    <option value="newest">Newest to oldest</option>
+                    <option value="match">Best match first</option>
+                  </select>
+                </label>
               )}
               {!loading && locationInfo.notFound && (
                 <p className="mx-auto mt-1 max-w-md px-4 text-xs text-ember">

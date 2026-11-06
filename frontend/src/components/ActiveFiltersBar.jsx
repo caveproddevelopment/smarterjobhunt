@@ -54,29 +54,6 @@ export default function ActiveFiltersBar({
     : selectedCompany
       ? `All jobs at ${selectedCompany.name}`
       : selectedVariant
-  if (scopedLabel) {
-    const countSuffix =
-      typeof scopedCount === 'number' ? ` (${scopedCount} job${scopedCount === 1 ? '' : 's'})` : ''
-    return (
-      <div className="border-b border-line bg-mist/60 px-6 py-3">
-        <div className="relative flex items-center">
-          <button
-            type="button"
-            onClick={onReturnToFullList}
-            className="flex items-center gap-1.5 text-sm font-medium text-ember hover:text-flame"
-          >
-            <span aria-hidden="true">←</span>
-            Return to Full List
-          </button>
-          <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-ink">
-            Current View: <span className="text-ember">{scopedLabel}</span>
-            {countSuffix}
-          </span>
-        </div>
-      </div>
-    )
-  }
-
   const restChips = []
 
   if (filters.postedDays) {
@@ -117,6 +94,50 @@ export default function ActiveFiltersBar({
       label: REMOTE_CHIP_LABELS[remote],
       clear: () => onChange({ ...filters, remote: DEFAULT_REMOTE_MODE }),
     })
+  }
+
+  if (scopedLabel) {
+    const countSuffix =
+      typeof scopedCount === 'number' ? ` (${scopedCount} job${scopedCount === 1 ? '' : 's'})` : ''
+    return (
+      <div className="border-b border-line bg-mist/60 px-6 py-3">
+        <div className="relative flex items-center">
+          <button
+            type="button"
+            onClick={onReturnToFullList}
+            className="flex items-center gap-1.5 text-sm font-medium text-ember hover:text-flame"
+          >
+            <span aria-hidden="true">←</span>
+            Return to Full List
+          </button>
+          <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-ink">
+            Current View: <span className="text-ember">{scopedLabel}</span>
+            {countSuffix}
+          </span>
+        </div>
+        {/* "Neither" is your search minus the jobs you've marked, so the
+            sidebar filters apply -- show which ones, removable like on the
+            full list. */}
+        {selectedStatus === 'neither' && restChips.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+            <span className="text-xs font-medium text-ink-soft">Active filters:</span>
+            {restChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.clear}
+                className="flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink hover:bg-line/40"
+              >
+                {chip.label}
+                <span aria-hidden="true" className="text-ink-soft">
+                  ×
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   const hasTitle = Boolean(filters.title)

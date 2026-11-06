@@ -51,31 +51,29 @@ def _ids(env, headers, **q):
     return {j["id"] for j in resp.get_json()["jobs"]}
 
 
-def test_marked_jobs_only_show_in_their_track_view(env):
+def test_marked_jobs_stay_in_the_normal_list(env):
     ids = _seed(env)
     user_id, h = _register(env["client"], US_IP)
     env["db"].execute("UPDATE users SET plan = 'pro' WHERE id = %s", (user_id,))
     mark = lambda title, status: env["client"].put(f"/api/job-status/{ids[title]}", json={"status": status}, headers=h)
     backend, senior, frontend = ids["Backend Developer"], ids["Senior Software Developer"], ids["Frontend Developer"]
-    assert backend in _ids(env, h, title="developer")
     assert mark("Backend Developer", "rejected").status_code == 200
     assert mark("Senior Software Developer", "applied").status_code == 200
-    # gone from the normal search...
+    # the normal ("All") list keeps marked jobs
     normal = _ids(env, h, title="developer")
-    assert frontend in normal and backend not in normal and senior not in normal
-    # ...but listed under the Track Applications views
+    assert {backend, senior, frontend} <= normal
+    # Neither leaves them out
+    neither = _ids(env, h, status="neither", title="developer")
+    assert frontend in neither and backend not in neither and senior not in neither
+    # and they show under their own Track Applications views
     assert backend in _ids(env, h, status="rejected", title="developer")
     assert senior in _ids(env, h, status="applied", title="developer")
-    # clearing the mark brings it back
+    # clearing the mark brings it back to Neither
     assert env["client"].delete(f"/api/job-status/{backend}", headers=h).status_code in (200, 204)
-    assert backend in _ids(env, h, title="developer")
-    # someone else's marks don't hide jobs for this user
-    other_id, other = _register(env["client"], US_IP)
-    env["db"].execute("UPDATE users SET plan = 'pro' WHERE id = %s", (other_id,))
-    assert senior in _ids(env, other, title="developer")
+    assert backend in _ids(env, h, status="neither", title="developer")
 
 
-def test_variant_counts_skip_marked_jobs(env):
+def test_variant_counts_include_marked_jobs(env):
     _seed(env)
     user_id, h = _register(env["client"], US_IP)
     count = lambda: env["client"].get("/api/jobs/variant-counts", query_string={"variant_title": "UX Designer"},
@@ -84,4 +82,48 @@ def test_variant_counts_skip_marked_jobs(env):
     env["db"].execute("SELECT id FROM jobs WHERE title = 'UX Designer' ORDER BY id DESC LIMIT 1")
     job_id = env["db"].fetchone()[0]
     env["client"].put(f"/api/job-status/{job_id}", json={"status": "rejected"}, headers=h)
-    assert count() == before - 1
+    assert count() == before
+
+
+def test_sort_newest_and_best_match(env):
+    db = env["db"]
+    db.execute("INSERT INTO companies (name) VALUES (%s) RETURNING id", (f"Sortco {uuid.uuid4().hex[:6]}",))
+    cid = db.fetchone()[0]
+    tag = uuid.uuid4().hex[:8]
+    phrase = f"Zebra{tag} Wrangler"
+    # older job with the title in title + description (perfect match); newer job that only mentions it in the description
+    db.execute("INSERT INTO jobs (company_id, title, raw_text, source_url, date_posted) "
+               "VALUES (%s, %s, %s, %s, CURRENT_DATE - 5) RETURNING id",
+               (cid, phrase, f"We are hiring a {phrase}.", f"https://sort.test/{uuid.uuid4().hex}"))
+    titled = db.fetchone()[0]
+    db.execute("INSERT INTO jobs (company_id, title, raw_text, source_url, date_posted) "
+               "VALUES (%s, 'Office Assistant', %s, %s, CURRENT_DATE) RETURNING id",
+               (cid, f"You will support the {phrase} team.", f"https://sort.test/{uuid.uuid4().hex}"))
+    described = db.fetchone()[0]
+    user_id, h = _register(env["client"], US_IP)
+    db.execute("UPDATE users SET plan = 'pro' WHERE id = %s", (user_id,))
+    get = lambda **q: [j["id"] for j in env["client"].get(
+        "/api/jobs", query_string={"title": phrase, **q}, headers=h).get_json()["jobs"]]
+    assert get() == [described, titled]            # default: newest first
+    assert get(sort="newest") == [described, titled]
+    assert get(sort="match") == [titled, described]
+
+
+def test_neither_bookmark_keeps_sidebar_filters(env):
+    _, h = _register(env["client"], US_IP)
+    post = lambda body: env["client"].post("/api/saved-searches", json=body, headers=h)
+    resp = post({"name": "Neither Jobs · developer · Austin", "view_type": "status", "status_filter": "neither",
+                 "job_title": "developer", "posted_within_days": "7", "company_types": ["funded"],
+                 "remote_mode": "only", "location": "Austin, TX", "radius_miles": 25})
+    assert resp.status_code == 201, resp.get_json()
+    saved = resp.get_json()
+    assert saved["company_types"] == ["funded"] and saved["remote_mode"] == "only"
+    assert saved["location"] == "Austin, TX" and saved["radius_miles"] == 25
+    # same title, different filters -> a second, separate bookmark
+    assert post({"name": "Neither Jobs · developer", "view_type": "status", "status_filter": "neither",
+                 "job_title": "developer"}).status_code == 201
+    # Applied / Rejected bookmarks ignore the sidebar filters
+    applied = post({"name": "Applied Jobs · developer", "view_type": "status", "status_filter": "applied",
+                    "job_title": "developer", "company_types": ["funded"], "location": "Austin, TX",
+                    "remote_mode": "only"}).get_json()
+    assert applied["company_types"] == [] and applied["location"] is None and applied["remote_mode"] == "include"
