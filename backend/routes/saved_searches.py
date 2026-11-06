@@ -136,10 +136,16 @@ def create_saved_search():
         return jsonify({"error": f"invalid company type(s): {', '.join(e.args[0])}"}), 400
     company_types_str = ",".join(company_types) if company_types else "all"
 
-    # Remote dropdown + Location/Distance only belong to title searches
-    # ('search' / 'variant'); a company list or Track Applications view
-    # ignores them, so they're stored at their neutral values there.
-    if view_type in ("search", "variant"):
+    # Remote dropdown + Location/Distance belong to title searches
+    # ('search' / 'variant') and the "Neither" view, which is a normal search
+    # minus the jobs you've marked. A company list or the Applied / Rejected
+    # views ignore them, so they're stored at their neutral values there.
+    uses_sidebar = view_type in ("search", "variant") or (
+        view_type == "status" and status_filter == "neither"
+    )
+    if not uses_sidebar:
+        company_types_str = "all"
+    if uses_sidebar:
         remote_mode = remote_mode_from(body.get("remote_mode"), body.get("remote_only"))
         location, radius_miles = _location_and_radius(body)
     else:
