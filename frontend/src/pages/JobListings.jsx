@@ -15,6 +15,7 @@ import {
   createSavedSearch,
   deleteSavedSearch,
   setJobStatus,
+  clearJobStatus,
   fetchTitleVariants,
   fetchCompanyTypeCounts,
   fetchVariantCounts,
@@ -224,7 +225,17 @@ export default function JobListings() {
       // entirely, no OR'ing with the other variants). With nothing
       // selected, it's the normal combined title + all-variants view.
       const statusTitle = (appliedFilters.title || '').trim()
-      const jobParams = selectedStatus
+      const jobParams = selectedStatus === 'neither'
+        ? {
+            // "Neither" = jobs you haven't marked yet, i.e. a normal search
+            // minus your tracked jobs, so every sidebar filter applies
+            // (location/distance, posted date, company lists, remote).
+            ...appliedFilters,
+            title: statusTitle,
+            variantTitles: statusTitle ? variants : [],
+            status: selectedStatus,
+          }
+        : selectedStatus
         ? {
             title: statusTitle,
             variantTitles: statusTitle ? variants : [],
@@ -577,15 +588,81 @@ export default function JobListings() {
     return statusByJob[jobId] || { value: null, reason: '' }
   }
 
+  // Whether a job with this status still belongs in the Track Applications
+  // view on screen (null view = normal search, where every job belongs).
+  function belongsInView(value) {
+    if (selectedStatus === 'applied') return value === 'applied'
+    if (selectedStatus === 'rejected') return value === 'rejected'
+    if (selectedStatus === 'neither') return !value
+    if (selectedStatus === 'tracked') return Boolean(value)
+    return true
+  }
+
+  // Jobs that no longer match the view are shown with a short notice and an
+  // Undo, then removed -- long enough to pick a rejection reason first.
+  // jobId -> { label, previous }
+  const [leavingJobs, setLeavingJobs] = useState({})
+  const leaveTimersRef = useRef({})
+  const LEAVE_DELAY_MS = 5000
+
+  function cancelLeaving(jobId) {
+    clearTimeout(leaveTimersRef.current[jobId])
+    delete leaveTimersRef.current[jobId]
+    setLeavingJobs((prev) => {
+      if (!(jobId in prev)) return prev
+      const next = { ...prev }
+      delete next[jobId]
+      return next
+    })
+  }
+
+  function scheduleLeaving(jobId, value, previous) {
+    clearTimeout(leaveTimersRef.current[jobId])
+    setLeavingJobs((prev) => ({
+      ...prev,
+      [jobId]: { label: value === 'applied' ? 'Applied' : 'Rejected', previous: prev[jobId]?.previous ?? previous },
+    }))
+    leaveTimersRef.current[jobId] = setTimeout(() => {
+      delete leaveTimersRef.current[jobId]
+      setJobs((prev) => prev.filter((job) => job.id !== jobId))
+      setTotalCount((n) => Math.max(0, n - 1))
+      setLeavingJobs((prev) => {
+        const next = { ...prev }
+        delete next[jobId]
+        return next
+      })
+    }, LEAVE_DELAY_MS)
+  }
+
+  // A new list replaces the old one: forget any pending removals.
+  useEffect(() => {
+    for (const t of Object.values(leaveTimersRef.current)) clearTimeout(t)
+    leaveTimersRef.current = {}
+    setLeavingJobs({})
+  }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus, page])
+
   function setStatus(jobId, status) {
     if (!user) {
       navigate('/login')
       return
     }
+    const previous = getStatus(jobId)
     setStatusByJob((prev) => ({ ...prev, [jobId]: status }))
     if (status.value) {
       setJobStatus(jobId, status.value, status.reason).catch((err) => setError(err.message))
     }
+    if (belongsInView(status.value)) cancelLeaving(jobId)
+    else scheduleLeaving(jobId, status.value, previous)
+  }
+
+  function undoStatus(jobId) {
+    const previous = leavingJobs[jobId]?.previous || { value: null, reason: '' }
+    cancelLeaving(jobId)
+    setStatusByJob((prev) => ({ ...prev, [jobId]: previous }))
+    const req = previous.value
+      ? setJobStatus(jobId, previous.value, previous.reason)
+      : clearJobStatus(jobId)
+    req.catch((err) => setError(err.message))
   }
 
   function handleDeleteSearch(id) {
@@ -877,6 +954,17 @@ export default function JobListings() {
                         : ''
                     }
                   >
+                    {leavingJobs[job.id] && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-ink px-5 py-2 text-sm text-white" role="status">
+                        <span>
+                          Marked {leavingJobs[job.id].label}. This job will leave this list in a few seconds.
+                        </span>
+                        <button type="button" onClick={() => undoStatus(job.id)}
+                          className="font-semibold text-spark underline underline-offset-2">
+                          Undo
+                        </button>
+                      </div>
+                    )}
                     <JobCard
                       job={job}
                       status={getStatus(job.id)}
