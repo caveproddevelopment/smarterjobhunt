@@ -64,6 +64,7 @@ export async function fetchJobs(filters) {
   }
   if (filters.companyId) params.set('company_id', filters.companyId)
   if (filters.status) params.set('status', filters.status)
+  if (filters.sort) params.set('sort', filters.sort)
   if (filters.remote && filters.remote !== 'include') params.set('remote', filters.remote)
   // Also the old flag, so an older backend still filters "Remote only".
   if (filters.remote === 'only') params.set('remote_only', '1')
