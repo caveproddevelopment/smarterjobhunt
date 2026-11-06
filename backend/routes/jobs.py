@@ -503,6 +503,11 @@ def list_jobs():
         where.append("s.status IS NULL" if g.user_id is not None else "false")
     elif status_filter == "tracked":
         where.append("s.status IS NOT NULL")
+    else:
+        # Normal search (and "See them all" / variant views): jobs the user
+        # has marked Applied or Rejected only show up in those Track
+        # Applications views, not here. Logged out, nothing is marked.
+        where.append("s.status IS NULL")
 
     where_clause = " AND ".join(where) if where else "true"
 
@@ -650,6 +655,11 @@ def variant_counts():
     if location_sql:
         where.append(location_sql)
         params.extend(location_params)
+
+    # Match the listing, which hides jobs the user has marked Applied/Rejected.
+    if g.user_id is not None:
+        where.append("NOT EXISTS (SELECT 1 FROM user_job_status s WHERE s.job_id = j.id AND s.user_id = %s)")
+        params.append(g.user_id)
 
     where_clause = " AND ".join(where)
 
