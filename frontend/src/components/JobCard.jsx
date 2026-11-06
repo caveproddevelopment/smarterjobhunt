@@ -1,13 +1,6 @@
 import { useState } from 'react'
 import ExternalRedirectModal from './ExternalRedirectModal'
-
-const rejectReasons = [
-  'Compensation mismatch',
-  'Location / remote policy',
-  'Role no longer open',
-  'Not the right fit',
-  'No response after applying',
-]
+import { REJECT_REASONS as rejectReasons } from '../lib/rejectReasons'
 
 // Once a user has confirmed the "you're leaving the site" notice, don't
 // nag them again on every single Apply click.
