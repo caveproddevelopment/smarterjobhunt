@@ -27,6 +27,7 @@ import { useAuth } from '../lib/auth'
 import { trackSubscribe } from '../lib/pixel'
 import { COMPANY_TYPE_LABELS, DEFAULT_COMPANY_TYPE } from '../lib/companyTypes'
 import { DEFAULT_REMOTE_MODE, REMOTE_CHIP_LABELS, remoteModeOf } from '../lib/remote'
+import { REJECT_REASONS } from '../lib/rejectReasons'
 
 // Describes a saved-search row (or the page's current scoped view, in the
 // same shape) as a human name. Distinct per view_type since each one means
@@ -588,57 +589,36 @@ export default function JobListings() {
     return statusByJob[jobId] || { value: null, reason: '' }
   }
 
-  // Whether a job with this status still belongs in the Track Applications
-  // view on screen (null view = normal search, where every job belongs).
+  // Whether a job with this status still belongs in the list on screen.
+  // Marked jobs (Applied / Rejected) only appear in the matching Track
+  // Applications view; the normal search and "Neither" show unmarked jobs.
   function belongsInView(value) {
     if (selectedStatus === 'applied') return value === 'applied'
     if (selectedStatus === 'rejected') return value === 'rejected'
-    if (selectedStatus === 'neither') return !value
     if (selectedStatus === 'tracked') return Boolean(value)
-    return true
+    return !value
   }
 
-  // Jobs that no longer match the view are shown with a short notice and an
-  // Undo, then removed -- long enough to pick a rejection reason first.
-  // jobId -> { label, previous }
-  const [leavingJobs, setLeavingJobs] = useState({})
-  const leaveTimersRef = useRef({})
-  const LEAVE_DELAY_MS = 5000
+  // The last job that left the list, so the notice can offer Undo and (for
+  // Rejected) the reason picker the removed card no longer shows.
+  // { job, index, status, previous }
+  const [movedJob, setMovedJob] = useState(null)
+  const movedTimerRef = useRef(null)
 
-  function cancelLeaving(jobId) {
-    clearTimeout(leaveTimersRef.current[jobId])
-    delete leaveTimersRef.current[jobId]
-    setLeavingJobs((prev) => {
-      if (!(jobId in prev)) return prev
-      const next = { ...prev }
-      delete next[jobId]
-      return next
-    })
+  function dismissMoved() {
+    clearTimeout(movedTimerRef.current)
+    setMovedJob(null)
   }
 
-  function scheduleLeaving(jobId, value, previous) {
-    clearTimeout(leaveTimersRef.current[jobId])
-    setLeavingJobs((prev) => ({
-      ...prev,
-      [jobId]: { label: value === 'applied' ? 'Applied' : 'Rejected', previous: prev[jobId]?.previous ?? previous },
-    }))
-    leaveTimersRef.current[jobId] = setTimeout(() => {
-      delete leaveTimersRef.current[jobId]
-      setJobs((prev) => prev.filter((job) => job.id !== jobId))
-      setTotalCount((n) => Math.max(0, n - 1))
-      setLeavingJobs((prev) => {
-        const next = { ...prev }
-        delete next[jobId]
-        return next
-      })
-    }, LEAVE_DELAY_MS)
+  function keepMovedOpen() {
+    clearTimeout(movedTimerRef.current)
+    movedTimerRef.current = setTimeout(() => setMovedJob(null), 12000)
   }
 
-  // A new list replaces the old one: forget any pending removals.
+  // A new list replaces the old one: the notice no longer applies.
   useEffect(() => {
-    for (const t of Object.values(leaveTimersRef.current)) clearTimeout(t)
-    leaveTimersRef.current = {}
-    setLeavingJobs({})
+    clearTimeout(movedTimerRef.current)
+    setMovedJob(null)
   }, [appliedFilters, selectedVariant, selectedCompany, selectedStatus, page])
 
   function setStatus(jobId, status) {
@@ -651,18 +631,42 @@ export default function JobListings() {
     if (status.value) {
       setJobStatus(jobId, status.value, status.reason).catch((err) => setError(err.message))
     }
-    if (belongsInView(status.value)) cancelLeaving(jobId)
-    else scheduleLeaving(jobId, status.value, previous)
+    if (!belongsInView(status.value)) {
+      // Take it out of the list right away.
+      const index = jobs.findIndex((j) => j.id === jobId)
+      if (index === -1) return
+      const job = jobs[index]
+      setJobs((prev) => prev.filter((j) => j.id !== jobId))
+      setTotalCount((n) => Math.max(0, n - 1))
+      setMovedJob({ job, index, status, previous })
+      keepMovedOpen()
+    }
   }
 
-  function undoStatus(jobId) {
-    const previous = leavingJobs[jobId]?.previous || { value: null, reason: '' }
-    cancelLeaving(jobId)
-    setStatusByJob((prev) => ({ ...prev, [jobId]: previous }))
+  function setMovedReason(reason) {
+    if (!movedJob) return
+    const status = { ...movedJob.status, reason }
+    setStatusByJob((prev) => ({ ...prev, [movedJob.job.id]: status }))
+    setJobStatus(movedJob.job.id, status.value, reason).catch((err) => setError(err.message))
+    setMovedJob({ ...movedJob, status })
+    keepMovedOpen()
+  }
+
+  function undoMoved() {
+    if (!movedJob) return
+    const { job, index, previous } = movedJob
+    dismissMoved()
+    setStatusByJob((prev) => ({ ...prev, [job.id]: previous }))
     const req = previous.value
-      ? setJobStatus(jobId, previous.value, previous.reason)
-      : clearJobStatus(jobId)
+      ? setJobStatus(job.id, previous.value, previous.reason)
+      : clearJobStatus(job.id)
     req.catch((err) => setError(err.message))
+    if (belongsInView(previous.value)) {
+      setJobs((prev) => (prev.some((j) => j.id === job.id)
+        ? prev
+        : [...prev.slice(0, index), job, ...prev.slice(index)]))
+      setTotalCount((n) => n + 1)
+    }
   }
 
   function handleDeleteSearch(id) {
@@ -954,17 +958,6 @@ export default function JobListings() {
                         : ''
                     }
                   >
-                    {leavingJobs[job.id] && (
-                      <div className="flex flex-wrap items-center justify-between gap-2 bg-ink px-5 py-2 text-sm text-white" role="status">
-                        <span>
-                          Marked {leavingJobs[job.id].label}. This job will leave this list in a few seconds.
-                        </span>
-                        <button type="button" onClick={() => undoStatus(job.id)}
-                          className="font-semibold text-spark underline underline-offset-2">
-                          Undo
-                        </button>
-                      </div>
-                    )}
                     <JobCard
                       job={job}
                       status={getStatus(job.id)}
@@ -989,6 +982,31 @@ export default function JobListings() {
           </div>
         </div>
       </main>
+
+      {movedJob && (
+        <div role="status" aria-live="polite"
+          className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(640px,calc(100%-2rem))] flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-ink px-4 py-3 text-sm text-white shadow-xl"
+          onMouseEnter={keepMovedOpen}>
+          <span className="min-w-0 flex-1">
+            Moved to <strong>{movedJob.status.value === 'applied' ? 'Applied' : 'Rejected'}</strong>:{' '}
+            <span className="text-white/80">{movedJob.job.title}{movedJob.job.company ? ` at ${movedJob.job.company}` : ''}</span>
+          </span>
+          {movedJob.status.value === 'rejected' && (
+            <select aria-label="Reason rejected" value={movedJob.status.reason || ''}
+              onChange={(e) => setMovedReason(e.target.value)}
+              className="rounded-md border border-white/30 bg-ink px-2 py-1 text-xs text-white">
+              <option value="">Add a reason…</option>
+              {REJECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          )}
+          <button type="button" onClick={undoMoved} className="font-semibold text-spark underline underline-offset-2">
+            Undo
+          </button>
+          <button type="button" onClick={dismissMoved} aria-label="Dismiss" className="text-white/60 hover:text-white">
+            &times;
+          </button>
+        </div>
+      )}
 
       <Footer />
     </div>
