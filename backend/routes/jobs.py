@@ -319,31 +319,54 @@ def _effective_title_expr(phrase_expr, phrase_params, title_score_expr, title_sc
     )
 
 
-def _inclusion_gate_expr(effective_title_expr, effective_title_params, desc_score_expr, desc_score_params):
-    """Whether a job qualifies for the search results at all: the
-    (phrase-boosted) title score must reach 50, OR the description score
-    must reach 50 on its own. Replaces the old "any single word matched"
-    threshold (title score > 0) -- a job whose title only weakly overlaps
-    the search (e.g. one matched word out of three, 33%) no longer
-    qualifies via title alone; the description has to make up the
-    difference instead, or the job is excluded entirely.
+def _description_phrase_expr(candidates):
+    """Boolean SQL expression: true if the job's description (j.raw_text)
+    contains the typed title or one of its cached variants as a whole
+    phrase, e.g. "Program Manager" or "Delivery Manager". One case-
+    insensitive regex alternation instead of N separate ILIKEs: a single
+    pass over the text, which matters on 300k+ descriptions.
 
-    effective_title_expr's params need splicing in once here (it appears
-    once in the text); desc_score_expr's params likewise once.
+    Returns (sql_expr, params), or (None, []) when there are no candidates.
     """
-    desc_part = desc_score_expr if desc_score_expr is not None else "0"
-    desc_part_params = list(desc_score_params) if desc_score_expr is not None else []
-    expr = f"(({effective_title_expr}) >= 50 OR ({desc_part}) >= 50)"
-    return expr, [*effective_title_params, *desc_part_params]
+    phrases = [c.strip() for c in candidates if c and c.strip()]
+    if not phrases:
+        return None, []
+    pattern = "(" + "|".join(re.escape(p) for p in phrases) + ")"
+    return "(COALESCE(j.raw_text, '') ~* %s)", [pattern]
+
+
+def _inclusion_gate_expr(effective_title_expr, effective_title_params, desc_phrase_expr, desc_phrase_params):
+    """Whether a job qualifies for the search results at all. Either:
+
+      * the title is a full match -- it contains the typed title or one of
+        its variants (phrase hit, scored 100 by _effective_title_expr), or
+        it contains EVERY typed word ("Manager, Clinical Program" for
+        "Program Manager"); or
+      * the description contains the typed title or one of its variants as
+        a whole phrase (_description_phrase_expr).
+
+    Matching only some of the words no longer qualifies: under the old
+    rule (score >= 50) a "Program Manager" search pulled in every "Store
+    Manager" title and every job whose description merely mentioned
+    "manager" -- about 69k of 72k results in production (Nov 2026). The
+    description word score still feeds the ranking and match %, it just
+    can't add jobs on its own any more.
+
+    ROUND(...) >= 100 because several equal fractional per-word scores
+    (e.g. 3 x 33.33) can sum to a hair under 100.
+    """
+    if desc_phrase_expr is None:
+        return f"(ROUND(({effective_title_expr})) >= 100)", list(effective_title_params)
+    expr = f"(ROUND(({effective_title_expr})) >= 100 OR {desc_phrase_expr})"
+    return expr, [*effective_title_params, *desc_phrase_params]
 
 
 def _search_match_percent_expr(effective_title_expr, effective_title_params, desc_score_expr, desc_score_params):
     """The 0-100 "match %" shown on each job card: the (phrase-boosted)
-    title score when it clears 50, otherwise the description word-overlap
-    score. Deliberately NOT a blend of the two -- whichever one actually
-    cleared the 50% bar is the one that qualified the job for inclusion
-    (see _inclusion_gate_expr, the identical pair of checks), so the
-    number on the card always matches the reason the job showed up.
+    title score when the title is a full match (same ROUND >= 100 check as
+    _inclusion_gate_expr), otherwise the description word-overlap score --
+    i.e. the job got in through its description, so the card shows how
+    well the description matches rather than the title's partial score.
 
     effective_title_expr appears TWICE in the text below (once in the WHEN
     condition, once in the THEN branch), so its params need to be spliced
@@ -352,7 +375,7 @@ def _search_match_percent_expr(effective_title_expr, effective_title_params, des
     desc_part = desc_score_expr if desc_score_expr is not None else "0"
     desc_part_params = list(desc_score_params) if desc_score_expr is not None else []
     expr = (
-        f"ROUND(CASE WHEN ({effective_title_expr}) >= 50 "
+        f"ROUND(CASE WHEN ROUND(({effective_title_expr})) >= 100 "
         f"THEN ({effective_title_expr}) ELSE ({desc_part}) END)::int"
     )
     return expr, [*effective_title_params, *effective_title_params, *desc_part_params]
@@ -433,8 +456,9 @@ def list_jobs():
             phrase_expr, phrase_params, title_score_expr, title_score_params
         )
 
+        desc_phrase_expr, desc_phrase_params = _description_phrase_expr(candidates)
         gate_expr, gate_params = _inclusion_gate_expr(
-            effective_title_expr, effective_title_params, desc_score_expr, desc_score_params
+            effective_title_expr, effective_title_params, desc_phrase_expr, desc_phrase_params
         )
         where.append(gate_expr)
         params.extend(gate_params)
