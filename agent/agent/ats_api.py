@@ -20,6 +20,7 @@ Supported (token formats are produced by platforms.parse_ats_url):
   workday                      "<host>|<tenant>|<site>"
   oracle                       "<host>|<siteNumber>"  (siteNumber may be "")
   recruitee                    subdomain
+  phenom                       "<host>|<base path>"  e.g. "careers.adobe.com|us/en"
 
 Description snippets matter beyond search: the backend's auto-clean
 (routes/staging.py) only auto-approves a staged row with >= 100 chars of
@@ -123,6 +124,7 @@ def fetch_jobs(ats: str, token: str, fetch_descriptions: bool = True,
         "workday":         _fetch_workday,
         "oracle":          _fetch_oracle,
         "recruitee":       lambda t, fd, dt: _fetch_recruitee(t, fd),
+        "phenom":          _fetch_phenom,
     }.get(ats)
 
     if fn is None:
@@ -540,6 +542,245 @@ def _fetch_recruitee(token: str, fetch_descriptions: bool = True) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Phenom (career sites on the company's own domain: careers.adobe.com,
+# jobs.advanceautoparts.com, www.acadiacareers.com ...)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Checked 2026-11-11 in Chrome against Adobe, Advance Auto Parts, Chewy,
+# Acadia, TJX, United, Humana, PNC and Ecolab:
+#   - Every search-results page carries `phApp = phApp || {...}` with
+#     widgetApiEndpoint, country, locale, siteType and baseUrl.
+#   - POST <widgetApiEndpoint> {"ddoKey": "refineSearch", ...} pages the
+#     jobs. No cookies or CSRF token needed.
+#   - Page size is capped at 500 (asking for 1000 returns 500).
+#   - Paging stops at 9,999 results: from + size must stay under 10,000, or
+#     the call returns 0 jobs and totalHits 0. Boards bigger than that
+#     (Advance Auto 16,284, TJX 10,049) are split by a facet (state first),
+#     whose counts come back when counts=true and all_fields names it.
+#   - Each job has descriptionTeaser (200-330 chars on every site checked),
+#     so the nightly scrape gets a usable snippet without detail calls.
+#     Full text: POST {"ddoKey": "jobDetail", "jobId": ...} -> data.job.description.
+#   - Some sites send jobUrl (Adobe, Advance Auto); most don't. Their pages
+#     link to <baseUrl>job/<jobId>/<title with each run of non-alphanumerics
+#     turned into one "-">.
+#
+# Token: "<host>|<base path>", e.g. "careers.adobe.com|us/en",
+# "jobs.tjx.com|global/en". See platforms.parse_phenom_config().
+
+PHENOM_PAGE_SIZE = 500       # largest page the API serves; see CHANGES_2026-11-11.md for 100 vs 500
+PHENOM_RESULT_WINDOW = 9999  # from + size must stay at or under this
+PHENOM_SPLIT_FIELDS = ("state", "country", "type", "category", "city")
+PHENOM_MAX_BUCKETS = 80      # don't split on a facet with more values than this (one call each)
+PHENOM_MAX_PASSES = 3        # paging passes over a search that can't be split further
+
+
+def _phenom_job_url(base_url: str, job: dict) -> str:
+    """Link to one job. jobUrl when the site sends it, otherwise built the
+    way Phenom's own pages build it: <baseUrl>job/<jobId>/<Title-Slug>."""
+    u = (job.get("jobUrl") or "").strip()
+    if u.startswith("http"):
+        return u
+    job_id = str(job.get("jobId") or "").strip()
+    if not job_id:
+        return ""
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", job.get("title") or "").strip("-")
+    base = base_url if base_url.endswith("/") else base_url + "/"
+    return f"{base}job/{quote(job_id, safe='')}/{slug}" if slug else f"{base}job/{quote(job_id, safe='')}"
+
+
+def _phenom_location(job: dict) -> str:
+    for k in ("location", "cityStateCountry", "cityState"):
+        v = job.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    parts = ", ".join(x for x in (job.get("city"), job.get("state"), job.get("country"))
+                      if isinstance(x, str) and x.strip())
+    if parts:
+        return parts
+    multi = job.get("multi_location")
+    if isinstance(multi, list) and multi and isinstance(multi[0], str):
+        return multi[0]
+    if str(job.get("isRemote", "")).lower() in ("yes", "true"):
+        return "Remote"
+    return ""
+
+
+def _phenom_config(token: str) -> dict:
+    """Site settings for the widgets API: read from the search-results page's
+    phApp block, or, if that page can't be read, worked out from the token."""
+    from .platforms import parse_phenom_config
+    host, _, path = token.partition("|")
+    path = path.strip("/")
+    page = f"https://{host}/{path + '/' if path else ''}search-results"
+    cfg = None
+    try:
+        r = requests.get(page, headers={**HEADERS, "Accept": "text/html,*/*"}, timeout=15)
+        if r.status_code == 200:
+            cfg = parse_phenom_config(r.text)
+    except requests.RequestException:
+        pass
+    if not cfg:
+        parts = path.split("/")
+        country = parts[0] if parts and parts[0] else "us"
+        lang = parts[1] if len(parts) > 1 else "en"
+        cfg = {"locale": f"{lang}_{country}", "country": country, "siteType": "external",
+               "widgetApiEndpoint": f"https://{host}/widgets",
+               "baseUrl": f"https://{host}/{path + '/' if path else ''}"}
+    return cfg
+
+
+def _phenom_post(cfg: dict, body: dict) -> dict:
+    payload = {"lang": cfg["locale"], "deviceType": "desktop", "country": cfg["country"],
+               "siteType": cfg.get("siteType") or "external", **body}
+    r = requests.post(cfg["widgetApiEndpoint"], json=payload,
+                      headers={**HEADERS, "Content-Type": "application/json"}, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+def _phenom_search(cfg: dict, start: int, size: int, selected: Optional[dict] = None,
+                   facets: tuple = ()) -> dict:
+    body = {"pageName": "search-results", "ddoKey": "refineSearch", "from": start, "size": size,
+            "jobs": True, "counts": bool(facets), "all_fields": list(facets), "keywords": "",
+            "global": True, "selected_fields": selected or {}}
+    rs = _phenom_post(cfg, body).get("refineSearch")
+    if not isinstance(rs, dict):
+        raise ValueError("widgets response has no refineSearch (not a Phenom search endpoint?)")
+    return rs
+
+
+def _phenom_jobs(rs: dict) -> list:
+    return ((rs.get("data") or {}).get("jobs")) or []
+
+
+def _phenom_key(j: dict):
+    return j.get("jobId") or j.get("jobSeqNo") or j.get("title")
+
+
+class _PhenomRun:
+    """One board fetch. Paging a Phenom search is not stable: the order of
+    results shifts between calls (no sort fixes it; tried relevance, date,
+    title, jobId, jobSeqNo), so paging Advance Auto's Florida jobs, 1,925
+    of them 100 at a time, returned only 1,760-1,860 different jobs. A
+    search that fits in one page has no such loss, so big searches are
+    split by facet until each part fits in one call; parts that can't be
+    split are paged up to PHENOM_MAX_PASSES times and the passes merged."""
+
+    def __init__(self, cfg: dict, cap: int, page_size: int):
+        self.cfg, self.cap, self.page_size = cfg, cap, page_size
+        self.seen: dict = {}
+        self.calls = 0
+        self.notes: list = []
+
+    def full(self) -> bool:
+        return len(self.seen) >= self.cap or _paging_expired()
+
+    def add(self, jobs: list, scope: set) -> int:
+        new = 0
+        for j in jobs:
+            k = _phenom_key(j)
+            if not k:
+                continue
+            scope.add(k)
+            if k not in self.seen:
+                self.seen[k] = j
+                new += 1
+        return new
+
+    def search(self, start, size, selected=None, facets=()):
+        self.calls += 1
+        return _phenom_search(self.cfg, start, size, selected, facets)
+
+    def collect(self, selected: dict, first: Optional[dict] = None) -> int:
+        """Get every job matching `selected`. Returns its totalHits."""
+        free = tuple(f for f in PHENOM_SPLIT_FIELDS if f not in selected)
+        rs = first or self.search(0, self.page_size, selected, free)
+        total = rs.get("totalHits") or 0
+        scope: set = set()
+        page = _phenom_jobs(rs)
+        self.add(page, scope)
+        if len(scope) >= total or len(page) < min(self.page_size, total) or self.full():
+            return total
+
+        # Split on the facet whose biggest part is smallest, if it covers
+        # every job in this search and has a manageable number of parts.
+        aggs = {a.get("field"): a.get("value") or {}
+                for a in ((rs.get("data") or {}).get("aggregations") or []) if isinstance(a, dict)}
+        best = None
+        for f in free:
+            vals = {k: v for k, v in (aggs.get(f) or {}).items() if v}
+            if len(vals) < 2 or len(vals) > PHENOM_MAX_BUCKETS or sum(vals.values()) < total:
+                continue
+            biggest = max(vals.values())
+            if biggest < total and (best is None or biggest < best[0]):
+                best = (biggest, f, vals)
+        if best:
+            _, f, vals = best
+            for value, _n in sorted(vals.items(), key=lambda kv: kv[1]):
+                if self.full():
+                    break
+                self.collect({**selected, f: [value]})
+            return total
+
+        # Can't split: page it, several passes if jobs are still missing.
+        want = min(total, PHENOM_RESULT_WINDOW)
+        for _pass in range(PHENOM_MAX_PASSES):
+            added = 0
+            start = len(page) if _pass == 0 else 0
+            while start < want and not self.full():
+                size = min(self.page_size, PHENOM_RESULT_WINDOW - start)
+                chunk = _phenom_jobs(self.search(start, size, selected))
+                added += self.add(chunk, scope)
+                start += len(chunk)
+                if len(chunk) < size:
+                    break
+            if len(scope) >= want or self.full() or (_pass > 0 and added == 0):
+                break
+        if len(scope) < want:
+            self.notes.append(f"{selected or 'all'}: {len(scope)} of {total}")
+        return total
+
+
+def _fetch_phenom(token: str, fetch_descriptions: bool = True, fetch_details: bool = False,
+                  cap: Optional[int] = None, page_size: Optional[int] = None) -> list[dict]:
+    """Phenom widgets API. `cap` and `page_size` default to
+    MAX_JOBS_PER_COMPANY and PHENOM_PAGE_SIZE (the dry-run tool overrides them)."""
+    cap = cap or MAX_JOBS_PER_COMPANY
+    page_size = min(page_size or PHENOM_PAGE_SIZE, 500)
+    cfg = _phenom_config(token)
+    run = _PhenomRun(cfg, cap, page_size)
+    total = run.collect({})
+    d = getattr(_CALL, "diag", None)
+    if d is not None:
+        d["phenom"] = f"{len(run.seen)}/{total} jobs, {run.calls} calls"
+        if run.notes and len(run.seen) < min(total, cap) and "truncated" not in d:
+            d["truncated"] = "phenom searches with jobs missing: " + "; ".join(run.notes[:5])
+    seen = run.seen
+
+    results = list(seen.values())[:cap]
+    base = cfg.get("baseUrl") or f"https://{token.split('|')[0]}/"
+    snippets = [""] * len(results)
+    if fetch_details:
+        snippets = _map_details(lambda j: detail_phenom(cfg, j.get("jobId")), results)
+    jobs = []
+    for j, snippet in zip(results, snippets):
+        url = _phenom_job_url(base, j)
+        if not url:
+            continue
+        if not snippet and fetch_descriptions:
+            snippet = make_snippet(j.get("descriptionTeaser") or "", is_html=True)
+        jobs.append({
+            "title":               (j.get("title") or "").strip(),
+            "department":          j.get("category") or "",
+            "location":            _phenom_location(j),
+            "apply_url":           url,
+            "posted_at":           _parse_ts(j.get("postedDate") or j.get("dateCreated") or ""),
+            "description_snippet": snippet,
+        })
+    return jobs
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Per-job description calls (used by run_description_backfill.py, and by
 # fetch_jobs only when fetch_details=True). Each raises on a transport/HTTP
 # error, so the caller can count it as a failed try, and returns "" when the
@@ -608,6 +849,20 @@ def detail_lever(company: str, posting_id: str, eu: bool = False) -> str:
     if data.get("descriptionPlain"):
         return make_snippet(data["descriptionPlain"], is_html=False)
     return make_snippet(data.get("description", ""), is_html=True)
+
+
+def detail_phenom(cfg_or_token, job_id) -> str:
+    """Full description for one Phenom job. Takes the config dict from
+    _phenom_config() or a "<host>|<base path>" token. Not in
+    _DETAIL_PATTERNS: Phenom job links live on company domains, so a URL
+    pattern can't tell them apart from other sites, and the list's
+    descriptionTeaser already passes the 100-character bar."""
+    if not job_id:
+        return ""
+    cfg = cfg_or_token if isinstance(cfg_or_token, dict) else _phenom_config(cfg_or_token)
+    data = _phenom_post(cfg, {"pageName": "job", "ddoKey": "jobDetail", "jobId": str(job_id)})
+    job = (((data.get("jobDetail") or {}).get("data")) or {}).get("job") or {}
+    return make_snippet(job.get("description") or "", is_html=True)
 
 
 _DETAIL_PATTERNS = [
