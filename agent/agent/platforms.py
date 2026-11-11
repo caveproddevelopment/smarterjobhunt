@@ -94,8 +94,81 @@ _ATS_URL_PATTERNS = [
 # ATS names ats_api.fetch_jobs() can call.
 API_ATS = {
     "greenhouse", "greenhouse_eu", "lever", "lever_eu", "ashby", "workable",
-    "smartrecruiters", "workday", "oracle", "recruitee",
+    "smartrecruiters", "workday", "oracle", "recruitee", "phenom",
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phenom career sites (added 2026-11-11)
+# ─────────────────────────────────────────────────────────────────────────────
+# Phenom sites run on the company's own domain (careers.adobe.com,
+# www.acadiacareers.com), so they can't be told apart by host. Every page
+# carries a config block like:
+#   phApp = phApp || {"widgetApiEndpoint":"https://jobs.ecolab.com/widgets",
+#     "country":"global","deviceType":"desktop","locale":"en_global",
+#     ...,"baseUrl":"https://jobs.ecolab.com/global/en/", ...}
+
+_PHAPP_START = re.compile(r"phApp\s*=\s*phApp\s*\|\|\s*\{")
+_PHAPP_FIELDS = ("widgetApiEndpoint", "country", "locale", "siteType", "baseUrl", "refNum")
+
+
+def parse_phenom_config(html: str) -> Optional[dict]:
+    """The phApp settings from a Phenom page's source, or None if the page
+    isn't a Phenom career site. Pure."""
+    if not html:
+        return None
+    m = _PHAPP_START.search(html)
+    if not m:
+        html = unescape_for_scan(html)
+        m = _PHAPP_START.search(html)
+        if not m:
+            return None
+    block = html[m.end() - 1: m.end() + 6000]
+    cfg = {}
+    for f in _PHAPP_FIELDS:
+        fm = re.search(r'"%s"\s*:\s*"([^"]*)"' % f, block)
+        if fm:
+            cfg[f] = fm.group(1).replace("\\/", "/")
+    if not cfg.get("baseUrl") or not cfg.get("locale"):
+        return None
+    base = cfg["baseUrl"]
+    if not base.startswith("http"):
+        return None
+    if not base.endswith("/"):
+        cfg["baseUrl"] = base = base + "/"
+    if not cfg.get("widgetApiEndpoint", "").startswith("http"):
+        cfg["widgetApiEndpoint"] = f"https://{host_of(base)}/widgets"
+    if not cfg.get("country"):
+        cfg["country"] = cfg["locale"].split("_")[-1]
+    cfg.setdefault("siteType", "external")
+    return cfg
+
+
+def phenom_token(cfg: dict) -> Optional[str]:
+    """"<host>|<base path>" for ats_api._fetch_phenom, from a parse_phenom_config() result."""
+    base = (cfg or {}).get("baseUrl") or ""
+    host = host_of(base)
+    if not host:
+        return None
+    return f"{host}|{urlparse(base).path.strip('/')}"
+
+
+# Files a page loads (scripts, styles, fonts, images). A hiring platform's
+# CDN link to one of these says the page is built on that platform; it is
+# never itself a careers page. Before 2026-11-11 the detector saved these as
+# careers_url (cdn.phenompeople.com/...globalstyles.css for Adobe,
+# performancemanager4.successfactors.com/.../jquery.js for Exxon Mobil).
+_ASSET_EXT = re.compile(
+    r"\.(js|mjs|css|map|json|woff2?|ttf|otf|eot|ico|png|jpe?g|gif|svg|webp|avif|mp4|webm|xml)$", re.I)
+_ASSET_HOST = re.compile(r"^(cdn|static|assets?|content|rmkcdn|fonts?|img|images|media)[0-9-]*\.", re.I)
+
+
+def is_static_asset_url(url: str) -> bool:
+    try:
+        u = urlparse(url if "//" in (url or "") else "https://" + (url or ""))
+    except Exception:
+        return False
+    return bool(_ASSET_EXT.search(u.path or "")) or bool(_ASSET_HOST.match((u.hostname or "")))
 
 
 def _clean_token(tok: str) -> str:

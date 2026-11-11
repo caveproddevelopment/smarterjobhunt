@@ -5,7 +5,7 @@ to call the public job-board API.
 
 Supported ATS with a JSON API adapter (see ats_api.py and platforms.py):
   Greenhouse (US + EU), Lever (US + EU), Ashby, Workable, SmartRecruiters,
-  Workday, Oracle Recruiting Cloud, Recruitee.
+  Workday, Oracle Recruiting Cloud, Recruitee, Phenom (2026-11-11).
 Every other known hiring platform (Darwinbox, Keka, PeopleStrong, ...) is
 returned with can_api=False and a careers_url pointing at the platform, so
 the browser scraper goes straight there.
@@ -46,7 +46,8 @@ from typing import Optional
 from .platforms import (
     parse_ats_url, platform_for_url, unescape_for_scan, classify_page,
     extract_title_and_heading, visible_text_sample, API_ATS, host_of,
-    same_company_site, PLATFORM_HOSTS,
+    same_company_site, PLATFORM_HOSTS, parse_phenom_config, phenom_token,
+    is_static_asset_url,
 )
 
 HEADERS = {
@@ -143,7 +144,8 @@ def detect_ats(company_name: str, website: Optional[str] = None,
             return result
 
     base = website or f"https://www.{slug}.com"
-    careers_url = _find_careers_page_parallel(base, slug=slug, diag=diag)
+    hits: list = []
+    careers_url = _find_careers_page_parallel(base, slug=slug, diag=diag, hits=hits)
     via = "career_path_guess"
     if not careers_url:
         careers_url = _find_careers_via_sitemap(base, diag=diag)
@@ -155,6 +157,21 @@ def detect_ats(company_name: str, website: Optional[str] = None,
                 result.careers_url = careers_url
             diag["detected_via"] = f"{via}+page_scan"
             return result
+        # The careers page shows no platform, but a careers./jobs. subdomain
+        # that also answered might be the real job site (adobe.com/careers
+        # -> adobe.com/careers.html, a marketing page that links to
+        # careers.adobe.com, a Phenom site). 2026-11-11.
+        for other in hits:
+            if host_of(other) == host_of(careers_url):
+                continue
+            if not host_of(other).split(".")[0] in CAREER_SUBDOMAINS:
+                continue
+            result = _scan_page(other)
+            if result:
+                if not result.careers_url:
+                    result.careers_url = other
+                diag["detected_via"] = f"{via}+subdomain_scan"
+                return result
         diag["detected_via"] = via
         return ATSResult(ats="unknown", token=None, can_api=False, careers_url=careers_url)
 
@@ -281,11 +298,23 @@ _PLATFORM_SUFFIXES = tuple(s for s, _ in PLATFORM_HOSTS)
 def _extract_ats_from_html(html: str, base_url: str) -> Optional[ATSResult]:
     """Find an ATS / hiring platform referenced by a page.
 
+    0) The page is a Phenom career site (its phApp config block).
     1) API-capable boards anywhere in the source (incl. JSON blobs).
     2) Other hiring platforms, but only from href/src/action attributes.
+       A link to a platform's script, stylesheet, font or image means the
+       page itself is built on that platform, so the page is returned as
+       the careers URL, never the file (2026-11-11 fix).
     """
     if not html:
         return None
+
+    cfg = parse_phenom_config(html)
+    if cfg:
+        token = phenom_token(cfg)
+        if token:
+            return ATSResult(ats="phenom", token=token, can_api=True,
+                             careers_url=cfg["baseUrl"] + "search-results")
+
     text = unescape_for_scan(html)
 
     hit = parse_ats_url(text)
@@ -298,6 +327,8 @@ def _extract_ats_from_html(html: str, base_url: str) -> Optional[ATSResult]:
         name = "rippling" if "rippling" in m.group(0).lower() else "bamboohr"
         return ATSResult(ats=name, token=None, can_api=False, careers_url=_url_around(text, m.start()))
 
+    asset_platform = None
+    link_hit = None
     for m in _ATTR_URL.finditer(text):
         u = m.group(1).strip()
         if u.startswith("//"):
@@ -305,9 +336,16 @@ def _extract_ats_from_html(html: str, base_url: str) -> Optional[ATSResult]:
         if not u.startswith("http"):
             continue
         plat = platform_for_url(u)
-        if plat:
-            return ATSResult(ats=plat, token=None, can_api=False, careers_url=u)
-    return None
+        if not plat:
+            continue
+        if is_static_asset_url(u):
+            asset_platform = asset_platform or plat
+            continue
+        if link_hit is None:
+            link_hit = ATSResult(ats=plat, token=None, can_api=False, careers_url=u)
+    if asset_platform and base_url:
+        return ATSResult(ats=asset_platform, token=None, can_api=False, careers_url=base_url)
+    return link_hit
 
 
 def detect_ats_from_url(url: str) -> Optional[ATSResult]:
@@ -394,9 +432,11 @@ def _is_catch_all(base_url: str) -> bool:
 
 
 def _find_careers_page_parallel(base_url: str, slug: str = "",
-                                diag: Optional[dict] = None) -> Optional[str]:
+                                diag: Optional[dict] = None,
+                                hits: Optional[list] = None) -> Optional[str]:
     """Try all common career page paths concurrently; return the first
-    *validated* hit in CAREER_PATHS priority order."""
+    *validated* hit in CAREER_PATHS priority order. `hits`, if given, gets
+    every validated final URL, in that same order."""
     if not base_url.startswith("http"):
         base_url = "https://" + base_url
     company_host = host_of(base_url)
@@ -428,6 +468,12 @@ def _find_careers_page_parallel(base_url: str, slug: str = "",
         if final and catch_all and same_host and not _CAREER_HEADING.search(heading):
             final, reason = None, "catch_all_no_career_heading"
         results[i] = (final, reason)
+
+    if hits is not None:
+        for i in range(len(candidates)):
+            final = results.get(i, (None, None))[0]
+            if final and final not in hits:
+                hits.append(final)
 
     rejected = []
     for i in range(len(candidates)):
