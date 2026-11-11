@@ -10,9 +10,10 @@ scrape would get.
 Each URL can be any page of the site, or a company page that redirects to
 it (www.acadiahealthcare.com/about/careers/ -> www.acadiacareers.com).
 
-Default: the nightly limits (MAX_JOBS_PER_COMPANY jobs, LIST_BUDGET_SECONDS).
+Default: the nightly limits (PHENOM_MAX_JOBS jobs, LIST_BUDGET_SECONDS seconds).
 --full:   no job cap and no time budget, so boards past 9,999 jobs are
-          split by state/country to get every job (Advance Auto ~16,300).
+          split by state/country to get every job (Advance Auto ~16,300); with the
+          nightly limits a slow site may stop at the time budget.
 
 Per site it prints: the token, the total the site reports, jobs fetched,
 time and requests, how many descriptions are 100+ characters, empty
@@ -123,11 +124,11 @@ def run_one(url: str, full: bool, page_size: int, samples: int) -> str:
     no_title = sum(1 for j in jobs if not j["title"])
     no_loc = sum(1 for j in jobs if not j["location"])
     dup_links = n - len({j["apply_url"] for j in jobs})
-    expected = total if full else min(total, ats_api.MAX_JOBS_PER_COMPANY)
+    expected = total if full else min(total, ats_api.PHENOM_MAX_JOBS)
 
     print(f"  reported  {total} jobs on the site")
     print(f"  fetched   {n} jobs in {secs:.1f}s, {calls['n']} widget calls, page size {page_size}"
-          + ("  (--full: no cap)" if full else f"  (nightly cap {ats_api.MAX_JOBS_PER_COMPANY})"))
+          + ("  (--full: no cap)" if full else f"  (nightly cap {ats_api.PHENOM_MAX_JOBS}, {ats_api.LIST_BUDGET_SECONDS}s budget)"))
     if diag:
         print(f"  diag      {diag}")
     print(f"  checks    descriptions 100+ chars: {desc_ok}/{n}   empty titles: {no_title}   "
