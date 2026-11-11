@@ -4,6 +4,7 @@ Chewy, Acadia, TJX, United, Humana, PNC, Ecolab, Exxon Mobil).
 
 Run:  python -m pytest tests/test_phenom.py -q
 """
+import contextlib
 import json
 from unittest import mock
 
@@ -221,15 +222,53 @@ def test_unsplittable_search_with_unstable_order_uses_extra_passes():
     assert len(board.bodies) > 3
 
 
-def test_nightly_cap_stops_early():
+def _advance_auto_board():
     states = [f"S{n}" for n in range(40)]
-    board = FakeBoard([_job(i, state=states[i % 40]) for i in range(16284)])
+    return FakeBoard([_job(i, state=states[i % 40]) for i in range(16284)])
+
+
+def _nightly(board, **patches):
+    """fetch_jobs as the nightly run calls it; `patches` override ats_api constants."""
     with mock.patch.object(ats_api.requests, "post", side_effect=board), \
-         mock.patch.object(ats_api.requests, "get", side_effect=_no_page):
+         mock.patch.object(ats_api.requests, "get", side_effect=_no_page), \
+         (mock.patch.multiple(ats_api, **patches) if patches else contextlib.nullcontext()):
         diag = {}
         jobs = ats_api.fetch_jobs("phenom", "jobs.advanceautoparts.com|us/en", diag=diag)
-    assert len(jobs) == ats_api.MAX_JOBS_PER_COMPANY
-    assert "truncated" in diag
+    return jobs, diag
+
+
+def test_nightly_keeps_every_job_on_a_big_phenom_board():
+    # Before 2026-11-11 the nightly run kept 5,000 of Advance Auto's 16,284.
+    jobs, diag = _nightly(_advance_auto_board())
+    assert len(jobs) == 16284
+    assert "truncated" not in diag
+
+
+def test_phenom_cap_still_applies():
+    jobs, diag = _nightly(_advance_auto_board(), PHENOM_MAX_JOBS=7000)
+    assert len(jobs) == 7000
+    assert diag["truncated"] == "hit PHENOM_MAX_JOBS=7000"
+
+
+def test_time_budget_keeps_what_was_fetched():
+    # A slow site: the 120s budget runs out partway; the jobs so far are kept.
+    clock = {"t": 0.0}
+
+    def slow_board(*a, **kw):
+        clock["t"] += 10.0          # every widgets call "takes" 10s
+        return board(*a, **kw)
+
+    board = _advance_auto_board()
+    with mock.patch.object(ats_api.time, "monotonic", side_effect=lambda: clock["t"]):
+        jobs, diag = _nightly(slow_board)
+    assert 0 < len(jobs) < 16284
+    assert "120s" in diag["truncated"]
+
+
+def test_other_platforms_keep_the_5000_cap():
+    assert ats_api._job_cap("phenom") == ats_api.PHENOM_MAX_JOBS == 25000
+    for ats in ("greenhouse", "workday", "lever", "smartrecruiters"):
+        assert ats_api._job_cap(ats) == ats_api.MAX_JOBS_PER_COMPANY == 5000
 
 
 def test_page_size_is_capped_at_500():
