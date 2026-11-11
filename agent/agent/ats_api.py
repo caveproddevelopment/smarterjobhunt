@@ -76,6 +76,11 @@ DETAIL_FETCH_CAP = 60        # max per-job detail requests per company (only whe
 DETAIL_CONCURRENCY = 5
 MAX_JOBS_PER_COMPANY = 5000  # pagination safety cap (was 1000 until 2026-10-15)
 LIST_BUDGET_SECONDS = 120    # stop paging after this long and keep what we have
+# Phenom boards get their own cap (2026-11-11): Advance Auto has ~16,300 jobs and
+# TJX ~10,000, and the Phenom handler fetches all 16,284 of Advance Auto's in
+# ~70s, inside LIST_BUDGET_SECONDS. If a board is slower, paging still stops at
+# the budget and keeps what it has (diag "truncated").
+PHENOM_MAX_JOBS = 25000
 
 # Set per call by fetch_jobs(); read by the paging loops. Thread-local so
 # concurrent fetches (asyncio.to_thread) don't share one deadline/diag.
@@ -93,10 +98,15 @@ def _paging_expired() -> bool:
     return False
 
 
-def _note_cap(n: int) -> None:
+def _job_cap(ats: str) -> int:
+    return PHENOM_MAX_JOBS if ats == "phenom" else MAX_JOBS_PER_COMPANY
+
+
+def _note_cap(n: int, cap: int = MAX_JOBS_PER_COMPANY) -> None:
     d = getattr(_CALL, "diag", None)
-    if d is not None and n >= MAX_JOBS_PER_COMPANY:
-        d["truncated"] = f"hit MAX_JOBS_PER_COMPANY={MAX_JOBS_PER_COMPANY}"
+    if d is not None and n >= cap:
+        name = "PHENOM_MAX_JOBS" if cap == PHENOM_MAX_JOBS else "MAX_JOBS_PER_COMPANY"
+        d["truncated"] = f"hit {name}={cap}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -136,8 +146,9 @@ def fetch_jobs(ats: str, token: str, fetch_descriptions: bool = True,
     _CALL.diag = diag
     try:
         jobs = fn(token, fetch_descriptions, fetch_descriptions and fetch_details)
-        _note_cap(len(jobs))
-        return jobs[:MAX_JOBS_PER_COMPANY]
+        cap = _job_cap(ats)
+        _note_cap(len(jobs), cap)
+        return jobs[:cap]
     except Exception as e:
         print(f"[ats_api] Error fetching from {ats}/{token}: {e}")
         if diag is not None:
@@ -744,8 +755,8 @@ class _PhenomRun:
 def _fetch_phenom(token: str, fetch_descriptions: bool = True, fetch_details: bool = False,
                   cap: Optional[int] = None, page_size: Optional[int] = None) -> list[dict]:
     """Phenom widgets API. `cap` and `page_size` default to
-    MAX_JOBS_PER_COMPANY and PHENOM_PAGE_SIZE (the dry-run tool overrides them)."""
-    cap = cap or MAX_JOBS_PER_COMPANY
+    PHENOM_MAX_JOBS and PHENOM_PAGE_SIZE (the dry-run tool overrides them)."""
+    cap = cap or PHENOM_MAX_JOBS
     page_size = min(page_size or PHENOM_PAGE_SIZE, 500)
     cfg = _phenom_config(token)
     run = _PhenomRun(cfg, cap, page_size)
