@@ -49,4 +49,7 @@ body {
 .brief-content blockquote { border-left: 3px solid var(--color-flame); padding-left: 1em; color: var(--color-ink-soft); font-style: italic; }
 .brief-content hr { border: 0; border-top: 1px solid var(--color-line); }
 .brief-content strong, .brief-content b { font-weight: 700; }
+.brief-content img { display: block; max-width: 100%; height: auto; margin-left: auto; margin-right: auto; border-radius: 12px; }
+.ProseMirror img { cursor: pointer; }
+.ProseMirror img.ProseMirror-selectednode { outline: 3px solid var(--color-ember); outline-offset: 2px; }
 .ProseMirror p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--color-ink-soft); float: left; height: 0; pointer-events: none; }
