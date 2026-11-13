@@ -55,20 +55,31 @@ DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
   }
   if (data.attrName === 'target' && data.attrValue !== '_blank') data.keepAttr = false
 })
+const POST_IMAGE_PATH = /^\/api\/blog\/images\/[0-9a-f-]{36}$/i
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   // every link in an article opens in a new tab, safely
   if (node.tagName === 'A' && node.getAttribute('href')) {
     node.setAttribute('target', '_blank')
     node.setAttribute('rel', 'noopener noreferrer')
   }
+  // only images uploaded to The Brief are shown; anything else is dropped
+  if (node.tagName === 'IMG') {
+    const src = node.getAttribute('src') || ''
+    if (!POST_IMAGE_PATH.test(src)) {
+      node.remove()
+      return
+    }
+    node.setAttribute('src', imageUrl(src))
+    node.setAttribute('loading', 'lazy')
+  }
 })
 
 export function RichBody({ html }) {
   const safe = DOMPurify.sanitize(html || '', {
     ALLOWED_TAGS: ['p', 'br', 'h2', 'h3', 'strong', 'b', 'em', 'i', 'u', 's', 'a', 'ul', 'ol', 'li',
-      'blockquote', 'span', 'hr'],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'style'],
-    ALLOWED_URI_REGEXP: /^(https?:|mailto:)/i,
+      'blockquote', 'span', 'hr', 'img'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'style', 'src', 'alt'],
+    ALLOWED_URI_REGEXP: /^(https?:|mailto:|\/api\/blog\/images\/)/i,
   })
   return <div className="brief-content" dangerouslySetInnerHTML={{ __html: safe }} />
 }
