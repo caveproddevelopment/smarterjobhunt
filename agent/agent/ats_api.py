@@ -896,10 +896,206 @@ _DETAIL_PATTERNS = [
 ]
 
 
+# ── "#job-<id>" listing-anchor links (added 2026-11-13) ──────────────────────
+# job_json._jobs_from_list() stores "<listing page>#job-<url-encoded id>" when
+# a careers page's JSON gives a job an ID but no link of its own. Fetching
+# that URL only returns the listing page, so these links need a platform
+# handler that can look the job up by ID. The stored URL is never rewritten:
+# (company_id, source_url) is the dedup key for promote and reactivation.
+
+GEM_BOARD_CACHE_SECONDS = 1800
+_gem_boards: dict[str, tuple[float, list]] = {}
+_gem_board_locks: dict[str, threading.Lock] = {}
+_gem_locks_guard = threading.Lock()
+
+
+def _gem_job_posts(board: str) -> list:
+    """Every live post on a Gem board, from the keyless Job Board API. Cached
+    per process for GEM_BOARD_CACHE_SECONDS, so 186 jobs on 12 boards cost 12
+    requests. Errors are not cached (they raise, and the backfill retries)."""
+    key = board.lower()
+    with _gem_locks_guard:
+        lock = _gem_board_locks.setdefault(key, threading.Lock())
+    with lock:   # concurrent jobs on one board wait for a single request
+        hit = _gem_boards.get(key)
+        if hit and time.monotonic() - hit[0] < GEM_BOARD_CACHE_SECONDS:
+            return hit[1]
+        data = _get_json(f"https://api.gem.com/job_board/v0/{quote(board, safe='')}/job_posts/")
+        if isinstance(data, dict):   # tolerate a wrapped list
+            data = next((v for v in data.values() if isinstance(v, list)), [])
+        posts = [p for p in (data or []) if isinstance(p, dict)]
+        _gem_boards[key] = (time.monotonic(), posts)
+        return posts
+
+
+def _id_forms(value) -> set[str]:
+    """Equivalent spellings of a job ID: as given, URL-decoded, and for a
+    base64 GraphQL global ID ("T2F0c0pvYlBvc3Q6NzQ4MDMyOQ==" ->
+    "OatsJobPost:7480329") the decoded string and its trailing number."""
+    import base64
+    s = unquote(str(value or "")).strip()
+    if not s:
+        return set()
+    forms = {s}
+    try:
+        decoded = base64.b64decode(s + "=" * (-len(s) % 4), validate=True).decode("utf-8")
+        if re.fullmatch(r"[A-Za-z_]\w*:\w+", decoded):
+            forms.add(decoded)
+            forms.add(decoded.split(":", 1)[1])
+    except Exception:
+        pass
+    return forms
+
+
+_GEM_ID_KEYS = ("id", "job_post_id", "jobPostId", "gid")
+_GEM_DESC_KEYS = ("content", "description", "content_html", "description_html", "contentHtml", "descriptionHtml")
+
+
+def detail_gem(board: str, job_id: str) -> str:
+    """Description for a jobs.gem.com/<board>#job-<id> link. Finds the post
+    in the board's job_posts list by ID (matching raw, URL-decoded and
+    base64-decoded forms). Returns "" when the post is no longer on the
+    board, which the backfill records as too_short (a closed job)."""
+    want = _id_forms(job_id)
+    if not want:
+        return ""
+    for post in _gem_job_posts(board):
+        ids = set()
+        for k in _GEM_ID_KEYS:
+            ids |= _id_forms(post.get(k))
+        url = post.get("absolute_url") or post.get("url") or ""
+        if isinstance(url, str) and url:
+            ids |= _id_forms(url.rstrip("/").rsplit("/", 1)[-1])
+        if ids & want:
+            for k in _GEM_DESC_KEYS:
+                v = post.get(k)
+                if isinstance(v, str) and v.strip():
+                    return make_snippet(v, is_html=True)
+            return ""
+    return ""
+
+
+_UKG_MARKER = "CandidateOpportunityDetail("
+
+
+def _json_object_at(text: str, start: int):
+    """Parse the JSON object that starts at text[start] ("{"), or None."""
+    import json
+    if start < 0 or start >= len(text) or text[start] != "{":
+        return None
+    try:
+        obj, _end = json.JSONDecoder().raw_decode(text, start)
+        return obj if isinstance(obj, dict) else None
+    except ValueError:
+        return None
+
+
+def detail_ukg(host: str, tenant: str, board: str, opportunity_id: str) -> str:
+    """Description for a UKG Pro Recruiting (UltiPro) "#job-<opportunity id>"
+    link. Fetches the job's public OpportunityDetail page (built here, never
+    saved) and reads the JSON the page passes to
+    US.Opportunity.CandidateOpportunityDetail({...}): "Description" is the
+    full HTML description. Checked live on 13 Nov 2026
+    (recruiting.ultipro.com/YAS1000YAAMI): the object is in the plain HTML,
+    and an unknown or closed ID returns HTTP 200 without it, so that gives ""
+    (recorded as too_short, the normal outcome for a closed job)."""
+    opportunity_id = unquote(opportunity_id or "").strip()
+    if not opportunity_id:
+        return ""
+    url = (f"https://{host}/{tenant}/JobBoard/{board}/OpportunityDetail"
+           f"?opportunityId={quote(opportunity_id, safe='')}")
+    r = requests.get(url, headers={**HEADERS, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"},
+                     timeout=DETAIL_TIMEOUT)
+    r.raise_for_status()
+    html = r.text or ""
+    i = html.find(_UKG_MARKER)
+    if i < 0:
+        return ""
+    data = _json_object_at(html, i + len(_UKG_MARKER))
+    if not data or data.get("OpportunityIsClosed") is True:
+        return ""
+    if str(data.get("Id", "")).lower() not in ("", opportunity_id.lower()):
+        return ""   # the page showed a different opportunity
+    return make_snippet(data.get("Description") or data.get("BriefDescription") or "", is_html=True)
+
+
+def detail_dover(job_id: str) -> str:
+    """Description for a jobs.dover.com "#job-<job uuid>" link, from the
+    keyless endpoint Dover's own job page calls:
+    /api/v1/jobs/<uuid>/get_job_description. Checked live on 13 Nov 2026
+    (jobs.dover.com/Dover):
+      - user_provided_description (HTML) is what the job page shows;
+      - user_facing_description (markdown) can be stale (it described a
+        different role on the job checked), so it is only a fallback;
+      - with use_dover_jd set, the page shows generated_description's
+        sections instead;
+      - an unknown job is HTTP 404 and an unpublished one is_published=false:
+        both give "" (recorded as too_short, the normal closed-job outcome)."""
+    job_id = unquote(job_id or "").strip()
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", job_id):
+        return ""
+    try:
+        data = _get_json(f"https://jobs.dover.com/api/v1/jobs/{job_id}/get_job_description")
+    except requests.HTTPError as e:
+        if getattr(e.response, "status_code", None) in (404, 410):
+            return ""
+        raise
+    if not isinstance(data, dict) or data.get("is_published") is False:
+        return ""
+    if data.get("use_dover_jd"):
+        gen = data.get("generated_description") or {}
+        parts = [gen.get(k) for k in ("about_the_company", "about_the_role", "job_mandates",
+                                      "qualifications", "additional_information")]
+        text = "\n".join(p if isinstance(p, str) else "\n".join(map(str, p)) for p in parts
+                         if p and isinstance(p, (str, list)))
+        if text.strip():
+            return make_snippet(text, is_html="<" in text)
+    if (data.get("user_provided_description") or "").strip():
+        return make_snippet(data["user_provided_description"], is_html=True)
+    return make_snippet(data.get("user_facing_description") or "", is_html=False)
+
+
+# (regex, source, handler, host LIKE patterns). The host patterns feed
+# run_description_backfill.build_filters(), which only lets a #job- link
+# through when its host is listed here, so the two can't drift. A new
+# platform needs only a handler and an entry here.
+_ANCHOR_PATTERNS = [
+    (re.compile(r"^https?://jobs\.gem\.com/([^/?#]+)/?(?:\?[^#]*)?#job-(.+)$", re.I),
+     "gem", lambda m: detail_gem(m.group(1), m.group(2)), ("jobs.gem.com",)),
+    # UKG Pro Recruiting: https://{host}/{TENANT}/JobBoard/{board-guid}#job-{opportunity id}
+    (re.compile(r"^https?://(recruiting2?\.ultipro\.com|[a-z0-9-]+\.rec\.pro\.ukg\.net)"
+                r"/([^/?#]+)/JobBoard/([0-9a-f-]+)/?(?:\?[^#]*)?#job-(.+)$", re.I),
+     "ukg", lambda m: detail_ukg(m.group(1).lower(), m.group(2), m.group(3), m.group(4)),
+     ("recruiting.ultipro.com", "recruiting2.ultipro.com", "%.rec.pro.ukg.net")),
+    # Dover: https://jobs.dover.com/{company}[/{board uuid}][?src=app]#job-{job uuid}
+    (re.compile(r"^https?://jobs\.dover\.com/[^#]*#job-(.+)$", re.I),
+     "dover", lambda m: detail_dover(m.group(1)), ("jobs.dover.com",)),
+]
+
+# Max concurrent requests per site for these sources, below the backfill's
+# --per-host when lower. UKG: 28 companies share 3 hosts, and its pages are
+# slower than the ATS APIs.
+PER_HOST_LIMIT = {"ukg": 1}
+
+ANCHOR_HOST_LIKE = tuple(h for *_, hosts in _ANCHOR_PATTERNS for h in hosts)
+
+
+def is_anchor_url(url: str) -> bool:
+    """True for a stored "#job-<id>" listing-anchor link."""
+    return "#job-" in (url or "")
+
+
+def _all_patterns():
+    for rx, source, fn in _DETAIL_PATTERNS:
+        yield rx, source, fn
+    for rx, source, fn, _hosts in _ANCHOR_PATTERNS:
+        yield rx, source, fn
+
+
 def detail_source_for_url(apply_url: str) -> Optional[str]:
     """Which API detail_for_url() would use for this apply_url, or None
     when the job page itself has to be fetched."""
-    for rx, source, _ in _DETAIL_PATTERNS:
+    for rx, source, _ in _all_patterns():
         if rx.match(apply_url or ""):
             return source
     return None
@@ -908,7 +1104,7 @@ def detail_source_for_url(apply_url: str) -> Optional[str]:
 def detail_for_url(apply_url: str) -> Optional[tuple[str, str]]:
     """(source, snippet) from the platform's API for this apply_url, or None
     if no API covers it. Raises on request errors."""
-    for rx, source, fn in _DETAIL_PATTERNS:
+    for rx, source, fn in _all_patterns():
         m = rx.match(apply_url or "")
         if m:
             return source, fn(m)

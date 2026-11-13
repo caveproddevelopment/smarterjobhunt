@@ -3,8 +3,10 @@ Description fetching for run_description_backfill.py (added 2026-10-15).
 
 One job at a time, from its apply_url:
   1. The hiring platform's API, when the URL belongs to one we know
-     (Workday, SmartRecruiters, Oracle, Workable, Greenhouse, Lever) —
-     see ats_api.detail_for_url().
+     (Workday, SmartRecruiters, Oracle, Workable, Greenhouse, Lever, and
+     Gem, UKG and Dover "#job-<id>" listing links) — see ats_api.detail_for_url().
+     A "#job-<id>" link stops here either way: with no handler it fails
+     as no_handler, because its page is only the listing page.
   2. Otherwise the job page itself with plain HTTP: a schema.org
      JobPosting description (JSON-LD) if the page has one, else the main
      content area, else the page text.
@@ -237,6 +239,10 @@ async def fetch_description(apply_url: str, renderer: Optional[Renderer]) -> Fet
     rate-limited / erroring API (transient) is reported as is, so the site
     isn't hit twice."""
     api = await asyncio.to_thread(fetch_via_api, apply_url)
+    if ats_api.is_anchor_url(apply_url):
+        # A "#job-<id>" link points at the listing page, so the page fetch
+        # can't help: the platform handler's answer is final.
+        return api if api is not None else FetchResult(False, source="api", error="no_handler")
     if api is not None and (api.ok or api.transient):
         return api
 

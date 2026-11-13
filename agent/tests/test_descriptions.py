@@ -9,6 +9,7 @@ Run:  python -m pytest tests -q
 """
 import asyncio
 import threading
+from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
@@ -252,3 +253,226 @@ def test_with_descriptions_flag_reaches_fetch_jobs():
     import inspect
     assert "fetch_descriptions" in inspect.signature(O.run).parameters
     assert inspect.signature(O.run).parameters["fetch_descriptions"].default is False
+
+
+# ── #job- listing-anchor links (2026-11-13) ──────────────────────────────────
+
+GEM_URL = "https://jobs.gem.com/cartwheel-1#job-T2F0c0pvYlBvc3Q6NzQ4MDMyOQ%3D%3D"
+UKG_BOARD = "https://recruiting.ultipro.com/YAS1000YAAMI/JobBoard/79c5e373-83ab-4894-be19-ed78fff999d4"
+UKG_ID = "34169ce2-4eb0-425e-a01d-0c33d6da7d64"
+UKG_URL = f"{UKG_BOARD}#job-{UKG_ID}"
+DOVER_ID = "aa378aa1-79f3-4995-8667-b78a61c12b11"
+DOVER_URL = f"https://jobs.dover.com/Dover/733c3162-cbbd-6558-9866-1d6b8561f8b9?src=app#job-{DOVER_ID}"
+GEM_HTML = "<p>" + "Own the robotics fleet roadmap. " * 8 + "</p>"
+
+
+@pytest.fixture
+def gem_cache():
+    ats_api._gem_boards.clear()
+    yield
+    ats_api._gem_boards.clear()
+
+
+@pytest.mark.parametrize("url, source", [
+    (GEM_URL, "gem"),
+    ("https://jobs.gem.com/cartwheel-1/#job-abc", "gem"),
+    ("https://jobs.gem.com/cartwheel-1", None),                       # the listing page itself
+    (DOVER_URL, "dover"),
+    ("https://jobs.dover.com/Dover#job-aa378aa1-79f3-4995-8667-b78a61c12b11", "dover"),
+    ("https://jobs.dover.com/Dover/aa378aa1-79f3-4995-8667-b78a61c12b11", None),   # a real job page
+    (UKG_URL, "ukg"),
+    ("https://recruiting2.ultipro.com/ABC1000ABC/JobBoard/79c5e373-83ab-4894-be19-ed78fff999d4#job-x", "ukg"),
+    ("https://mywsc.rec.pro.ukg.net/WEI1500WEIN/JobBoard/60a1b2c3-0000-4000-8000-000000000001/#job-x", "ukg"),
+    ("https://recruiting.ultipro.com/YAS1000YAAMI/JobBoard/79c5e373-83ab-4894-be19-ed78fff999d4", None),
+    ("https://acme.example.com/careers#job-7", None),
+])
+def test_anchor_detail_source(url, source):
+    assert ats_api.detail_source_for_url(url) == source
+
+
+def test_anchor_hosts_come_from_registered_handlers():
+    assert ats_api.ANCHOR_HOST_LIKE == ("jobs.gem.com", "recruiting.ultipro.com",
+                                        "recruiting2.ultipro.com", "%.rec.pro.ukg.net", "jobs.dover.com")
+
+
+@pytest.mark.parametrize("post_id", [
+    "T2F0c0pvYlBvc3Q6NzQ4MDMyOQ==",   # same global ID we stored
+    "7480329",                        # numeric ID
+    "OatsJobPost:7480329",            # decoded global ID
+])
+def test_gem_matches_id_in_any_form(gem_cache, post_id):
+    posts = [{"id": "999", "content": "<p>wrong job</p>" * 20},
+             {"id": post_id, "title": "Robotics PM", "content": GEM_HTML}]
+    with mock.patch.object(ats_api.requests, "get", return_value=_Resp(posts)) as g:
+        source, text = ats_api.detail_for_url(GEM_URL)
+    assert source == "gem" and text.startswith("Own the robotics fleet roadmap.")
+    assert g.call_args[0][0] == "https://api.gem.com/job_board/v0/cartwheel-1/job_posts/"
+
+
+def test_gem_board_list_fetched_once_per_board(gem_cache):
+    posts = [{"id": f"{i}", "content": GEM_HTML} for i in range(5)]
+    with mock.patch.object(ats_api.requests, "get", return_value=_Resp(posts)) as g:
+        for i in range(5):
+            ats_api.detail_for_url(f"https://jobs.gem.com/acme#job-{i}")
+        ats_api.detail_for_url("https://jobs.gem.com/other#job-1")
+    assert g.call_count == 2
+
+
+def test_gem_closed_post_is_too_short_not_page_fetch(gem_cache):
+    with mock.patch.object(ats_api.requests, "get", return_value=_Resp([{"id": "1", "content": GEM_HTML}])), \
+         mock.patch.object(DF, "fetch_page_html") as page:
+        res = asyncio.run(DF.fetch_description(GEM_URL, None))
+    assert not res.ok and res.error == "too_short" and res.source == "gem"
+    page.assert_not_called()
+
+
+def test_gem_api_error_is_not_cached_and_is_transient(gem_cache):
+    with mock.patch.object(ats_api.requests, "get", return_value=_Resp({}, status=503)):
+        res = asyncio.run(DF.fetch_description(GEM_URL, None))
+    assert not res.ok and res.transient and res.source == "gem"
+    assert ats_api._gem_boards == {}
+
+
+def test_anchor_link_without_handler_is_no_handler():
+    with mock.patch.object(DF, "fetch_page_html") as page:
+        res = asyncio.run(DF.fetch_description("https://acme.example.com/careers#job-7", None))
+    assert not res.ok and res.error == "no_handler"
+    page.assert_not_called()
+
+
+def test_gem_links_share_one_host_limit():
+    assert BF.host_key(GEM_URL) == "api.gem.com"
+    assert BF.host_key("https://jobs.gem.com/other#job-1") == "api.gem.com"
+
+
+def test_build_filters_lets_only_handled_anchor_hosts_through():
+    where, params = BF.build_filters({"review_status", "promoted_at"}, None)
+    assert params[0] == list(ats_api.ANCHOR_HOST_LIKE)
+
+
+def _ukg_page(opp: dict) -> str:
+    """Shaped like the live OpportunityDetail page (checked 13 Nov 2026)."""
+    import json
+    return ("<html><body><div id='Successbanner'></div><script>\n$(function () {\n"
+            "    var opportunity = new US.Opportunity.CandidateOpportunityDetail("
+            + json.dumps(opp) + ", {\"Culture\":\"en-US\"});\n});\n</script></body></html>")
+
+
+class _HtmlResp:
+    def __init__(self, text, status=200):
+        self.text, self.status_code, self.headers = text, status, {"content-type": "text/html"}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+            e = requests.HTTPError(str(self.status_code))
+            e.response = self
+            raise e
+
+
+UKG_DESC = "<p>SUMMARY <br />Under general supervision, design new robotic systems {and} products. </p>" * 3
+
+
+def test_ukg_reads_description_from_page_json():
+    page = _ukg_page({"Id": UKG_ID, "Title": "Mechanical Engineer", "Description": UKG_DESC,
+                      "Locations": [{"Address": {"City": "Miamisburg"}}], "OpportunityIsClosed": False})
+    with mock.patch.object(ats_api.requests, "get", return_value=_HtmlResp(page)) as g:
+        source, text = ats_api.detail_for_url(UKG_URL)
+    assert source == "ukg" and text.startswith("SUMMARY") and "{and}" in text
+    assert g.call_args[0][0] == f"{UKG_BOARD}/OpportunityDetail?opportunityId={UKG_ID}"
+
+
+@pytest.mark.parametrize("page", [
+    "<html><body>Find Opportunities</body></html>",                                  # unknown / closed ID
+    _ukg_page({"Id": UKG_ID, "Description": UKG_DESC, "OpportunityIsClosed": True}),
+    _ukg_page({"Id": "11111111-2222-3333-4444-555555555555", "Description": UKG_DESC}),  # another job
+])
+def test_ukg_closed_or_missing_job_is_too_short(page):
+    with mock.patch.object(ats_api.requests, "get", return_value=_HtmlResp(page)), \
+         mock.patch.object(DF, "fetch_page_html") as listing_fetch:
+        res = asyncio.run(DF.fetch_description(UKG_URL, None))
+    assert not res.ok and res.error == "too_short" and res.source == "ukg"
+    listing_fetch.assert_not_called()
+
+
+def test_ukg_rate_limit_is_transient():
+    with mock.patch.object(ats_api.requests, "get", return_value=_HtmlResp("", status=429)):
+        res = asyncio.run(DF.fetch_description(UKG_URL, None))
+    assert not res.ok and res.transient and res.source == "ukg"
+
+
+def test_ukg_hosts_get_one_request_at_a_time():
+    """--per-host 2, but a UKG host never has two fetches in flight."""
+    in_flight, peak = Counter(), Counter()
+
+    async def fake(url, renderer):
+        h = BF.host_key(url)
+        in_flight[h] += 1
+        peak[h] = max(peak[h], in_flight[h])
+        await asyncio.sleep(0.02)
+        in_flight[h] -= 1
+        return DF.FetchResult(True, text="x" * 200, source="t")
+
+    class W:
+        conn = None
+        def success(self, *a): pass
+        def failure(self, *a, **k): pass
+        def flush(self): pass
+
+    todo = [(1, f"{UKG_BOARD}#job-{i}", 1) for i in range(6)] + \
+           [(2, f"https://careers.acme.com/jobs/{i}", 1) for i in range(6)]
+    with mock.patch.object(BF, "fetch_description", fake), mock.patch.object(BF, "PER_HOST_DELAY_SECONDS", 0):
+        asyncio.run(BF.run_fetches(todo, W(), concurrency=8, per_host=2, max_seconds=60,
+                                   render=False, render_pages=1))
+    assert peak["recruiting.ultipro.com"] == 1 and peak["careers.acme.com"] == 2
+
+
+def _dover_jd(**kw):
+    """Shaped like /api/v1/jobs/<uuid>/get_job_description (checked 13 Nov 2026)."""
+    d = {"id": "239dd6a7-20db-4dc2-9d64-7e2fcd6ec0a2", "job": {"id": DOVER_ID}, "use_dover_jd": False,
+         "is_published": True,
+         "generated_description": {"about_the_role": None, "job_mandates": None, "qualifications": None,
+                                   "about_the_company": None, "additional_information": None, "ai_generated": False},
+         "user_facing_description": "## Job Title\n\nStartup Counsel (stale) " * 6,
+         "user_provided_description": "<h2>Company Overview</h2><p>" + "Dover is building the marketplace for startup experts. " * 4 + "</p>",
+         "external_url": None}
+    d.update(kw)
+    return d
+
+
+def test_dover_uses_the_description_the_page_shows():
+    with mock.patch.object(ats_api.requests, "get", return_value=_Resp(_dover_jd())) as g:
+        source, text = ats_api.detail_for_url(DOVER_URL)
+    assert source == "dover" and text.startswith("Company Overview") and "Startup Counsel" not in text
+    assert g.call_args[0][0] == f"https://jobs.dover.com/api/v1/jobs/{DOVER_ID}/get_job_description"
+
+
+def test_dover_generated_description_when_page_uses_it():
+    jd = _dover_jd(use_dover_jd=True, generated_description={
+        "about_the_role": "Lead people operations for a fast-growing startup marketplace. " * 3,
+        "qualifications": ["Ten years in HR", "Startup experience"]})
+    with mock.patch.object(ats_api.requests, "get", return_value=_Resp(jd)):
+        _source, text = ats_api.detail_for_url(DOVER_URL)
+    assert text.startswith("Lead people operations") and "Startup experience" in text
+
+
+def test_dover_markdown_fallback():
+    jd = _dover_jd(user_provided_description="", user_facing_description="## About\n\n" + "Real role text here. " * 8)
+    with mock.patch.object(ats_api.requests, "get", return_value=_Resp(jd)):
+        _source, text = ats_api.detail_for_url(DOVER_URL)
+    assert "Real role text here." in text
+
+
+@pytest.mark.parametrize("resp", [_Resp({"detail": "Not found."}, status=404), _Resp(_dover_jd(is_published=False))])
+def test_dover_closed_job_is_too_short(resp):
+    with mock.patch.object(ats_api.requests, "get", return_value=resp), \
+         mock.patch.object(DF, "fetch_page_html") as listing_fetch:
+        res = asyncio.run(DF.fetch_description(DOVER_URL, None))
+    assert not res.ok and res.error == "too_short" and res.source == "dover"
+    listing_fetch.assert_not_called()
+
+
+def test_dover_server_error_is_transient():
+    with mock.patch.object(ats_api.requests, "get", return_value=_Resp({}, status=502)):
+        res = asyncio.run(DF.fetch_description(DOVER_URL, None))
+    assert not res.ok and res.transient and res.source == "dover"
