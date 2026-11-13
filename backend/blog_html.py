@@ -1,9 +1,11 @@
 """Sanitizing the rich-text HTML that The JobBeggar Brief editor sends.
 
 Only a small allowlist survives: paragraphs, headings, lists, quotes, links,
-bold/italic/underline/strike, and <span style> with four CSS properties
+bold/italic/underline/strike, <span style> with four CSS properties
 (color, font-size, font-family, font-weight) whose values are checked one by
-one. Scripts, event handlers, iframes, images, classes and any other CSS are
+one, and <img> pointing at an image uploaded to The Brief (/api/blog/images/<id>).
+Image sources are stored as that relative path whatever host the editor used.
+Scripts, event handlers, iframes, other images, classes and any other CSS are
 dropped. Runs on every save, so the stored HTML is always safe to render.
 """
 import html as html_lib
@@ -13,9 +15,9 @@ import nh3
 
 ALLOWED_TAGS = {
     "p", "br", "h2", "h3", "strong", "b", "em", "i", "u", "s",
-    "a", "ul", "ol", "li", "blockquote", "span", "hr",
+    "a", "ul", "ol", "li", "blockquote", "span", "hr", "img",
 }
-ALLOWED_ATTRIBUTES = {"a": {"href", "target"}, "span": {"style"}}
+ALLOWED_ATTRIBUTES = {"a": {"href", "target"}, "span": {"style"}, "img": {"src", "alt"}}
 URL_SCHEMES = {"http", "https", "mailto"}
 STYLE_PROPERTIES = {"color", "font-size", "font-family", "font-weight"}
 
@@ -28,6 +30,13 @@ _STYLE_VALUE_PATTERNS = {
     "font-weight": re.compile(r"^(normal|bold|lighter|bolder|[1-9]00)$"),
 }
 _FONT_SIZE_PX_LIMITS = {"px": (8, 96), "pt": (6, 72), "rem": (0.5, 6), "em": (0.5, 6), "%": (50, 600)}
+
+# Only our own uploads, with or without the API host in front.
+_IMAGE_SRC = re.compile(
+    r"^(?:https?://[^/\s\"'<>]+)?(/api/blog/images/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+)
+_IMG_WITHOUT_SRC = re.compile(r"<img(?![^>]*\bsrc=)[^>]*>", re.I)
+ALT_MAX = 200
 
 # No practical length limit for writers; this only stops absurd payloads
 # (about 2 MB of HTML, far beyond any real article).
@@ -54,6 +63,13 @@ def _clean_style(value):
 
 
 def _attribute_filter(tag, attr, value):
+    if tag == "img":
+        if attr == "src":
+            m = _IMAGE_SRC.match(value.strip())
+            return m.group(1).lower() if m else None
+        if attr == "alt":
+            return value.strip()[:ALT_MAX]
+        return None
     if attr == "style":
         return _clean_style(value)
     if attr == "target":
@@ -76,6 +92,8 @@ def sanitize(raw_html):
         filter_style_properties=STYLE_PROPERTIES,
         link_rel="noopener noreferrer",
     )
+    # an <img> whose source was not one of our uploads is removed entirely
+    cleaned = _IMG_WITHOUT_SRC.sub("", cleaned)
     # drop spans left with no attributes and empty trailing paragraphs
     cleaned = re.sub(r"<span>(.*?)</span>", r"\1", cleaned, flags=re.S)
     cleaned = re.sub(r"(<p>\s*(<br\s*/?>)?\s*</p>\s*)+$", "", cleaned)
