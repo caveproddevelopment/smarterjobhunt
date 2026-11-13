@@ -261,6 +261,29 @@ def test_listing_anchor_links_skipped(db):
     assert not any("#job-" in c for c in calls)
 
 
+def test_gem_anchor_links_selected_and_source_url_kept(db):
+    """A #job- link on a host with a handler (Gem, UKG, Dover) is fetched; one on an
+    unknown host is still skipped; source_url is never rewritten."""
+    url, conn = db
+    _old, new = _seed(conn)
+    gem = "https://jobs.gem.com/cartwheel-1#job-T2F0c0pvYlBvc3Q6NzQ4MDMyOQ%3D%3D"
+    ukg = ("https://mywsc.rec.pro.ukg.net/WEI1500WEIN/JobBoard/60a1b2c3-0000-4000-8000-000000000001"
+           "#job-34169ce2-4eb0-425e-a01d-0c33d6da7d64")
+    dover = "https://jobs.dover.com/acme/0b5d6c2e?src=app#job-aa378aa1-79f3-4995-8667-b78a61c12b11"
+    other = "https://acme.example.com/careers#job-7"
+    for title, link in (("Gem anchor", gem), ("UKG anchor", ukg), ("Dover anchor", dover),
+                        ("Other anchor", other)):
+        _q(conn, """INSERT INTO jobs_staging (company_id, title, source_url, batch_id, scraped_at)
+                    VALUES (1, %s, %s, %s, '2026-10-15 02:00+00')""", (title, link, new))
+    calls = []
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(BF, "fetch_description", _fake_fetch(calls))
+        asyncio.run(BF.main(["--database-url", url]))
+    assert gem in calls and ukg in calls and dover in calls
+    assert other not in calls   # no handler for this host: still skipped
+    assert _q(conn, "SELECT source_url, raw_text FROM jobs_staging WHERE title = 'Gem anchor'")[0] == (gem, DESC)
+
+
 def test_old_failures_table_layout_stops_with_instructions(db):
     url, conn = db
     _seed(conn)
