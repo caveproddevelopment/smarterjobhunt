@@ -368,3 +368,48 @@ def test_author_name_byline(env):
                     "author_name": ""}, headers=admin).get_json()
     assert cleared["author"] is None
     assert _post(env, admin, author_name="x" * 81).status_code == 400
+
+
+def test_images_inside_post_body(env):
+    c = env["client"]
+    admin = _admin(env)
+    up = c.post("/api/blog/images", headers=admin, content_type="multipart/form-data",
+                data={"image": (io.BytesIO(PNG), "pic.png")})
+    assert up.status_code == 201
+    path = up.get_json()["url"]
+    html = (f'<p>Before the chart.</p><img src="https://api.example.com{path}" alt="Hiring chart">'
+            '<img src="https://evil.example/x.png"><img src="javascript:alert(1)" alt="x">'
+            '<img src="data:image/png;base64,AAAA"><p>After the chart.</p>')
+    resp = c.post("/api/blog/posts", json={"author_name": "Priya Sharma", "title": "Post with a picture",
+                                           "body_html": html}, headers=admin)
+    assert resp.status_code == 201, resp.get_json()
+    post = c.get(f"/api/blog/posts/{resp.get_json()['id']}").get_json()
+    h = post["body_html"]
+    # our upload is kept, stored host-free; every other image is dropped
+    assert f'<img src="{path}" alt="Hiring chart">' in h
+    assert h.count("<img") == 1
+    for bad in ("evil.example", "javascript:", "data:"):
+        assert bad not in h
+    assert post["body"] == "Before the chart.\n\nAfter the chart."
+    # removing the image in the editor removes it from the saved post
+    pid = resp.get_json()["id"]
+    upd = c.put(f"/api/blog/posts/{pid}", json={"author_name": "Priya Sharma", "title": "Post with a picture",
+                                                 "body_html": "<p>Before the chart.</p><p>After the chart.</p>"},
+                headers=admin)
+    assert upd.status_code == 200, upd.get_json()
+    assert "<img" not in c.get(f"/api/blog/posts/{pid}").get_json()["body_html"]
+
+
+def test_image_size_limit_is_5_mb(env):
+    c = env["client"]
+    admin = _admin(env)
+
+    def upload(size):
+        data = PNG + b"\x00" * (size - len(PNG))
+        return c.post("/api/blog/images", headers=admin, content_type="multipart/form-data",
+                      data={"image": (io.BytesIO(data), "big.png")})
+
+    assert upload(4_900_000).status_code == 201
+    assert upload(5 * 1024 * 1024).status_code == 201
+    too_big = upload(5 * 1024 * 1024 + 1)
+    assert too_big.status_code == 400 and "5 MB" in too_big.get_json()["error"]
