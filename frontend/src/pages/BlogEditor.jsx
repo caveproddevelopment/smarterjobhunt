@@ -12,7 +12,7 @@ const TITLE_MAX = 150
 const SUBTITLE_MAX = 200
 const CATEGORY_MAX = 40
 const AUTHOR_NAME_MAX = 80
-const IMAGE_MAX = 3 * 1024 * 1024
+const IMAGE_MAX = 5 * 1024 * 1024
 
 export default function BlogEditor() {
   const { id } = useParams()
@@ -69,7 +69,7 @@ export default function BlogEditor() {
     e.target.value = ''
     if (!file) return
     if (file.size > IMAGE_MAX) {
-      setError('Image must be 3 MB or smaller.')
+      setError('Image must be 5 MB or smaller.')
       return
     }
     setError(null)
@@ -167,7 +167,7 @@ export default function BlogEditor() {
             <button type="button" onClick={() => fileInput.current?.click()} disabled={uploading}
               className="mt-2 flex w-full flex-col items-center justify-center rounded-xl border border-dashed border-line bg-white px-4 py-8 text-sm text-ink-soft hover:border-ember disabled:opacity-60">
               {uploading ? 'Uploading...' : 'Click to add a cover image'}
-              <span className="mt-1 text-xs">JPG, PNG, WebP or GIF, up to 3 MB</span>
+              <span className="mt-1 text-xs">JPG, PNG, WebP or GIF, up to 5 MB</span>
             </button>
           )}
           <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={onPickImage} />
