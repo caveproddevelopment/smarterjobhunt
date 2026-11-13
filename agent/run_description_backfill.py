@@ -18,7 +18,7 @@ filled are deleted before it gets to them.
 
 Where descriptions come from, per job (see agent/description_fetch.py):
     platform API (Workday, SmartRecruiters, Oracle, Workable, Greenhouse,
-    Lever) -> the job page over plain HTTP -> the job page rendered in
+    Lever, Gem, UKG, Dover) -> the job page over plain HTTP -> the job page rendered in
     headless Chromium when it is a JavaScript page.
 
 Politeness and limits:
@@ -29,6 +29,11 @@ Failures: each failed link is recorded in description_fetch_failures and
 skipped for 7 days (--retry-after-days) once it has failed 3 times
 (--max-tries). Rate limits (429), server errors and timeouts are recorded but
 don't count as a try.
+
+"#job-<id>" links (a listing page plus a job ID, from job_json.py) are only
+selected when their host has an ID-lookup handler in ats_api._ANCHOR_PATTERNS
+(Gem, UKG and Dover since 2026-11-13); the rest stay skipped. UKG hosts get
+1 request at a time (ats_api.PER_HOST_LIMIT). source_url is never changed.
 
 Rows are only ever filled in where raw_text is empty or shorter than 100
 characters; nothing else about a row is changed.
@@ -82,6 +87,8 @@ _SHARED_API_HOST = {
     "smartrecruiters": "api.smartrecruiters.com",
     "greenhouse":      "boards-api.greenhouse.io",
     "lever":           "api.lever.co",
+    "gem":             "api.gem.com",
+    "dover":           "jobs.dover.com",
 }
 
 
@@ -140,10 +147,12 @@ def latest_batch(conn, table: str, cols: set[str]):
 def build_filters(cols: set[str], batch_id) -> tuple[sql.Composed, list]:
     """WHERE clause for rows that still need a description."""
     parts = [sql.SQL("t.source_url IS NOT NULL AND btrim(t.source_url) <> ''"),
-             # "#job-N" links point at a listing page, not a job page of its own
-             sql.SQL("t.source_url NOT LIKE '%%#job-%%'"),
+             # "#job-N" links point at a listing page, not a job page of its
+             # own; only platforms with an ID-lookup handler can fill them.
+             sql.SQL("(t.source_url NOT LIKE '%%#job-%%' OR lower(substring(t.source_url "
+                     "from '^[A-Za-z]+://([^/?#:]+)')) LIKE ANY (%s))"),
              sql.SQL("(t.raw_text IS NULL OR char_length(btrim(t.raw_text)) < %s)")]
-    params: list = [MIN_DESCRIPTION_CHARS]
+    params: list = [list(ats_api.ANCHOR_HOST_LIKE) or ["-"], MIN_DESCRIPTION_CHARS]
     if batch_id is not None:
         parts.append(sql.SQL("t.batch_id::text = %s"))
         params.append(str(batch_id))
@@ -256,7 +265,14 @@ async def run_fetches(todo, writer: Writer, *, concurrency: int, per_host: int,
     by_source_ok = Counter()
     by_source_fail = Counter()
     errors = Counter()
-    host_sems: dict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(per_host))
+    host_sems: dict[str, asyncio.Semaphore] = {}
+
+    def host_sem(url: str) -> asyncio.Semaphore:
+        key = host_key(url)
+        if key not in host_sems:
+            limit = ats_api.PER_HOST_LIMIT.get(ats_api.detail_source_for_url(url), per_host)
+            host_sems[key] = asyncio.Semaphore(max(1, min(per_host, limit)))
+        return host_sems[key]
     deadline = time.monotonic() + max_seconds
     renderer = Renderer(max_pages=render_pages) if render else None
     queue: asyncio.Queue = asyncio.Queue()
@@ -277,7 +293,7 @@ async def run_fetches(todo, writer: Writer, *, concurrency: int, per_host: int,
             if time.monotonic() >= deadline:
                 stats["not_started_time_limit"] += 1
                 continue
-            async with host_sems[host_key(url)]:
+            async with host_sem(url):
                 try:
                     res = await asyncio.wait_for(fetch_description(url, renderer), timeout=JOB_TIMEOUT_SECONDS)
                 except asyncio.TimeoutError:
