@@ -31,7 +31,7 @@ SUBTITLE_MAX = 200
 CATEGORY_MAX = 40
 AUTHOR_NAME_MAX = 80
 COMMENT_MAX = 2000
-IMAGE_MAX_BYTES = 3 * 1024 * 1024
+IMAGE_MAX_BYTES = 5 * 1024 * 1024
 EXCERPT_CHARS = 220
 
 # Magic-byte sniffing -- never trust the browser's Content-Type.
@@ -390,7 +390,7 @@ def upload_image():
         return jsonify({"error": "No image uploaded."}), 400
     data = file.read(IMAGE_MAX_BYTES + 1)
     if len(data) > IMAGE_MAX_BYTES:
-        return jsonify({"error": "Image must be 3 MB or smaller."}), 400
+        return jsonify({"error": "Image must be 5 MB or smaller."}), 400
     ctype = _sniff_image(data)
     if ctype is None:
         return jsonify({"error": "Use a JPG, PNG, WebP or GIF image."}), 400
