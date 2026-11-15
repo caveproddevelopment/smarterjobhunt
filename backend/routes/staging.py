@@ -3,6 +3,17 @@ from flask import Blueprint, jsonify, request
 from auth_utils import require_admin_key
 from db.connection import get_cursor
 
+# Short text (< 100 chars) matching this is a placeholder, not a description.
+# Copy of JUNK_DESCRIPTION_SQL in agent/agent/description_fetch.py (the backend
+# and the scraper deploy separately) -- keep the two in sync.
+JUNK_DESCRIPTION_SQL = (
+    r"^\W*(loading|please wait)\W*$|^\W*loading (job|jobs|content|page|details|data|position)"
+    r"|enable javascript|javascript is (required|disabled)"
+    r"|enable cookies|we use cookies|cookies? (policy|settings|preferences)"
+    r"|page not found|\y404\y|access denied|just a moment|checking your browser"
+    r"|^\W*(sign in|log in|apply now|click here|undefined|null|n/?a|error)\W*$"
+)
+
 bp = Blueprint("staging", __name__, url_prefix="/api/admin/staging")
 
 STAGING_FIELDS = """
@@ -177,19 +188,23 @@ def auto_clean():
         (batch_id,),
     )
 
-    # 5. Everything still pending with a title, a source_url, and
-    #    substantial raw_text has nothing obviously wrong -- auto-approve.
-    #    Anything short of that (e.g. a title + source_url but thin or
-    #    missing raw_text) stays 'pending' for manual review.
+    # 5. Everything still pending with a title, a source_url, and a real
+    #    description has nothing obviously wrong -- auto-approve. Short
+    #    descriptions count (some real jobs have them, changed 2026-11-15);
+    #    empty raw_text, or short placeholder text ("Loading...", "Please
+    #    enable JavaScript", ...), stays 'pending' for manual review.
+    #    The junk pattern is a copy of JUNK_DESCRIPTION_SQL in
+    #    agent/agent/description_fetch.py -- keep the two in sync.
     cur.execute(
         """
         UPDATE jobs_staging
         SET review_status = 'approved'
         WHERE batch_id = %s AND review_status = 'pending'
           AND source_url IS NOT NULL AND btrim(source_url) <> ''
-          AND raw_text IS NOT NULL AND char_length(btrim(raw_text)) >= 100
+          AND raw_text IS NOT NULL AND btrim(raw_text) <> ''
+          AND NOT (char_length(btrim(raw_text)) < 100 AND raw_text ~* %s)
         """,
-        (batch_id,),
+        (batch_id, JUNK_DESCRIPTION_SQL),
     )
 
     cur.connection.commit()

@@ -35,8 +35,12 @@ selected when their host has an ID-lookup handler in ats_api._ANCHOR_PATTERNS
 (Gem, UKG and Dover since 2026-11-13); the rest stay skipped. UKG hosts get
 1 request at a time (ats_api.PER_HOST_LIMIT). source_url is never changed.
 
-Rows are only ever filled in where raw_text is empty or shorter than 100
-characters; nothing else about a row is changed.
+Rows are only ever filled in where raw_text is empty or is short junk
+("Loading...", "Please enable JavaScript", ... -- see
+description_fetch.is_junk_description); nothing else about a row is changed.
+Real short descriptions are kept: a description is no longer required to be
+100+ characters (changed 2026-11-15). Short ones show as "<source>_short" in
+the "Filled by source" line.
 
 Usage:
     python run_description_backfill.py --dry-run          # counts only, no fetching, no writes
@@ -63,7 +67,8 @@ import psycopg2
 from psycopg2 import sql
 
 from agent import ats_api
-from agent.description_fetch import MIN_DESCRIPTION_CHARS, FetchResult, Renderer, fetch_description
+from agent.description_fetch import (JUNK_DESCRIPTION_SQL, MIN_DESCRIPTION_CHARS, FetchResult, Renderer,
+                                     fetch_description)
 
 PER_HOST_DELAY_SECONDS = 0.5
 JOB_TIMEOUT_SECONDS = 90
@@ -144,6 +149,16 @@ def latest_batch(conn, table: str, cols: set[str]):
         return row[0] if row else None
 
 
+# A row needs a description when raw_text is empty, or short and junk.
+# Real short descriptions are left alone.
+NEEDS_DESCRIPTION = ("({col} IS NULL OR btrim({col}) = '' OR "
+                     "(char_length(btrim({col})) < %s AND {col} ~* %s))")
+
+
+def needs_description_params() -> list:
+    return [MIN_DESCRIPTION_CHARS, JUNK_DESCRIPTION_SQL]
+
+
 def build_filters(cols: set[str], batch_id) -> tuple[sql.Composed, list]:
     """WHERE clause for rows that still need a description."""
     parts = [sql.SQL("t.source_url IS NOT NULL AND btrim(t.source_url) <> ''"),
@@ -151,8 +166,8 @@ def build_filters(cols: set[str], batch_id) -> tuple[sql.Composed, list]:
              # own; only platforms with an ID-lookup handler can fill them.
              sql.SQL("(t.source_url NOT LIKE '%%#job-%%' OR lower(substring(t.source_url "
                      "from '^[A-Za-z]+://([^/?#:]+)')) LIKE ANY (%s))"),
-             sql.SQL("(t.raw_text IS NULL OR char_length(btrim(t.raw_text)) < %s)")]
-    params: list = [list(ats_api.ANCHOR_HOST_LIKE) or ["-"], MIN_DESCRIPTION_CHARS]
+             sql.SQL(NEEDS_DESCRIPTION.replace("{col}", "t.raw_text"))]
+    params: list = [list(ats_api.ANCHOR_HOST_LIKE) or ["-"], *needs_description_params()]
     if batch_id is not None:
         parts.append(sql.SQL("t.batch_id::text = %s"))
         params.append(str(batch_id))
@@ -218,15 +233,16 @@ class Writer:
         self.update_sql = sql.SQL("""
             UPDATE {t} SET raw_text = %s
             WHERE company_id = %s AND source_url = %s
-              AND (raw_text IS NULL OR char_length(btrim(raw_text)) < %s){b}
-        """).format(t=t, b=batch_clause)
+              AND {needs}{b}
+        """).format(t=t, b=batch_clause, needs=sql.SQL(NEEDS_DESCRIPTION.replace("{col}", "raw_text")))
 
     def _batch_params(self):
         return [str(self.batch_id)] if self.batch_id is not None else []
 
     def success(self, company_id, url, text):
         with self.conn.cursor() as cur:
-            cur.execute(self.update_sql, [text, company_id, url, MIN_DESCRIPTION_CHARS, *self._batch_params()])
+            cur.execute(self.update_sql, [text, company_id, url, *needs_description_params(),
+                                          *self._batch_params()])
             self.rows_updated += cur.rowcount
             cur.execute("DELETE FROM description_fetch_failures WHERE company_id = %s AND source_url = %s",
                         (company_id, url))
