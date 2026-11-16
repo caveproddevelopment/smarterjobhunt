@@ -41,10 +41,10 @@ def generate_variants(job_title):
 @require_auth
 def get_title_variants():
     cur = get_cursor()
-    cur.execute("SELECT plan FROM users WHERE id = %s", (g.user_id,))
-    user = cur.fetchone()
-    if user is None or user["plan"] != "pro":
-        return jsonify({"error": "An active weekly subscription or trial is required."}), 402
+    # Free for every signed-in user (JobBeggar no longer charges).
+    cur.execute("SELECT 1 FROM users WHERE id = %s", (g.user_id,))
+    if cur.fetchone() is None:
+        return jsonify({"error": "Please log in to continue."}), 401
 
     job_title = (request.args.get("title") or "").strip()
     if not job_title:
