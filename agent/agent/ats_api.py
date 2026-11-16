@@ -53,6 +53,7 @@ raw_text.
 """
 
 import re
+import sys
 import time
 import requests
 from concurrent.futures import ThreadPoolExecutor
@@ -74,13 +75,15 @@ HEADERS = {
 
 DETAIL_FETCH_CAP = 60        # max per-job detail requests per company (only when fetch_details=True)
 DETAIL_CONCURRENCY = 5
-MAX_JOBS_PER_COMPANY = 5000  # pagination safety cap (was 1000 until 2026-10-15)
+# No job cap (removed 2026-11-16; was 5,000, and 1,000 before 2026-10-15):
+# paging keeps going until the board runs out of jobs or LIST_BUDGET_SECONDS
+# is up. Kept as a name so the paging loops and tests can still lower it.
+MAX_JOBS_PER_COMPANY = sys.maxsize
 LIST_BUDGET_SECONDS = 120    # stop paging after this long and keep what we have
-# Phenom boards get their own cap (2026-11-11): Advance Auto has ~16,300 jobs and
-# TJX ~10,000, and the Phenom handler fetches all 16,284 of Advance Auto's in
-# ~70s, inside LIST_BUDGET_SECONDS. If a board is slower, paging still stops at
-# the budget and keeps what it has (diag "truncated").
-PHENOM_MAX_JOBS = 25000
+# Phenom boards: no job cap either (was 25,000 from 2026-11-11). Advance Auto
+# (~16,300 jobs) fetches in ~70s, inside LIST_BUDGET_SECONDS; a slower board
+# still stops at the budget and keeps what it has (diag "truncated").
+PHENOM_MAX_JOBS = sys.maxsize
 
 # Set per call by fetch_jobs(); read by the paging loops. Thread-local so
 # concurrent fetches (asyncio.to_thread) don't share one deadline/diag.

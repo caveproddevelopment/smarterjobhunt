@@ -6,6 +6,7 @@ Run:  python -m pytest tests/test_phenom.py -q
 """
 import contextlib
 import json
+import sys
 from unittest import mock
 
 import pytest
@@ -265,10 +266,10 @@ def test_time_budget_keeps_what_was_fetched():
     assert "120s" in diag["truncated"]
 
 
-def test_other_platforms_keep_the_5000_cap():
-    assert ats_api._job_cap("phenom") == ats_api.PHENOM_MAX_JOBS == 25000
-    for ats in ("greenhouse", "workday", "lever", "smartrecruiters"):
-        assert ats_api._job_cap(ats) == ats_api.MAX_JOBS_PER_COMPANY == 5000
+def test_no_job_cap_on_any_platform():
+    # Caps removed 2026-11-16; only the time budget limits a board now.
+    for ats in ("phenom", "greenhouse", "workday", "lever", "smartrecruiters"):
+        assert ats_api._job_cap(ats) == sys.maxsize
 
 
 def test_page_size_is_capped_at_500():

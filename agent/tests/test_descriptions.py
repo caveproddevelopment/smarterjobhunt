@@ -1,6 +1,6 @@
 """Tests for the 2026-10-15 description changes (no internet).
 
-  - nightly scrape: no per-job detail calls, 5,000-job cap, paging budget
+  - nightly scrape: no per-job detail calls, no job cap, paging budget
   - ats_api.detail_for_url: apply_url -> platform API
   - description_fetch: JSON-LD / content extraction, API -> page -> headless render
   - run_description_backfill: host interleaving
@@ -65,13 +65,13 @@ def test_list_endpoint_descriptions_are_kept():
     assert jobs[0]["description_snippet"] == "Great job"   # escaped HTML is cleaned too
 
 
-def test_cap_is_5000():
-    assert ats_api.MAX_JOBS_PER_COMPANY == 5000
+def test_no_job_cap():
+    # The 5,000-job cap was removed 2026-11-16: every job on the board is kept.
     with mock.patch.object(ats_api.requests, "post", side_effect=_workday_pages(5100)):
         diag = {}
         jobs = ats_api.fetch_jobs("workday", "acme.wd5.myworkdayjobs.com|acme|Careers", diag=diag)
-    assert len(jobs) == 5000
-    assert "MAX_JOBS_PER_COMPANY" in diag.get("truncated", "")
+    assert len(jobs) == 5100
+    assert "truncated" not in diag
 
 
 def test_paging_budget_keeps_partial_results(monkeypatch):
