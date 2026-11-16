@@ -8,7 +8,7 @@ export default function TermsOfService() {
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
         <SEO
           title="Terms of Service - JobBeggar"
-          description="Read JobBeggar's Terms of Service covering account use, subscriptions, and acceptable use of the site."
+          description="Read JobBeggar's Terms of Service covering account use and acceptable use of the site."
           path="/terms"
         />
         <Navbar />
@@ -68,49 +68,23 @@ export default function TermsOfService() {
 
             <section className="border-t border-line pt-6">
               <h2 className="font-display text-xl font-semibold text-ink">
-                3. Subscription and Billing
+                3. Pricing
               </h2>
-              <p className="mt-3">JobBeggar is offered on a subscription basis:</p>
-              <ul className="mt-3 list-disc space-y-2 pl-5">
-                <li>Weekly plan: $1.99, billed every 7 days</li>
-              </ul>
               <p className="mt-3">
-                A payment method is collected as part of registration, and every new
-                subscription includes a 7-day free trial. You will not be charged during
-                the trial. Unless you cancel before the trial ends, your subscription
-                converts automatically to a paid subscription and your payment method is
-                charged $1.99, billed every 7 days thereafter, until canceled.
+                JobBeggar is free to use. We don't charge for an account or for access to
+                job listings, and we don't collect a payment method.
               </p>
               <p className="mt-3">
-                <strong className="font-semibold text-ink">Automatic renewal:</strong>{' '}
-                Subscriptions renew automatically at the end of each billing period
-                unless canceled before the renewal date. You authorize us (and our
-                payment processor) to charge your payment method on file for each
-                renewal.
-              </p>
-              <p className="mt-3">
-                <strong className="font-semibold text-ink">Cancellation:</strong> You may
-                cancel your subscription at any time through your account settings or by
-                contacting{' '}
+                If you still have a subscription from when JobBeggar was a paid service,
+                you can cancel it from your Profile page or by contacting{' '}
                 <a href="mailto:support@jobbeggar.com" className="font-semibold text-ember hover:underline">
                   support@jobbeggar.com
                 </a>
-                . Cancellation stops future billing but does not refund the current
-                billing period already paid for, except where required by law.
+                .
               </p>
               <p className="mt-3">
-                <strong className="font-semibold text-ink">Refunds:</strong> Payments are
-                generally non-refundable. If you believe you were charged in error,
-                contact{' '}
-                <a href="mailto:support@jobbeggar.com" className="font-semibold text-ember hover:underline">
-                  support@jobbeggar.com
-                </a>{' '}
-                and we'll review it.
-              </p>
-              <p className="mt-3">
-                <strong className="font-semibold text-ink">Price changes:</strong> We may
-                change subscription pricing. If we do, we'll provide notice before the
-                change takes effect for existing subscribers.
+                If we ever introduce paid features, we'll give notice first and nothing
+                will be charged without your agreement.
               </p>
             </section>
 
