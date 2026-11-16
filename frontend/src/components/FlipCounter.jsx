@@ -3,8 +3,9 @@
 // landing page's "Current Company Count" / "Current Job Count" stats.
 //
 // `value` is zero-padded to `digits` places so the tile count never shifts
-// as the number animates up (see useCountUp), matching the old
-// font-mono padCount() behavior it replaces.
+// as the number animates up (see useCountUp). Landing passes the final
+// count's own length as `digits`, so the settled number has no leading
+// zeros (5499, not 05499).
 
 const DIGIT_SRC = Array.from({ length: 10 }, (_, i) => `/images/flip-clock/${i}.png`)
 

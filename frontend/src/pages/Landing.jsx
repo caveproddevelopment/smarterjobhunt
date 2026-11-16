@@ -98,10 +98,10 @@ export default function Landing() {
 
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-10 gap-y-1 px-6 pb-2 text-center">
           <p className="flex items-center gap-2 font-display text-sm font-semibold text-ink">
-            Current Company Count <FlipCounter value={animatedCompanyCount} />
+            Current Company Count <FlipCounter value={animatedCompanyCount} digits={String(stats.companyCount).length} />
           </p>
           <p className="flex items-center gap-2 font-display text-sm font-semibold text-ink">
-            Current Job Count <FlipCounter value={animatedJobCount} />
+            Current Job Count <FlipCounter value={animatedJobCount} digits={String(stats.jobCount).length} />
           </p>
         </div>
 
@@ -119,7 +119,7 @@ export default function Landing() {
                 to="/login?mode=register"
                 className="mt-6 inline-block font-display text-lg font-bold text-blue-600 underline"
               >
-                Register Now For Full Site Access — Start Your 1 Week Free Trial
+                Register Now For Full Site Access — It's Free
               </Link>
 
               <div className="mt-6 flex items-center justify-center gap-3">
@@ -147,7 +147,7 @@ export default function Landing() {
               <div className="mt-8 flex items-center justify-center gap-4">
                 <span className="h-1 w-8 rounded-full bg-line sm:w-12" aria-hidden />
                 <p className="font-display text-[1.6875rem] italic text-[#019c58]">
-                  One Week Free With Full Access
+                  Free With Full Access
                 </p>
                 <span className="h-1 w-8 rounded-full bg-line sm:w-12" aria-hidden />
               </div>
