@@ -59,11 +59,7 @@ export default function Login() {
       setSubmitting(true)
       try {
         const data = await loginWithGoogle(credential)
-        if (data.user.plan === 'pro') {
-          navigate('/dashboard')
-        } else {
-          await startCheckout('week', data.token)
-        }
+        navigate('/dashboard') // JobBeggar is free -- no checkout
       } catch (err) {
         setError(err.message)
       } finally {
@@ -82,14 +78,10 @@ export default function Login() {
     try {
       if (mode === 'login') {
         const data = await login(email, password)
-        if (data.user.plan === 'pro') {
-          navigate('/dashboard')
-        } else {
-          await startCheckout('week', data.token)
-        }
+        navigate('/dashboard') // JobBeggar is free -- no checkout
       } else if (mode === 'register') {
         // Creates the account and emails a verification link. They verify,
-        // log in, and only then go to payment setup (see the login branch).
+        // log in, and land on Job Listings.
         const data = await register(fullName, email, password, country)
         setPendingVerifyEmail(data.email || email)
       } else {
@@ -119,7 +111,7 @@ export default function Login() {
             <h1 className="font-display text-2xl font-semibold text-ink">Verify your email</h1>
             <p className="mt-3 text-sm text-ink-soft">
               We sent a verification link to <strong>{pendingVerifyEmail}</strong>. Click it to
-              confirm your email, then log in to start your free week.
+              confirm your email, then log in to start searching.
             </p>
             <p className="mt-3 text-sm text-ink-soft">
               Can't find it? Check your spam folder, or send it again. The link works for 15
