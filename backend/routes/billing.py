@@ -91,6 +91,13 @@ def create_checkout_session():
                                                     -> open Razorpay Checkout
       409 {"code": "country_required"}              -> ask for the country,
                                                        retry with {"country"}"""
+    # JobBeggar is free now -- no new subscriptions (FREE_MODE, on unless
+    # FREE_MODE=false). Existing subscribers can still open the portal /
+    # cancel through the other billing routes.
+    if current_app.config.get("FREE_MODE", True):
+        return jsonify({"error": "JobBeggar is now free -- no subscription needed.",
+                        "code": "free"}), 410
+
     body = request.get_json(silent=True) or {}
     interval = body.get("interval", "week")
     price_id = _price_id_for(interval)

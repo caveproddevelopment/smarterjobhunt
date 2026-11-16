@@ -12,7 +12,7 @@ export default function FAQ() {
       <div className="mx-auto min-h-screen max-w-6xl bg-paper shadow-2xl shadow-ink/10">
         <SEO
           title="JobBeggar FAQ"
-          description="Answers about JobBeggar's weekly subscription, job matching, and company career-page search."
+          description="Answers about JobBeggar, job matching, and company career-page search."
           path="/faq"
         />
         <Navbar />

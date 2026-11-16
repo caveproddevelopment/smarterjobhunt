@@ -71,20 +71,19 @@ def _has_premium_access(user_id):
     frontend did or didn't send, so the data itself never leaves the
     server for a caller who isn't entitled to see it.
     """
+    # JobBeggar is now free: every signed-in user gets full access, no
+    # subscription needed. Anonymous callers still get titles only.
     if user_id is None:
         return False
     cur = get_cursor()
-    cur.execute("SELECT plan FROM users WHERE id = %s", (user_id,))
-    row = cur.fetchone()
-    if row is None:
-        return False
-    return row["plan"] == "pro"
+    cur.execute("SELECT 1 FROM users WHERE id = %s", (user_id,))
+    return cur.fetchone() is not None
 
 
 def _premium_access_error(user_id):
     if _has_premium_access(user_id):
         return None
-    return jsonify({"error": "An active weekly subscription or trial is required."}), 402
+    return jsonify({"error": "Log in (free) to search jobs and see full details."}), 402
 
 
 def _remember_last_search(title, variant_titles, offset, company_id, status_filter):

@@ -121,7 +121,7 @@ export default function JobListings() {
   // see USER_FIELDS in routes/auth.py) have access; everyone else doesn't.
   // Anyone can search by title, but only subscribers see full job details
   // and can Apply -- the API sends non-subscribers job titles only.
-  const canApply = user?.plan === 'pro'
+  const canApply = !!user // free for every signed-in user
   const [showAccessExpiredModal, setShowAccessExpiredModal] = useState(false)
   const [savingDefaults, setSavingDefaults] = useState(false)
   const [titleVariants, setTitleVariants] = useState([])

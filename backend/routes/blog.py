@@ -102,8 +102,8 @@ def _viewer():
         if row:
             viewer = dict(row)
             viewer["is_admin"] = row["email"].lower() in _admin_emails()
-            # comment + like: subscribers, and admins whatever their plan
-            viewer["can_engage"] = row["plan"] == "pro" or viewer["is_admin"]
+            # comment + like: any signed-in user (the site is free now)
+            viewer["can_engage"] = True
     g._blog_viewer = viewer
     return viewer
 

@@ -190,7 +190,7 @@ export default function BlogPost() {
           <section className="mt-10 border-t border-line pt-8">
             <div className="flex items-center gap-4">
               <button type="button" onClick={onLike} disabled={busy || !me.can_engage}
-                title={me.can_engage ? (post.liked_by_me ? 'Unlike' : 'Like') : 'Subscribers can like posts'}
+                title={me.can_engage ? (post.liked_by_me ? 'Unlike' : 'Like') : 'Log in to like posts'}
                 className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed ${
                   post.liked_by_me ? 'border-ember bg-ember/10 text-ember' : 'border-line text-ink hover:bg-mist'
                 }`}>

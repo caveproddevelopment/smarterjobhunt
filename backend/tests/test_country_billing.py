@@ -123,6 +123,7 @@ def env(db_url, monkeypatch):
 
     flask_app = app_module.create_app()
     flask_app.config.update(
+        FREE_MODE=False,  # these tests cover the old paid flow for existing subscribers
         TESTING=True, STRIPE_PRICE_WEEKLY="price_week", STRIPE_SECRET_KEY="sk_test",
         RAZORPAY_KEY_ID="rzp_test_key", RAZORPAY_KEY_SECRET=KEY_SECRET,
         RAZORPAY_PLAN_ID_WEEKLY="plan_inr_week", RAZORPAY_WEBHOOK_SECRET=WEBHOOK_SECRET,
@@ -439,10 +440,11 @@ def test_last_search_saved_for_subscribers_on_first_page_only(env):
     assert me["last_search_title"] == "Data Analyst" and me["last_search_variants"] == ["Business Analyst", "BI Analyst"]
 
 
-def test_last_search_not_saved_for_non_subscribers(env):
+def test_last_search_saved_for_free_users(env):
+    # JobBeggar is free: any signed-in user's search is remembered.
     user_id, headers = _register(env["client"], US_IP, country="US")
     env["client"].get("/api/jobs?title=Nurse", headers=headers)
-    assert _row(env, user_id, "last_search_title")["last_search_title"] is None
+    assert _row(env, user_id, "last_search_title")["last_search_title"] == "Nurse"
 
 
 # --- sign-up flow: verify email -> log in -> checkout -> Job Listings ---------

@@ -98,7 +98,7 @@ export default function JobCard({
               onClick={onRequireSubscription}
               className="mt-2 text-xs font-medium text-ember hover:text-flame"
             >
-              🔒 Subscribe to unlock company, department &amp; location
+              🔒 Log in (it's free) to unlock company, department &amp; location
             </button>
           </>
         )}

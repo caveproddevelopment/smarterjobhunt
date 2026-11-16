@@ -168,12 +168,11 @@ export function SubscribePrompt({ loggedIn, action = 'comment on and like posts'
     <div className="rounded-2xl border border-line bg-mist p-5 text-sm text-ink-soft">
       {loggedIn ? (
         <>
-          Subscribers can {action}.{' '}
-          <Link to="/pricing" className="font-semibold text-ember hover:underline">See plans</Link>
+          Signed-in users can {action}.
         </>
       ) : (
         <>
-          <Link to="/login" className="font-semibold text-ember hover:underline">Log in</Link> as a subscriber
+          <Link to="/login" className="font-semibold text-ember hover:underline">Log in</Link> (it's free)
           to {action}.
         </>
       )}

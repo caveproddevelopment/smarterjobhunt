@@ -119,8 +119,8 @@ export default function WhatIsThis() {
             >
               Browse open roles
             </Link>
-            <Link to="/pricing" className="text-sm font-semibold text-ink-soft hover:text-ink">
-              See pricing →
+            <Link to="/login" className="text-sm font-semibold text-ink-soft hover:text-ink">
+              Sign up free →
             </Link>
           </div>
         </main>

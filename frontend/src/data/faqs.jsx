@@ -3,8 +3,8 @@
 // (pages/Landing.jsx), so the two never drift out of sync with each other.
 export const faqs = [
   {
-    q: 'Why no free tier?',
-    a: "I built something of real value here — advertising income is basically meaningless, and it wouldn't come close to covering what this actually costs to run. If you see the value in using this site, the subscription is pretty tiny. If you want free, go check out those \"fun and useful\" job boards.",
+    q: 'Is JobBeggar really free?',
+    a: "Yes. No subscription, no trial, no card. Make an account and you get full access to every listing.",
   },
   {
     q: 'How many companies are there?',
@@ -13,10 +13,6 @@ export const faqs = [
   {
     q: 'How reliable is the matching score?',
     a: "For what it is, the matching score is exact — it's not a fuzzy guess, it's math, and here's the actual rule. We score every job two ways: how well your search words show up in the title, and how well they show up in the full job description. If a job's title (or one of the 15 title variants we also check) contains your exact search phrase, that side scores a full 100%. Otherwise, each word you typed counts for an equal share of 100%, and the title only earns credit for the words it actually contains. A job only makes it into your results if the title side or the description side clears 50% on its own — and whichever one cleared that bar is the percentage shown on the card. It's never a blended average, so the number you see always matches the actual reason the job showed up. Match every single word in both the title and the description, and the job gets marked a Perfect Match and jumps to the top of the list, newest first. If you're logged in, you'll also see a personalized AI match score on jobs — that one's calculated separately, comparing your profile against the listing on its own schedule behind the scenes.",
-  },
-  {
-    q: 'Can I cancel anytime?',
-    a: "Of course. There's no trap. Your first week is free, then the subscription renews weekly at $1.99. Cancel anytime.",
   },
   {
     q: 'What happens if I find a broken listing?',

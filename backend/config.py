@@ -92,6 +92,10 @@ class Config:
     # again (also needs KEY_ID, KEY_SECRET and PLAN_ID_WEEKLY; create the plan
     # with scripts/create_razorpay_plan.py). The webhook secret is whatever
     # you type when adding the webhook in the Razorpay Dashboard.
+    # JobBeggar is free: every signed-in user has full access and new
+    # checkouts are refused. Set FREE_MODE=false only to re-open checkout.
+    FREE_MODE = os.environ.get("FREE_MODE", "true").lower() in ("1", "true", "yes")
+
     RAZORPAY_CHECKOUT_ENABLED = os.environ.get("RAZORPAY_CHECKOUT_ENABLED", "false").lower() in (
         "1", "true", "yes",
     )

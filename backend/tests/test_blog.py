@@ -83,7 +83,7 @@ def test_validation(env):
     assert _post(env, admin, body="   ").status_code == 400  # empty post
 
 
-def test_likes_toggle_and_need_subscription(env):
+def test_likes_toggle_and_need_login(env):
     c = env["client"]
     post = _post(env, _admin(env)).get_json()
     _, reader, _ = _user(env)
@@ -92,7 +92,7 @@ def test_likes_toggle_and_need_subscription(env):
     assert c.get(f"/api/blog/posts/{post['id']}", headers=reader).get_json()["liked_by_me"] is True
     assert c.post(url, headers=reader).get_json() == {"liked": False, "like_count": 0}
     _, free, _ = _user(env, plan="free")
-    assert c.post(url, headers=free).status_code == 403
+    assert c.post(url, headers=free).status_code == 200  # free users can like now
     assert c.post(url).status_code == 401
 
 
@@ -106,10 +106,12 @@ def test_comments_public_read_subscriber_write_and_delete_rules(env):
     assert resp.status_code == 201
     comment = resp.get_json()
     _, free, _ = _user(env, plan="free")
-    assert c.post(url, json={"body": "hi"}, headers=free).status_code == 403
+    free_comment = c.post(url, json={"body": "hi"}, headers=free)  # free users can comment now
+    assert free_comment.status_code == 201
     public = c.get(url).get_json()
-    assert [x["body"] for x in public] == ["Great post!"] and public[0]["can_delete"] is False
-    assert c.get(f"/api/blog/posts/{post['id']}").get_json()["comment_count"] == 1
+    assert [x["body"] for x in public] == ["Great post!", "hi"] and public[0]["can_delete"] is False
+    assert c.get(f"/api/blog/posts/{post['id']}").get_json()["comment_count"] == 2
+    assert c.delete(f"/api/blog/comments/{free_comment.get_json()['id']}", headers=free).status_code == 200
     # another subscriber can't delete it; the commenter and admins can
     _, other, _ = _user(env)
     assert c.delete(f"/api/blog/comments/{comment['id']}", headers=other).status_code == 404
