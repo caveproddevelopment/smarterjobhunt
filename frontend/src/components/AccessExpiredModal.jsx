@@ -1,22 +1,22 @@
 import { Link } from 'react-router-dom'
 
-// Shown when a user tries to access job discovery without the weekly
-// subscription or its seven-day trial.
+// Shown when a signed-out visitor tries to search jobs. JobBeggar is free --
+// they only need an account.
 export default function AccessExpiredModal({ onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4">
       <div className="w-full max-w-md border border-line bg-paper p-6 shadow-xl">
-        <h2 className="font-display text-lg font-semibold text-ink">Subscription required</h2>
+        <h2 className="font-display text-lg font-semibold text-ink">Log in to search</h2>
         <p className="mt-1 text-sm text-ink-soft">
-          Start the weekly plan to search jobs and view full listing details. Your first week is free.
+          JobBeggar is free. Create an account or log in to search jobs and view full listing details.
         </p>
 
         <Link
-          to="/pricing"
+          to="/login"
           onClick={onClose}
           className="mt-5 block w-full rounded-full flame-gradient py-2.5 text-center text-sm font-semibold text-white transition-transform hover:scale-[1.02]"
         >
-          Start your free week
+          Log in or sign up — free
         </Link>
 
         <button
