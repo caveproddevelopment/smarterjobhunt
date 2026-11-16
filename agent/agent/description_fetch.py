@@ -13,6 +13,11 @@ One job at a time, from its apply_url:
   3. If that gives fewer than MIN_DESCRIPTION_CHARS (a JavaScript page that
      renders client-side), the page is rendered in headless Chromium and
      step 2's extraction runs on the rendered HTML.
+  4. If every step only found short text (under MIN_DESCRIPTION_CHARS), the
+     longest short text is kept as long as it isn't junk ("Loading...",
+     "Please enable JavaScript", cookie banners, ...): some real jobs have
+     short descriptions. Its source gets a "_short" suffix. Empty or junk
+     text is still a too_short failure. (Changed 2026-11-15.)
 
 Outcomes are FetchResult(ok, text, source, error, transient). `transient`
 marks failures that say nothing about the link itself (HTTP 429, 5xx,
@@ -31,7 +36,55 @@ import requests
 from . import ats_api
 from .text_extract import DESCRIPTION_SNIPPET_CHARS, make_snippet
 
-MIN_DESCRIPTION_CHARS = 100   # same bar as the backend's auto-approve rule
+# Below this many characters a description is "short": the fetcher still tries
+# the next step (page, then rendered page) for something longer, and only keeps
+# short text that isn't junk. It is no longer a minimum for saving.
+MIN_DESCRIPTION_CHARS = 100
+
+# Text under MIN_DESCRIPTION_CHARS that is a placeholder, not a description.
+# Keep in sync with JUNK_DESCRIPTION_SQL below and the copy in
+# backend/routes/staging.py (auto-approve rule).
+JUNK_DESCRIPTION_RE = re.compile(
+    r"^\W*(loading|please wait)\W*$|^\W*loading (job|jobs|content|page|details|data|position)"
+    r"|enable javascript|javascript is (required|disabled)"
+    r"|enable cookies|we use cookies|cookies? (policy|settings|preferences)"
+    r"|page not found|\b404\b|access denied|just a moment|checking your browser"
+    r"|^\W*(sign in|log in|apply now|click here|undefined|null|n/?a|error)\W*$",
+    re.IGNORECASE,
+)
+# Same patterns as a PostgreSQL regex (\y is a word boundary there; \b is not).
+JUNK_DESCRIPTION_SQL = (
+    r"^\W*(loading|please wait)\W*$|^\W*loading (job|jobs|content|page|details|data|position)"
+    r"|enable javascript|javascript is (required|disabled)"
+    r"|enable cookies|we use cookies|cookies? (policy|settings|preferences)"
+    r"|page not found|\y404\y|access denied|just a moment|checking your browser"
+    r"|^\W*(sign in|log in|apply now|click here|undefined|null|n/?a|error)\W*$"
+)
+
+
+def is_junk_description(text: Optional[str]) -> bool:
+    """True for empty text, or short text that is a placeholder rather than a
+    description. Text of MIN_DESCRIPTION_CHARS or more is never junk here."""
+    t = (text or "").strip()
+    if not t:
+        return True
+    if len(t) >= MIN_DESCRIPTION_CHARS:
+        return False
+    return bool(JUNK_DESCRIPTION_RE.search(t))
+
+
+def _keep_short(failure: "FetchResult", *candidates: tuple[str, str]) -> "FetchResult":
+    """At a too-short ending: the longest non-junk short text among
+    (source, text) candidates, as a success with a "_short" source; else the
+    failure unchanged."""
+    best = None
+    for source, text in candidates:
+        t = (text or "").strip()
+        if t and not is_junk_description(t) and (best is None or len(t) > len(best[1])):
+            best = (source, t)
+    if best is None:
+        return failure
+    return FetchResult(True, text=best[1], source=f"{best[0]}_short")
 PAGE_TIMEOUT = 20
 RENDER_TIMEOUT_MS = 25_000
 
@@ -239,17 +292,22 @@ async def fetch_description(apply_url: str, renderer: Optional[Renderer]) -> Fet
     rate-limited / erroring API (transient) is reported as is, so the site
     isn't hit twice."""
     api = await asyncio.to_thread(fetch_via_api, apply_url)
+    # Short text the platform API returned, kept in case nothing longer turns up.
+    api_short = (api.source, api.text) if api is not None and api.error == "too_short" else ("", "")
     if ats_api.is_anchor_url(apply_url):
         # A "#job-<id>" link points at the listing page, so the page fetch
         # can't help: the platform handler's answer is final.
-        return api if api is not None else FetchResult(False, source="api", error="no_handler")
+        if api is None:
+            return FetchResult(False, source="api", error="no_handler")
+        return _keep_short(api, api_short) if not api.ok else api
     if api is not None and (api.ok or api.transient):
         return api
 
     html, fail = await asyncio.to_thread(fetch_page_html, apply_url)
-    if fail is not None and (fail.error.startswith("not_html") or fail.error in ("http_404", "http_410")
-                             or renderer is None):
-        return fail
+    if fail is not None and fail.error in ("http_404", "http_410"):
+        return fail                     # the job is gone; don't keep the API's short text
+    if fail is not None and (fail.error.startswith("not_html") or renderer is None):
+        return _keep_short(fail, api_short)
     text = extract_description(html) if html else ""
     if len(text) >= MIN_DESCRIPTION_CHARS and (len(jobposting_description(html)) >= MIN_DESCRIPTION_CHARS
                                                or not looks_like_js_shell(html)):
@@ -259,17 +317,22 @@ async def fetch_description(apply_url: str, renderer: Optional[Renderer]) -> Fet
     if renderer is None:
         if len(text) >= MIN_DESCRIPTION_CHARS:
             return FetchResult(True, text=text, source="page")
-        return FetchResult(False, text=text, source="page", error="too_short")
+        return _keep_short(FetchResult(False, text=text, source="page", error="too_short"),
+                           api_short, ("page", text))
     rendered, err = await renderer.render(apply_url)
     if rendered is None:
         if fail is not None:
-            return fail
-        return FetchResult(False, source="page_rendered", error=err or "render_failed",
-                           transient=err == "no_browser")
+            return _keep_short(fail, api_short)
+        if err == "no_browser":
+            # Not the link's fault: report it (transient) rather than settle
+            # for short plain text a working browser might have improved on.
+            return FetchResult(False, source="page_rendered", error=err, transient=True)
+        return _keep_short(FetchResult(False, source="page_rendered", error=err or "render_failed"),
+                           api_short, ("page", text))
     rtext = extract_description(rendered)
     if len(rtext) >= MIN_DESCRIPTION_CHARS:
         return FetchResult(True, text=rtext, source="page_rendered")
     if len(text) >= MIN_DESCRIPTION_CHARS:          # rendering didn't help; keep the plain text
         return FetchResult(True, text=text, source="page")
-    text = rtext
-    return FetchResult(False, text=text, source="page_rendered", error="too_short")
+    return _keep_short(FetchResult(False, text=rtext, source="page_rendered", error="too_short"),
+                       api_short, ("page", text), ("page_rendered", rtext))

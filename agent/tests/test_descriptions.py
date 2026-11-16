@@ -174,13 +174,15 @@ JS_SHELL_PAGE = f"""<html><body><nav>{'Home About Careers Contact Investors News
 <script>setTimeout(() => {{ document.getElementById('app').innerHTML =
   '<div class="job-description"><p>{LONG}</p></div>'; }}, 200);</script></body></html>"""
 STATIC_PAGE = f"""<html><body><main><h1>Plant Engineer</h1><p>{LONG}</p></main></body></html>"""
+SHORT_PAGE = """<html><body><main><h1>Cashier</h1><p>Part-time, weekends.</p></main></body></html>"""
 
 
 @pytest.fixture(scope="module")
 def local_site():
     class H(BaseHTTPRequestHandler):
         def do_GET(self):
-            body = {"/js-job": JS_PAGE, "/static-job": STATIC_PAGE, "/js-shell": JS_SHELL_PAGE}.get(self.path)
+            body = {"/js-job": JS_PAGE, "/static-job": STATIC_PAGE, "/js-shell": JS_SHELL_PAGE,
+                    "/short-job": SHORT_PAGE}.get(self.path)
             self.send_response(200 if body else 404)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -199,6 +201,16 @@ def local_site():
 def test_static_page_needs_no_browser(local_site):
     res = asyncio.run(DF.fetch_description(local_site + "/static-job", None))
     assert res.ok and res.source == "page" and res.text.startswith("Plant Engineer")
+
+
+def test_short_real_description_is_kept(local_site):
+    res = asyncio.run(DF.fetch_description(local_site + "/short-job", None))
+    assert res.ok and res.source == "page_short" and res.text == "Cashier Part-time, weekends."
+
+
+def test_loading_placeholder_is_not_kept(local_site):
+    res = asyncio.run(DF.fetch_description(local_site + "/js-job", None))
+    assert not res.ok and res.error == "too_short"
 
 
 def test_js_page_is_rendered_in_headless_browser(local_site):
@@ -476,3 +488,51 @@ def test_dover_server_error_is_transient():
     with mock.patch.object(ats_api.requests, "get", return_value=_Resp({}, status=502)):
         res = asyncio.run(DF.fetch_description(DOVER_URL, None))
     assert not res.ok and res.transient and res.source == "dover"
+
+
+# ── Short descriptions (2026-11-15) ──────────────────────────────────────────
+
+@pytest.mark.parametrize("text", [
+    "", "   ", "Loading…", "Loading...", "loading", "Please wait", "Loading job details...", "Please enable JavaScript to view this job.",
+    "JavaScript is required", "We use cookies to improve your experience", "Cookie settings",
+    "Page not found", "Error 404", "Access denied", "Just a moment...", "Checking your browser",
+    "Sign in", "Apply now", "Click here", "undefined", "null", "N/A",
+])
+def test_is_junk_description_true(text):
+    assert DF.is_junk_description(text)
+
+
+@pytest.mark.parametrize("text", [
+    "RN", "Cashier. Part-time, weekends.", "Registered Nurse - ICU nights", "Sign in bonus $5,000 for RNs",
+    "Error-free data entry clerk", "Apply now for our warehouse team in Dallas, TX - shifts available",
+    "Loading dock supervisor", LONG,
+])
+def test_is_junk_description_false(text):
+    assert not DF.is_junk_description(text)
+
+
+def test_junk_sql_pattern_matches_python_pattern():
+    # PostgreSQL's \y is Python's \b; otherwise the two must be identical.
+    assert DF.JUNK_DESCRIPTION_SQL == DF.JUNK_DESCRIPTION_RE.pattern.replace(r"\b", r"\y")
+
+
+class _PdfResp:
+    status_code = 200
+    text = "%PDF-1.7"
+    headers = {"Content-Type": "application/pdf"}
+
+
+def test_api_short_text_kept_when_page_is_not_html():
+    with mock.patch.object(DF.ats_api, "detail_for_url", return_value=("oracle", "Short real role")), \
+         mock.patch.object(DF.requests, "get", return_value=_PdfResp()):
+        res = asyncio.run(DF.fetch_description(
+            "https://x.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/1", None))
+    assert res.ok and res.source == "oracle_short" and res.text == "Short real role"
+
+
+def test_api_short_text_dropped_when_page_is_gone():
+    with mock.patch.object(DF.ats_api, "detail_for_url", return_value=("oracle", "Short real role")), \
+         mock.patch.object(DF.requests, "get", return_value=_Resp({}, status=404)):
+        res = asyncio.run(DF.fetch_description(
+            "https://x.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/1", None))
+    assert not res.ok and res.error == "http_404"

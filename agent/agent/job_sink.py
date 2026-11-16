@@ -79,12 +79,8 @@ class PostgresJobSink(JobSink):
       - INSERT ... ON CONFLICT (company_id, source_url) DO UPDATE:
         re-scraping the same job updates it in place rather than
         duplicating it.
-      - Jobs previously active for a company but NOT present in this
-        run's fresh scrape get is_active=False (closed) rather than
-        deleted — a company whose scrape returned 0 jobs (e.g. site
-        down) leaves its existing jobs untouched, since "0 jobs found"
-        is ambiguous with "scrape failed" and we'd rather not mass-close
-        real listings on a transient failure.
+      - Jobs missing from a run's scrape are left as they are: the
+        sink never marks jobs inactive (closeout removed 2026-11-16).
       - `--limit` runs only touch companies actually in that run's
         batch; every other company's jobs are left alone.
     """
@@ -106,7 +102,6 @@ class PostgresJobSink(JobSink):
             name_to_id = {name: cid for cid, name in cur.fetchall()}
 
             skipped_unknown_company = 0
-            seen_urls_by_company: dict[int, set[str]] = {}
 
             for job in jobs:
                 company_id = name_to_id.get(job["company_name"])
@@ -148,20 +143,10 @@ class PostgresJobSink(JobSink):
                         job.get("scraped_at") or None,
                     ),
                 )
-                seen_urls_by_company.setdefault(company_id, set()).add(source_url)
 
-            for company_id, urls in seen_urls_by_company.items():
-                cur.execute(
-                    """
-                    UPDATE jobs
-                    SET is_active = FALSE
-                    WHERE company_id = %s
-                      AND is_active = TRUE
-                      AND source_url != ALL(%s)
-                    """,
-                    (company_id, list(urls)),
-                )
-
+            # No closeout: jobs missing from this scrape are NOT marked
+            # inactive any more (removed 2026-11-16) -- a missed scrape
+            # shouldn't hide real listings.
             self.connection.commit()
 
             if skipped_unknown_company:
@@ -209,24 +194,9 @@ class StagingJobSink(JobSink):
     run_ingestion_db.py — and passed into the constructor), so the
     whole run can be queried, cleaned, and promoted as a unit.
 
-    Preserves the one piece of PostgresJobSink's behavior that simply
-    redirecting inserts to jobs_staging would otherwise silently lose:
-    closing out (is_active = FALSE) jobs that disappeared from a
-    company's listings. That can't wait for review/promote — a posting
-    that's genuinely gone from the company's careers page shouldn't
-    stay "active" in search results just because nobody's reviewed
-    this batch yet, and staging review is about *scrape data quality*
-    (junk titles, dupes, thin content), not about whether a posting
-    still exists. So StagingJobSink runs the exact same closeout
-    PostgresJobSink did, directly against `jobs`, based on which
-    source_urls were actually seen this run — regardless of what
-    review_status those jobs_staging rows land in, and regardless of
-    whether/when the batch ever gets promoted.
-
-    Like PostgresJobSink, a company whose scrape returned 0 jobs this
-    run is left out of closeout entirely (no seen_urls_by_company
-    entry for it), so a transient scrape failure never mass-closes a
-    company's real listings.
+    Jobs missing from this run's scrape are left alone: StagingJobSink
+    no longer closes them out (is_active = FALSE) in `jobs` (removed
+    2026-11-16) -- a missed or partial scrape was hiding real listings.
 
     No ON CONFLICT here, unlike PostgresJobSink — jobs_staging accumulates
     one row per scraped listing per run rather than deduping across runs;
@@ -252,7 +222,6 @@ class StagingJobSink(JobSink):
             name_to_id = {name: cid for cid, name in cur.fetchall()}
 
             skipped_unknown_company = 0
-            seen_urls_by_company: dict[int, set[str]] = {}
 
             for job in jobs:
                 company_id = name_to_id.get(job["company_name"])
@@ -287,25 +256,9 @@ class StagingJobSink(JobSink):
                         self.batch_id,
                     ),
                 )
-                # Seen this run regardless of what review status it lands
-                # on below — closeout cares about presence on the
-                # company's careers page, not scrape data quality.
-                seen_urls_by_company.setdefault(company_id, set()).add(source_url)
 
-            # Same closeout PostgresJobSink did, run directly against the
-            # live `jobs` table — doesn't wait on staging review/promote.
-            for company_id, urls in seen_urls_by_company.items():
-                cur.execute(
-                    """
-                    UPDATE jobs
-                    SET is_active = FALSE
-                    WHERE company_id = %s
-                      AND is_active = TRUE
-                      AND source_url != ALL(%s)
-                    """,
-                    (company_id, list(urls)),
-                )
-
+            # No closeout: jobs missing from this scrape are NOT marked
+            # inactive in `jobs` any more (removed 2026-11-16).
             self.connection.commit()
 
             if skipped_unknown_company:
