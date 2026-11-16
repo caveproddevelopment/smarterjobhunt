@@ -15,9 +15,8 @@ async_ingestion_orchestrator.py's module docstring for why.
 jobs_staging is NOT cleared before a run by default (changed 2026-09-10
 — it used to be, unconditionally). Rows accumulate across runs until
 you explicitly wipe it with --clear-staging, or promote what you want
-to keep via /api/admin/staging/promote. Jobs previously active for a
-company but not seen in this run still get closed out immediately
-(is_active=FALSE) — see StagingJobSink's docstring — but new/updated
+to keep via /api/admin/staging/promote. Jobs not seen in a run are no longer closed
+out (is_active stays as it was, changed 2026-11-16); new/updated
 listings only reach the live `jobs` table (and the backend API /
 frontend search) once a batch is cleaned and promoted.
 
