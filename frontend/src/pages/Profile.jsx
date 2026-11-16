@@ -252,6 +252,10 @@ export default function Profile() {
 
   const isRazorpay = user?.payment_provider === 'razorpay'
 
+  const hasOldSubscription =
+    user?.plan === 'pro' &&
+    !['canceled', 'incomplete', 'incomplete_expired'].includes(user?.subscription_status)
+
   async function handleManageBilling() {
     setBillingError(null)
     if (isRazorpay) {
@@ -320,7 +324,7 @@ export default function Profile() {
 
           <h1 className="mt-4 font-display text-2xl font-semibold text-ink">Your profile</h1>
           <p className="mt-2 text-sm text-ink-soft">
-            Manage your account details, password, and plan.
+            Manage your account details and password.
           </p>
 
           <PlanStatusBox user={user} />
@@ -503,38 +507,25 @@ export default function Profile() {
             )}
           </section>
 
-          {/* Billing */}
+          {/* Billing -- JobBeggar is free. Only people still on an old paid
+              subscription see a way to manage / cancel it. */}
           <section className="mt-8 border border-line p-6">
             <h2 className="font-display text-lg font-semibold text-ink">Billing</h2>
 
-            {checkoutStatus === 'success' && (
-              <p className="mt-4 rounded-lg border border-line bg-mist px-3 py-2 text-sm text-moss">
-                Subscription confirmed — thanks! This may take a few seconds to update below.
-              </p>
-            )}
-            {checkoutStatus === 'cancelled' && (
-              <p className="mt-4 rounded-lg border border-line bg-mist px-3 py-2 text-sm text-ink-soft">
-                Checkout cancelled — you weren't charged.
-              </p>
-            )}
             {billingError && <p className="mt-4 text-sm text-ember">{billingError}</p>}
 
             <div className="mt-4 flex items-center justify-between gap-4 rounded-lg bg-mist px-4 py-3">
               <div>
-                <p className="text-sm font-semibold text-ink">
-                  {user.plan === 'pro' ? 'Weekly plan' : 'No active subscription'}
-                </p>
+                <p className="text-sm font-semibold text-ink">JobBeggar is free</p>
                 <p className="text-xs text-ink-soft">
-                  {user.plan === 'pro'
-                    ? user.current_period_end
-                      ? user.cancel_at_period_end
-                        ? `Cancelled — access until ${new Date(user.current_period_end).toLocaleDateString()}.`
-                        : `Renews ${new Date(user.current_period_end).toLocaleDateString()}.`
-                      : 'You have full access to all features.'
-                    : 'Start your free week to access job listings and full job details.'}
+                  {hasOldSubscription
+                    ? user.cancel_at_period_end
+                      ? 'Your old subscription is cancelled — you won\'t be charged again.'
+                      : 'You still have an old paid subscription. Cancel it — you no longer need it.'
+                    : 'You have full access to all features. No payment needed.'}
                 </p>
               </div>
-              {user.plan === 'pro' && !(isRazorpay && user.cancel_at_period_end) && (
+              {hasOldSubscription && !user.cancel_at_period_end && (
                 <button
                   type="button"
                   onClick={handleManageBilling}
@@ -547,26 +538,10 @@ export default function Profile() {
                       : 'Cancel subscription'
                     : billingLoading
                       ? 'Opening…'
-                      : 'Manage subscription'}
+                      : 'Cancel subscription'}
                 </button>
               )}
             </div>
-
-            {user.plan !== 'pro' && (
-              <div className="mt-4">
-                <button
-                  type="button"
-                  onClick={() => handleSubscribe('week')}
-                  disabled={billingLoading}
-                  className="w-full rounded-lg border border-line px-4 py-3 text-left transition-colors hover:bg-mist disabled:opacity-60 sm:w-auto"
-                >
-                  <p className="text-sm font-semibold text-ink">Weekly — $1.99</p>
-                  <p className="text-xs text-ink-soft">
-                    {billingLoading ? 'Redirecting…' : 'Billed every week after a 7-day free trial, cancel anytime.'}
-                  </p>
-                </button>
-              </div>
-            )}
           </section>
 
           {/* Logout */}
