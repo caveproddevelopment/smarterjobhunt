@@ -198,7 +198,7 @@ export default function Landing() {
 
                 <div
                   ref={videoBoxRef}
-                  className="relative aspect-[5/4] overflow-hidden rounded-2xl border border-line bg-ink"
+                  className="hidden relative aspect-[5/4] overflow-hidden rounded-2xl border border-line bg-ink"
                 >
                   {isPlaying ? (
                     <video
