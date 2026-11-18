@@ -20,6 +20,7 @@ export const COMPANY_TYPES = [
   { value: 'indianmajor', label: 'Major Indian Companies' },
   { value: 'midsize', label: 'Mid-Sized US' },
   { value: 'healthcare', label: 'Healthcare Industry' },
+  { value: 'creative_jobs', label: 'Creative Jobs' },
 ]
 
 export const DEFAULT_COMPANY_TYPE = 'funded'

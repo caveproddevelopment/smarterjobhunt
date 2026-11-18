@@ -35,9 +35,14 @@ CREATE TABLE IF NOT EXISTS companies (
 -- allows 'both', since that column also has to represent "no restriction"
 -- as a bookmarkable/filterable value, which a company itself can't be.)
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS company_type TEXT NOT NULL DEFAULT 'funded'
-    CHECK (company_type IN ('funded', 'fortune500', 'indianmajor', 'midmarket', 'healthcare'));
+    CHECK (company_type IN ('funded', 'fortune500', 'indianmajor', 'midmarket', 'healthcare', 'creative_jobs'));
 
 CREATE INDEX IF NOT EXISTS idx_companies_company_type ON companies (company_type);
+
+-- Extra databases a company also belongs to besides company_type (added
+-- 2026-11-18), e.g. Adobe is fortune500 and also creative_jobs. The job
+-- filters and the scraper's --company-type match either column.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS extra_company_types TEXT[] NOT NULL DEFAULT '{}';
 
 -- ---------------------------------------------------------------------------
 -- jobs: one row per posting; this is what the scraping agent will populate
@@ -321,7 +326,7 @@ ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS view_type TEXT NOT NULL DEFA
 -- those bookmarks restores the exact same Company Database dropdown value
 -- it was saved under, not just whatever the sidebar currently has selected.
 ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS company_type TEXT NOT NULL DEFAULT 'both'
-    CHECK (company_type IN ('both', 'funded', 'fortune500', 'indianmajor', 'midsize', 'healthcare'));
+    CHECK (company_type IN ('both', 'funded', 'fortune500', 'indianmajor', 'midsize', 'healthcare', 'creative_jobs'));
 -- 'variant': which "Also matching" pill was drilled into. job_title above
 -- still holds the ORIGINAL search title this variant was found under, so
 -- "Return to Full List" after re-applying the bookmark lands back on that

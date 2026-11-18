@@ -17,6 +17,7 @@ const badges = [
   { src: '/images/badges/HealthCare.png', alt: 'Health care companies', type: 'healthcare' },
   { src: '/images/badges/majorIndian.png', alt: 'Major Indian companies', type: 'indianmajor' },
   { src: '/images/badges/midsizedUS.png', alt: 'Mid-sized US companies', type: 'midsize' },
+  { src: '/images/badges/CreativeJobs.svg', alt: 'Creative jobs companies', type: 'creative_jobs' },
 ]
 
 const reviews = [

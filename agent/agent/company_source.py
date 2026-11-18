@@ -156,7 +156,11 @@ class PostgresCompanySource(CompanySource):
             clauses.append("COALESCE(listing_status, 'active') = ANY(%s)")
             params.append(list(self.listing_statuses))
         if self.company_type:
-            clauses.append("company_type = ANY(%s)")
+            # A company matches its main company_type or any of its
+            # extra_company_types (e.g. a Fortune 500 company that is also
+            # in creative_jobs). extra_company_types added 2026-11-18.
+            clauses.append("(company_type = ANY(%s) OR extra_company_types && %s::text[])")
+            params.append(company_type_db_values(self.company_type))
             params.append(company_type_db_values(self.company_type))
         if self.names:
             clauses.append("name = ANY(%s)")
@@ -179,9 +183,10 @@ class PostgresCompanySource(CompanySource):
             cur = self.connection.cursor()
             try:
                 cur.execute("SELECT COUNT(*) FROM companies WHERE NOT (COALESCE(listing_status, 'active') = ANY(%s))"
-                            + (" AND company_type = ANY(%s)" if self.company_type else ""),
+                            + (" AND (company_type = ANY(%s) OR extra_company_types && %s::text[])"
+                               if self.company_type else ""),
                             tuple([list(self.listing_statuses)]
-                                  + ([company_type_db_values(self.company_type)] if self.company_type else [])))
+                                  + ([company_type_db_values(self.company_type)] * 2 if self.company_type else [])))
                 self.skipped_by_status = cur.fetchone()[0]
             except Exception:
                 self.connection.rollback()
@@ -207,7 +212,7 @@ class PostgresCompanySource(CompanySource):
 # agent's CLI used to offer 'midsize', which matches no row and fails the
 # CHECK on seeding. Accept both, store/query 'midmarket'.
 _COMPANY_TYPE_ALIASES = {"midsize": "midmarket"}
-COMPANY_TYPES = ("funded", "fortune500", "indianmajor", "midmarket", "healthcare")
+COMPANY_TYPES = ("funded", "fortune500", "indianmajor", "midmarket", "healthcare", "creative_jobs")
 
 
 def normalize_company_type(value: Optional[str]) -> Optional[str]:

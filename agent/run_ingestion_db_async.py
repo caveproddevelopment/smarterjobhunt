@@ -186,7 +186,7 @@ async def main():
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N companies (for smoke tests)")
     parser.add_argument(
         "--company-type",
-        choices=["funded", "fortune500", "indianmajor", "midmarket", "midsize", "healthcare"],
+        choices=["funded", "fortune500", "indianmajor", "midmarket", "midsize", "healthcare", "creative_jobs"],
         default=None,
         help="Only process companies tagged with this type (default: all)"
     )
