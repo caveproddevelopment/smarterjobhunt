@@ -21,7 +21,7 @@ bp = Blueprint("jobs", __name__, url_prefix="/api")
 # COMPANY_TYPES` checks below) rather than raising an error, so it's easy to
 # forget this one when adding a database -- the symptom is the new filter
 # quietly doing nothing instead of a visible failure.
-COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare"}
+COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare", "creative_jobs"}
 
 # Job lists are paged 20 at a time and no request can get more than that,
 # so the full listing can't be pulled (and exported) in one go.
@@ -483,9 +483,12 @@ def list_jobs():
     # Handle multiple company types - filter to only valid ones
     valid_company_types = [ct for ct in company_types if ct in COMPANY_TYPES]
     if valid_company_types:
+        # Main company_type, or any of extra_company_types (a company can be
+        # in more than one database, e.g. Adobe is Fortune 500 and creative_jobs).
         placeholders = ", ".join(["%s"] * len(valid_company_types))
-        where.append(f"c.company_type IN ({placeholders})")
+        where.append(f"(c.company_type IN ({placeholders}) OR c.extra_company_types && %s::text[])")
         params.extend(valid_company_types)
+        params.append(valid_company_types)
 
     # Remote dropdown in the sidebar (see _remote_filter).
     remote_sql, remote_params = _remote_filter(remote_mode)
@@ -668,9 +671,12 @@ def variant_counts():
     # Handle multiple company types - filter to only valid ones
     valid_company_types = [ct for ct in company_types if ct in COMPANY_TYPES]
     if valid_company_types:
+        # Main company_type, or any of extra_company_types (a company can be
+        # in more than one database, e.g. Adobe is Fortune 500 and creative_jobs).
         placeholders = ", ".join(["%s"] * len(valid_company_types))
-        where.append(f"c.company_type IN ({placeholders})")
+        where.append(f"(c.company_type IN ({placeholders}) OR c.extra_company_types && %s::text[])")
         params.extend(valid_company_types)
+        params.append(valid_company_types)
 
     # Same Remote dropdown as the listing, so a pill's count matches what
     # clicking it shows.
@@ -755,11 +761,14 @@ def company_type_counts():
     cur = get_cursor()
     cur.execute(
         """
-        SELECT c.company_type, count(*) AS job_count
+        SELECT t.company_type, count(*) AS job_count
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
+        CROSS JOIN LATERAL (
+            SELECT DISTINCT unnest(array_prepend(c.company_type, c.extra_company_types)) AS company_type
+        ) t
         WHERE j.is_active = true
-        GROUP BY c.company_type
+        GROUP BY t.company_type
         """
     )
     rows = cur.fetchall()
@@ -772,7 +781,10 @@ def company_type_counts():
         if row["company_type"] in counts:
             counts[row["company_type"]] = row["job_count"]
 
-    counts["all"] = sum(counts.values())
+    # Not sum(counts): a company in two databases (extra_company_types)
+    # appears in both rows above, so its jobs would be counted twice.
+    cur.execute("SELECT count(*) AS n FROM jobs WHERE is_active = true AND company_id IS NOT NULL")
+    counts["all"] = cur.fetchone()["n"]
     counts["both"] = counts["all"]
 
     return jsonify({"counts": counts})
