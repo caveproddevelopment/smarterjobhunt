@@ -14,7 +14,7 @@ VALID_STATUS_FILTERS = {"applied", "rejected", "neither"}
 # built from. Kept in sync BY HAND with COMPANY_TYPES in routes/jobs.py (see
 # the warning comment there) -- this is the third by-hand copy referenced by
 # that comment, alongside frontend/src/lib/companyTypes.js.
-VALID_COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare"}
+VALID_COMPANY_TYPES = {"funded", "fortune500", "indianmajor", "midsize", "healthcare", "creative_jobs"}
 
 # Distance slider bounds (same as the sidebar and routes/jobs.py).
 MIN_RADIUS_MILES = 0
